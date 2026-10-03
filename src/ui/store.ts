@@ -1,9 +1,12 @@
 // Estado de la aplicación: el documento (fuente de verdad) y los resultados del último recálculo.
-import { createMemo, createSignal } from 'solid-js';
+import { batch, createMemo, createSignal } from 'solid-js';
+import solverWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
 import * as ops from '../document/ops';
-import type { CadDocument, Feature, FeatureId } from '../document/types';
+import type { BasePlane, CadDocument, Feature, FeatureId, SketchData, SketchFeature } from '../document/types';
 import type { KernelClient } from '../kernel/client';
-import type { FeatureResult, MeshPayload } from '../kernel/protocol';
+import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
+import { SketchBuilder } from '../sketch/builders';
+import { initSolver } from '../sketch/solver';
 
 export interface RecomputeStats {
   totalMs: number;
@@ -14,18 +17,39 @@ export interface RecomputeStats {
 
 export type KernelState = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
-export function initialDocument(): CadDocument {
-  const doc = ops.emptyDocument();
-  return ops.addFeature(doc, ops.makeExtrude(doc));
+export interface SketchEditing {
+  featureId: FeatureId;
+  /** Si el sketch se creó al entrar: cancelar lo borra. */
+  isNew: boolean;
 }
 
-export function createCadStore(kernel: KernelClient, onMesh: (mesh: MeshPayload | null) => void) {
+/** Documento de ejemplo: rectángulo 40×30 totalmente definido, extruido 20 mm. */
+export function initialDocument(): CadDocument {
+  let doc = ops.emptyDocument();
+  const b = new SketchBuilder({ entities: [], constraints: [] });
+  const [bottom, right] = b.rectangle([0, 0], [40, 30]);
+  b.constrain({ type: 'coincident', a: 'p1', b: 'origin' });
+  b.constrain({ type: 'distance', a: bottom, value: 40 });
+  b.constrain({ type: 'distance', a: right, value: 30 });
+  const sketch = ops.makeSketch(doc, b.data);
+  doc = ops.addFeature(doc, sketch);
+  return ops.addFeature(doc, ops.makeExtrude(doc, sketch.id));
+}
+
+export interface StoreCallbacks {
+  onMesh: (mesh: MeshPayload | null) => void;
+  onSketches: (sketches: RecomputeResult['sketches']) => void;
+}
+
+export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) {
   const [doc, setDoc] = createSignal<CadDocument>(initialDocument());
   const [results, setResults] = createSignal<ReadonlyMap<FeatureId, FeatureResult>>(new Map());
   const [selectedId, setSelectedId] = createSignal<FeatureId | null>(null);
   const [kernelState, setKernelState] = createSignal<KernelState>({ state: 'loading' });
   const [computing, setComputing] = createSignal(false);
   const [stats, setStats] = createSignal<RecomputeStats | null>(null);
+  const [editing, setEditing] = createSignal<SketchEditing | null>(null);
+  const [notice, setNotice] = createSignal<string | null>(null);
 
   const selectedFeature = createMemo(() => {
     const id = selectedId();
@@ -54,7 +78,8 @@ export function createCadStore(kernel: KernelClient, onMesh: (mesh: MeshPayload 
             cached: evaluated.filter((f) => f.cached).length,
             errors: r.features.filter((f) => f.status === 'error').length,
           });
-          onMesh(r.mesh);
+          callbacks.onMesh(r.mesh);
+          callbacks.onSketches(r.sketches);
         } catch (err) {
           setKernelState({ state: 'error', message: (err as Error).message });
           return;
@@ -91,11 +116,15 @@ export function createCadStore(kernel: KernelClient, onMesh: (mesh: MeshPayload 
     kernelState,
     computing,
     stats,
+    editing,
+    notice,
+    setNotice,
     selectFeature: setSelectedId,
 
     async start() {
       try {
-        await kernel.init();
+        // El solver de sketch corre también en el hilo principal (edición interactiva).
+        await Promise.all([kernel.init(), initSolver(solverWasmUrl)]);
         setKernelState({ state: 'ready' });
         pending = doc();
         await pump();
@@ -104,10 +133,54 @@ export function createCadStore(kernel: KernelClient, onMesh: (mesh: MeshPayload 
       }
     },
 
-    addExtrude() {
-      const f = ops.makeExtrude(doc());
+    /** Crea un sketch vacío sobre un plano base y entra a editarlo. */
+    newSketch(plane: BasePlane) {
+      const f = ops.makeSketch(doc(), { plane: { kind: 'base', plane, offset: 0 } });
+      apply((d) => ops.addFeature(d, f));
+      batch(() => {
+        setSelectedId(f.id);
+        setEditing({ featureId: f.id, isNew: true });
+      });
+    },
+
+    editSketch(id: FeatureId) {
+      const f = ops.findFeature(doc(), id);
+      if (f?.type !== 'sketch') return;
+      batch(() => {
+        setSelectedId(id);
+        setEditing({ featureId: id, isNew: false });
+      });
+    },
+
+    finishSketch(data: SketchData) {
+      const e = editing();
+      if (!e) return;
+      apply((d) => ops.updateFeature<SketchFeature>(d, e.featureId, { entities: data.entities, constraints: data.constraints }));
+      setEditing(null);
+    },
+
+    cancelSketch() {
+      const e = editing();
+      if (!e) return;
+      if (e.isNew) {
+        apply((d) => ops.deleteFeature(d, e.featureId));
+        setSelectedId(null);
+      }
+      setEditing(null);
+    },
+
+    /**
+     * Extruye el sketch seleccionado, o si no hay uno seleccionado, el último sketch
+     * todavía sin usar. Devuelve un mensaje si no hay ninguno.
+     */
+    addExtrude(): string | null {
+      const sel = selectedFeature();
+      const sketch = sel?.type === 'sketch' ? sel : ops.unusedSketches(doc()).at(-1);
+      if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
+      const f = ops.makeExtrude(doc(), sketch.id);
       apply((d) => ops.addFeature(d, f));
       setSelectedId(f.id);
+      return null;
     },
 
     updateFeature<F extends Feature>(id: FeatureId, patch: Partial<Omit<F, 'id' | 'type'>>) {

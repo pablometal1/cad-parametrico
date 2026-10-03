@@ -23,6 +23,7 @@ export class Viewport {
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
   private readonly modelGroup = new THREE.Group();
+  private readonly sketchGroup = new THREE.Group();
   private readonly grid: THREE.GridHelper;
 
   private mesh: THREE.Mesh | null = null;
@@ -63,6 +64,7 @@ export class Viewport {
     this.scene.add(this.grid);
     this.scene.add(new THREE.AxesHelper(20));
     this.scene.add(this.modelGroup);
+    this.scene.add(this.sketchGroup);
 
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', this.onPointerDown);
@@ -117,6 +119,31 @@ export class Viewport {
     this.hovered = null;
     this.setSelection([]);
     this.repaintColors();
+  }
+
+  /** Curvas de sketches en 3D. Solo se muestran las de `visible`. */
+  setSketches(sketches: { id: string; segments: Float32Array; construction: Float32Array }[], visible: ReadonlySet<string>) {
+    for (const child of [...this.sketchGroup.children]) {
+      const l = child as THREE.LineSegments;
+      l.geometry.dispose();
+      (l.material as THREE.Material).dispose();
+      this.sketchGroup.remove(l);
+    }
+    for (const sk of sketches) {
+      if (!visible.has(sk.id)) continue;
+      for (const [positions, construction] of [[sk.segments, false], [sk.construction, true]] as const) {
+        if (positions.length === 0) continue;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mat = construction
+          ? new THREE.LineDashedMaterial({ color: 0x8a96a3, dashSize: 2, gapSize: 1.5 })
+          : new THREE.LineBasicMaterial({ color: 0xffc857 });
+        const lines = new THREE.LineSegments(g, mat);
+        if (construction) lines.computeLineDistances();
+        this.sketchGroup.add(lines);
+      }
+    }
+    this.needsRender = true;
   }
 
   /** Quita el modelo (documento vacío o sin sólido). */

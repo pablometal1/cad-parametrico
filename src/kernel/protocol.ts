@@ -36,6 +36,8 @@ export interface FeatureResult {
   status: FeatureStatus;
   /** Mensaje para el timeline cuando status = 'error'. */
   error?: string;
+  /** Información adicional (por ejemplo, grados de libertad de un sketch). */
+  info?: string;
   timeMs: number;
   /** true si se reutilizó el resultado del recálculo anterior. */
   cached: boolean;
@@ -45,6 +47,8 @@ export interface RecomputeResult {
   features: FeatureResult[];
   /** null si no hay sólido (documento vacío o todo suprimido/retrocedido). */
   mesh: MeshPayload | null;
+  /** Curvas de los sketches evaluados, en 3D (segmentos xyz consecutivos), para dibujarlas en el viewport. */
+  sketches: { id: string; segments: Float32Array; construction: Float32Array }[];
   totalMs: number;
 }
 

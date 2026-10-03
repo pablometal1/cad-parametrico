@@ -1,7 +1,7 @@
 // Operaciones puras sobre el documento. Nunca mutan: devuelven un documento nuevo.
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
-  type CadDocument, type ExtrudeFeature, type Feature, type FeatureId, type FeatureType,
+  type CadDocument, type ExtrudeFeature, type Feature, type FeatureId, type FeatureType, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -88,7 +88,7 @@ export function rollbackAfter(doc: CadDocument, id: FeatureId): CadDocument {
   return setRollback(doc, indexOrThrow(doc, id) + 1);
 }
 
-const TYPE_LABELS: Record<FeatureType, string> = { extrude: 'Extrusión' };
+const TYPE_LABELS: Record<FeatureType, string> = { sketch: 'Sketch', extrude: 'Extrusión' };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
 export function nextFeatureName(doc: CadDocument, type: FeatureType): string {
@@ -103,18 +103,48 @@ export function newFeatureId(): FeatureId {
   return 'f_' + crypto.randomUUID().replaceAll('-', '').slice(0, 12);
 }
 
-/** Extrusión con valores por defecto, lista para insertar. */
-export function makeExtrude(doc: CadDocument, overrides: Partial<Omit<ExtrudeFeature, 'type'>> = {}): ExtrudeFeature {
-  const hasSolid = doc.features.slice(0, activeCount(doc)).some((f) => !f.suppressed);
+/** Sketch vacío sobre un plano base. */
+export function makeSketch(doc: CadDocument, overrides: Partial<Omit<SketchFeature, 'type'>> = {}): SketchFeature {
+  return {
+    id: newFeatureId(),
+    type: 'sketch',
+    name: nextFeatureName(doc, 'sketch'),
+    suppressed: false,
+    plane: { kind: 'base', plane: 'XY', offset: 0 },
+    entities: [],
+    constraints: [],
+    ...overrides,
+  };
+}
+
+/** Extrusión de un sketch con valores por defecto, lista para insertar. */
+export function makeExtrude(
+  doc: CadDocument,
+  sketch: FeatureId,
+  overrides: Partial<Omit<ExtrudeFeature, 'type' | 'sketch'>> = {},
+): ExtrudeFeature {
+  const hasSolid = doc.features.slice(0, activeCount(doc)).some((f) => f.type === 'extrude' && !f.suppressed);
   return {
     id: newFeatureId(),
     type: 'extrude',
     name: nextFeatureName(doc, 'extrude'),
     suppressed: false,
-    profile: { kind: 'rectangle', plane: 'XY', offset: 0, center: [0, 0], width: 40, height: 30 },
+    sketch,
     distance: 20,
     direction: 'normal',
     operation: hasSolid ? 'join' : 'new',
     ...overrides,
   };
+}
+
+/** Features que usan a la indicada (por ahora: extrusiones que usan un sketch). */
+export function dependents(doc: CadDocument, id: FeatureId): Feature[] {
+  return doc.features.filter((f) => f.type === 'extrude' && f.sketch === id);
+}
+
+/** Sketches activos que todavía no usa ninguna feature activa. */
+export function unusedSketches(doc: CadDocument): SketchFeature[] {
+  const active = doc.features.slice(0, activeCount(doc)).filter((f) => !f.suppressed);
+  const used = new Set(active.flatMap((f) => (f.type === 'extrude' ? [f.sketch] : [])));
+  return active.filter((f): f is SketchFeature => f.type === 'sketch' && !used.has(f.id));
 }

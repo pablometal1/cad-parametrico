@@ -2,12 +2,12 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { makeBaseBox } from 'replicad';
 import { initOCCT } from '../src/kernel/occt';
 import { KernelService } from '../src/kernel/service';
-import { addFeature, emptyDocument, makeExtrude } from '../src/document/ops';
+import { emptyDocument } from '../src/document/ops';
+import { build, rect } from './helpers';
 
 /** Documento con una caja 40×30×20 centrada en XY, apoyada en Z=0. */
 function boxDoc(w = 40, d = 30, h = 20) {
-  const doc = emptyDocument();
-  return addFeature(doc, makeExtrude(doc, { profile: { kind: 'rectangle', plane: 'XY', offset: 0, center: [0, 0], width: w, height: d }, distance: h }));
+  return build({ profile: rect(w, d), distance: h });
 }
 
 function box(k: KernelService, w?: number, d?: number, h?: number) {
@@ -84,9 +84,11 @@ describe('KernelService', () => {
     const empty = k.recompute(emptyDocument());
     expect(empty.mesh).toBeNull();
     expect(empty.features).toEqual([]);
-    const bad = k.recompute(boxDoc(0, 10, 10));
+    const bad = k.recompute(boxDoc(10, 10, 0));
     expect(bad.mesh).toBeNull();
-    expect(bad.features[0].status).toBe('error');
+    expect(bad.features[1].status).toBe('error');
+    expect(bad.sketches).toHaveLength(1);
+    expect(bad.sketches[0].segments.length).toBe(4 * 2 * 3); // 4 líneas = 4 segmentos xyz
     box(k, 10, 10, 10);
     expect(() => k.faceInfo(6)).toThrow(/fuera de rango/);
     k.dispose();

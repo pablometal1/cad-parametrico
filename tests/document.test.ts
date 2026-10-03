@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import {
-  activeCount, addFeature, deleteFeature, emptyDocument, isRolledBack, makeExtrude,
-  nextFeatureName, rollbackAfter, setRollback, setSuppressed, updateFeature,
+  activeCount, addFeature, deleteFeature, dependents, emptyDocument, isRolledBack, makeExtrude, makeSketch,
+  nextFeatureName, rollbackAfter, setRollback, setSuppressed, unusedSketches, updateFeature,
 } from '../src/document/ops';
 import { DocumentFormatError, parseDocument, serializeDocument } from '../src/document/serialize';
-import type { CadDocument, ExtrudeFeature } from '../src/document/types';
+import type { CadDocument, ExtrudeFeature, SketchFeature } from '../src/document/types';
+import { profileData, rect, circle } from './helpers';
 
+/** Documento con un sketch inicial y n extrusiones que lo usan. */
 function docWith(n: number): CadDocument {
   let doc = emptyDocument();
-  for (let i = 0; i < n; i++) doc = addFeature(doc, makeExtrude(doc));
-  return doc;
+  const sketch = makeSketch(doc, profileData(rect(40, 30)));
+  doc = addFeature(doc, sketch);
+  for (let i = 0; i < n; i++) doc = addFeature(doc, makeExtrude(doc, sketch.id));
+  return { ...doc, features: doc.features.slice(1) };
 }
 const ids = (d: CadDocument) => d.features.map((f) => f.id);
 const names = (d: CadDocument) => d.features.map((f) => f.name);
@@ -30,7 +34,7 @@ describe('operaciones del documento', () => {
     updateFeature<ExtrudeFeature>(doc, doc.features[0].id, { distance: 99 });
     deleteFeature(doc, doc.features[1].id);
     setRollback(doc, 1);
-    addFeature(doc, makeExtrude(doc));
+    addFeature(doc, makeExtrude(doc, 'x'));
     expect(JSON.stringify(doc)).toBe(snapshot);
   });
 
@@ -48,7 +52,7 @@ describe('operaciones del documento', () => {
     const doc = docWith(1);
     const f = doc.features[0] as ExtrudeFeature;
     expect(updateFeature<ExtrudeFeature>(doc, f.id, { distance: f.distance })).toBe(doc);
-    expect(updateFeature<ExtrudeFeature>(doc, f.id, { profile: { ...f.profile } })).toBe(doc);
+    expect(updateFeature<ExtrudeFeature>(doc, f.id, { direction: f.direction })).toBe(doc);
     expect(updateFeature<ExtrudeFeature>(doc, f.id, { distance: f.distance + 1 })).not.toBe(doc);
   });
 
@@ -80,7 +84,7 @@ describe('operaciones del documento', () => {
   it('con retroceso, las features nuevas se insertan en el marcador y lo hacen avanzar', () => {
     const doc = docWith(3);
     const r = setRollback(doc, 1);
-    const f = makeExtrude(r);
+    const f = makeExtrude(r, 'x');
     const next = addFeature(r, f);
     expect(ids(next)).toEqual([doc.features[0].id, f.id, doc.features[1].id, doc.features[2].id]);
     expect(next.rollback).toBe(2);
@@ -102,14 +106,37 @@ describe('operaciones del documento', () => {
   });
 });
 
+describe('sketches y dependencias', () => {
+  it('dependents y unusedSketches', () => {
+    let doc = emptyDocument();
+    const s1 = makeSketch(doc);
+    doc = addFeature(doc, s1);
+    const s2 = makeSketch(doc);
+    doc = addFeature(doc, s2);
+    const e = makeExtrude(doc, s1.id);
+    doc = addFeature(doc, e);
+    expect(s2.name).toBe('Sketch2');
+    expect(dependents(doc, s1.id).map((f) => f.id)).toEqual([e.id]);
+    expect(unusedSketches(doc).map((f) => f.id)).toEqual([s2.id]);
+    expect(unusedSketches(setRollback(doc, 2)).map((f) => f.id)).toEqual([s1.id, s2.id]);
+  });
+});
+
 describe('serialización', () => {
   it('ida y vuelta conserva el documento', () => {
     let doc = docWith(3);
-    doc = updateFeature<ExtrudeFeature>(doc, doc.features[2].id, {
-      profile: { kind: 'circle', plane: 'XZ', offset: 2.5, center: [1, -3], radius: 4 },
-      operation: 'cut',
-      direction: 'symmetric',
+    const sk = makeSketch(doc, { plane: { kind: 'base', plane: 'XZ', offset: 2.5 }, ...profileData(rect(10, 5), circle(4, [1, -3])) });
+    doc = addFeature(doc, sk);
+    doc = updateFeature<SketchFeature>(doc, sk.id, {
+      constraints: [
+        ...sk.constraints,
+        { id: 'd1', type: 'distance', a: 'l1', value: 10 },
+        { id: 'd2', type: 'distance', a: 'p1', b: 'origin', value: 3 },
+        { id: 'r1', type: 'radius', curve: 'c1', value: 4 },
+        { id: 'a1', type: 'angle', a: 'l1', b: 'axisX', value: 0 },
+      ],
     });
+    doc = updateFeature<ExtrudeFeature>(doc, doc.features[2].id, { sketch: sk.id, operation: 'cut', direction: 'symmetric' });
     doc = setSuppressed(doc, doc.features[1].id, true);
     doc = setRollback(doc, 2);
     expect(parseDocument(serializeDocument(doc))).toEqual(doc);
@@ -126,11 +153,28 @@ describe('serialización', () => {
     expect(bad((d) => (d.format = 'otro'))).toThrow(/\$\.format/);
     expect(bad((d) => (d.version = 2))).toThrow(/versión no soportada/);
     expect(bad((d) => (d.features[0].distance = 'diez'))).toThrow(/\$\.features\[0\]\.distance/);
-    expect(bad((d) => (d.features[0].profile.kind = 'hexágono'))).toThrow(/perfil desconocido/);
+    expect(bad((d) => (d.features[0].sketch = ''))).toThrow(/sketch/);
     expect(bad((d) => (d.features[0].type = 'loft'))).toThrow(/feature desconocido/);
     expect(bad((d) => (d.features[0].operation = 'intersect'))).toThrow(/operation/);
     expect(bad((d) => (d.rollback = 5))).toThrow(/rollback/);
     expect(bad((d) => d.features.push(structuredClone(d.features[0])))).toThrow(/duplicado/);
+  });
+
+  it('valida las referencias internas de un sketch', () => {
+    let doc = emptyDocument();
+    doc = addFeature(doc, makeSketch(doc, profileData(rect(10, 10))));
+    const good = JSON.parse(serializeDocument(doc));
+    const bad = (mutate: (d: any) => void) => {
+      const d = structuredClone(good);
+      mutate(d);
+      return () => parseDocument(JSON.stringify(d));
+    };
+    expect(() => parseDocument(JSON.stringify(good))).not.toThrow();
+    expect(bad((d) => (d.features[0].entities[4].p1 = 'nada'))).toThrow(/punto inexistente/);
+    expect(bad((d) => (d.features[0].entities[0].id = 'origin'))).toThrow(/reservado/);
+    expect(bad((d) => (d.features[0].constraints[0].line = 'l99'))).toThrow(/entidad inexistente/);
+    expect(bad((d) => (d.features[0].constraints[0].type = 'simétrica'))).toThrow(/restricción desconocido/);
+    expect(bad((d) => (d.features[0].plane.plane = 'AB'))).toThrow(/plane/);
   });
 
   it('acepta parámetros geométricamente imposibles (son errores del modelo, no del archivo)', () => {

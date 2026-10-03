@@ -14,6 +14,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@salusoft89/planegcs": "^1.2.0",
     "replicad": "^1.1.0",
     "replicad-opencascadejs": "^1.1.0",
     "solid-js": "^1.9.15",

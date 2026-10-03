@@ -2,26 +2,34 @@
 import { cast, getOC, makeCompound, type AnyShape } from 'replicad';
 import type { ExtrudeFeature } from '../../document/types';
 import { FeatureError, isValidShape } from '../occtUtils';
-import { buildProfileFace } from './profile';
+import { buildSketchFaces, type EvaluatedSketch } from './sketch';
 
 /**
- * Ejecuta la extrusión. No modifica ni libera `input`; devuelve un sólido nuevo propiedad del llamador.
+ * Ejecuta la extrusión de todos los perfiles cerrados del sketch.
+ * No modifica ni libera `input`; devuelve un sólido nuevo propiedad del llamador.
  */
-export function runExtrude(feature: ExtrudeFeature, input: AnyShape | null): AnyShape {
+export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, input: AnyShape | null): AnyShape {
   const oc = getOC();
   const d = feature.distance;
   if (!(d > 0)) throw new FeatureError(`La distancia debe ser mayor que 0 (es ${d})`);
   if (feature.operation !== 'new' && !input) {
     throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
   }
+  if (sketch.regions.length === 0) {
+    throw new FeatureError(
+      sketch.openChains > 0 ? 'El sketch no tiene perfiles cerrados (hay contornos abiertos)' : 'El sketch no tiene perfiles cerrados',
+    );
+  }
 
   const start = feature.direction === 'symmetric' ? -d / 2 : 0;
-  const { face, normal } = buildProfileFace(feature.profile, start);
+  const faces = buildSketchFaces(sketch, start);
+  const n = sketch.frame.normal;
   const sign = feature.direction === 'reversed' ? -1 : 1;
-  const vec = new oc.gp_Vec(normal.x * d * sign, normal.y * d * sign, normal.z * d * sign);
-  normal.delete();
+  const vec = new oc.gp_Vec(n[0] * d * sign, n[1] * d * sign, n[2] * d * sign);
 
-  const prism = new oc.BRepPrimAPI_MakePrism(face.wrapped, vec, false, true);
+  // Varias regiones se extruyen juntas como un compound de caras.
+  const profile = faces.length === 1 ? faces[0] : makeCompound(faces);
+  const prism = new oc.BRepPrimAPI_MakePrism(profile.wrapped, vec, false, true);
   let tool: AnyShape;
   try {
     if (!prism.IsDone()) throw new FeatureError('No se pudo extruir el perfil');
@@ -29,7 +37,7 @@ export function runExtrude(feature: ExtrudeFeature, input: AnyShape | null): Any
   } finally {
     prism.delete();
     vec.delete();
-    face.delete();
+    profile.delete();
   }
 
   if (feature.operation === 'new') {

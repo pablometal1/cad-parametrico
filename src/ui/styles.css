@@ -193,3 +193,81 @@ button.primary:hover:not(:disabled) { background: #4a3b2a; }
   .left, .panel { border: none; border-top: 1px solid var(--border); }
   .feature-actions { opacity: 1; }
 }
+
+/* Menú desplegable de la barra */
+.menu-anchor { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+  display: flex; flex-direction: column; min-width: 180px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); padding: 4px;
+}
+.menu button { text-align: left; border: none; background: transparent; }
+.menu button:hover { background: #343b44; }
+.notice { color: #ffd27f; font-size: 12px; cursor: pointer; margin-left: 8px; }
+button.wide { width: 100%; margin-top: 6px; }
+.feature-info { color: var(--muted); font-size: 11px; line-height: 1.3; margin-top: 1px; }
+
+/* Editor de sketch */
+.sketch-editor {
+  --sk-geometry: #e6eaee;
+  --sk-defined: #7ddc8a;
+  --sk-construction: #7f8a96;
+  --sk-selected: #ff9a3c;
+  --sk-hover: #7fb8ff;
+  --sk-preview: #ffc857;
+  position: absolute; inset: 0; z-index: 10;
+  display: grid; grid-template-rows: auto 1fr auto;
+  background: #1a1d22;
+}
+.sketch-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.sketch-title { font-weight: 600; color: var(--accent); margin-right: 4px; white-space: nowrap; }
+.sketch-toolbar .spacer { flex: 1; }
+.tool-group { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--border); }
+.tool-group button { padding: 3px 7px; font-size: 12px; }
+.tool-group button.active { background: #4a3b2a; border-color: #8a6a40; }
+.tool-group button.icon-only { min-width: 26px; padding: 3px 4px; font-weight: 600; }
+.tool-icon { display: inline-block; width: 14px; margin-right: 3px; text-align: center; }
+.sketch-canvas { position: relative; overflow: hidden; }
+.sketch-canvas svg { display: block; width: 100%; height: 100%; user-select: none; touch-action: none; cursor: default; }
+.sketch-canvas svg.drawing { cursor: crosshair; }
+.sketch-canvas .grid line { stroke: #262b32; stroke-width: 1; }
+.sketch-canvas .grid line.major { stroke: #303742; }
+.axes line { stroke-width: 1.2; }
+.axes .axis-x { stroke: #b0524f; }
+.axes .axis-y { stroke: #4f9a5a; }
+.axes line.hov { stroke-width: 2.5; }
+.axes line.sel { stroke: var(--sk-selected); stroke-width: 2.5; }
+.sk-origin { fill: #1a1d22; stroke: #e6eaee; stroke-width: 1.5; }
+.sk-origin.hov { stroke: var(--sk-hover); }
+.sk-origin.sel { stroke: var(--sk-selected); }
+.snap { fill: none; stroke: var(--sk-hover); stroke-width: 1.5; }
+.dim-leader { stroke: #9aa6b2; stroke-width: 1; stroke-dasharray: 3 3; }
+.sk-label rect { fill: #262b33; stroke: #47505c; stroke-width: 1; }
+.sk-label text { fill: #dfe3e8; font-size: 11px; text-anchor: middle; font-family: system-ui, sans-serif; pointer-events: none; }
+.sk-label.dimension rect { fill: #1f2a36; stroke: #4c6a8a; }
+.sk-label.hover rect { stroke: var(--sk-hover); }
+.sk-label.selected rect { stroke: var(--sk-selected); fill: #3a2f22; }
+.sk-label.conflict rect { stroke: var(--error); fill: #3a1f22; }
+.sk-label.redundant rect { stroke: #e0c050; }
+.dim-prompt {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.dim-prompt label { display: flex; align-items: center; gap: 6px; }
+.dim-prompt input {
+  width: 90px; background: #16191d; color: var(--text); border: 1px solid #5d7fa6;
+  border-radius: 3px; padding: 3px 6px; font: inherit;
+}
+.sketch-status {
+  display: flex; align-items: center; gap: 14px; padding: 4px 10px;
+  background: var(--panel); border-top: 1px solid var(--border); font-size: 12px;
+}
+.sketch-status .spacer { flex: 1; }
+.sketch-status .dof.ok { color: var(--sk-defined); }
+.sketch-status .warn { color: #e0c050; }

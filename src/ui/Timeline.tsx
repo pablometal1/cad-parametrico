@@ -1,6 +1,6 @@
 // Historial de features: estado de cada una, supresión, borrado y marcador de retroceso.
 import { For, Show } from 'solid-js';
-import { activeCount } from '../document/ops';
+import { activeCount, dependents } from '../document/ops';
 import type { Feature } from '../document/types';
 import type { FeatureStatus } from '../kernel/protocol';
 import type { CadStore } from './store';
@@ -18,8 +18,10 @@ export function Timeline(props: { store: CadStore }) {
   const total = () => store.doc().features.length;
 
   const confirmDelete = (f: Feature) => {
-    // Hasta la fase 5 no hay deshacer: pedimos confirmación.
-    if (window.confirm(`¿Borrar "${f.name}"? Todavía no hay deshacer.`)) store.deleteFeature(f.id);
+    // Hasta la fase 5 no hay deshacer: pedimos confirmación, avisando qué deja de funcionar.
+    const deps = dependents(store.doc(), f.id);
+    const extra = deps.length ? `\n\nLo usa: ${deps.map((d) => d.name).join(', ')} (quedará con error).` : '';
+    if (window.confirm(`¿Borrar "${f.name}"? Todavía no hay deshacer.${extra}`)) store.deleteFeature(f.id);
   };
 
   const Marker = () => (
@@ -58,18 +60,25 @@ export function Timeline(props: { store: CadStore }) {
                   <li
                     class={`feature status-${status()}${store.selectedId() === f.id ? ' selected' : ''}`}
                     onClick={() => store.selectFeature(f.id)}
+                    onDblClick={() => f.type === 'sketch' && store.editSketch(f.id)}
                     title={status() === 'pending' ? 'Calculando…' : STATUS_LABEL[status() as FeatureStatus]}
                   >
                     <span class="feature-icon" aria-hidden="true">
-                      {status() === 'error' ? '!' : f.type === 'extrude' ? '▤' : '•'}
+                      {status() === 'error' ? '!' : f.type === 'extrude' ? '▤' : '✎'}
                     </span>
                     <span class="feature-main">
                       <span class="feature-name">{f.name}</span>
                       <Show when={status() === 'error'}>
                         <span class="feature-error">{result()?.error}</span>
                       </Show>
+                      <Show when={status() === 'ok' && result()?.info}>
+                        <span class="feature-info">{result()?.info}</span>
+                      </Show>
                     </span>
                     <span class="feature-actions" onClick={(e) => e.stopPropagation()}>
+                      <Show when={f.type === 'sketch'}>
+                        <button class="icon-btn" title="Editar sketch" onClick={() => store.editSketch(f.id)}>✎</button>
+                      </Show>
                       <button class="icon-btn" title={f.suppressed ? 'Reactivar' : 'Suprimir'} onClick={() => store.toggleSuppressed(f.id)}>
                         {f.suppressed ? '◌' : '●'}
                       </button>
