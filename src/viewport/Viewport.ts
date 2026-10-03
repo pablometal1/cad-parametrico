@@ -119,6 +119,20 @@ export class Viewport {
     this.repaintColors();
   }
 
+  /** Quita el modelo (documento vacío o sin sólido). */
+  clear() {
+    this.clearModel();
+    this.triangleFace = new Int32Array(0);
+    this.vertexFace = new Int32Array(0);
+    this.hovered = null;
+    this.setSelection([]);
+    this.needsRender = true;
+  }
+
+  get hasModel() {
+    return this.mesh !== null;
+  }
+
   /** Encuadra el modelo completo. */
   fitView() {
     if (!this.mesh) return;

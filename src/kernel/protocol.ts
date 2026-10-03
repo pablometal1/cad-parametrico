@@ -1,4 +1,5 @@
 // Tipos compartidos entre el hilo principal y el worker del kernel.
+import type { CadDocument } from '../document/types';
 
 /** Malla lista para Three.js. Los buffers se transfieren (sin copia) desde el worker. */
 export interface MeshPayload {
@@ -28,10 +29,29 @@ export interface FaceInfo {
   normal: [number, number, number];
 }
 
+export type FeatureStatus = 'ok' | 'error' | 'suppressed' | 'rolledBack';
+
+export interface FeatureResult {
+  id: string;
+  status: FeatureStatus;
+  /** Mensaje para el timeline cuando status = 'error'. */
+  error?: string;
+  timeMs: number;
+  /** true si se reutilizó el resultado del recálculo anterior. */
+  cached: boolean;
+}
+
+export interface RecomputeResult {
+  features: FeatureResult[];
+  /** null si no hay sólido (documento vacío o todo suprimido/retrocedido). */
+  mesh: MeshPayload | null;
+  totalMs: number;
+}
+
 /** API que expone el worker. Todos los métodos son asíncronos vistos desde la UI. */
 export interface KernelApi {
   init(): { occtLoadMs: number };
-  buildBox(width: number, depth: number, height: number): MeshPayload;
+  recompute(doc: CadDocument): RecomputeResult;
   faceInfo(faceIndex: number): FaceInfo;
 }
 

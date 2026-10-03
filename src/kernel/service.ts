@@ -1,10 +1,14 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
-import { makeBaseBox, measureArea, type AnyShape } from 'replicad';
+import { measureArea, type AnyShape } from 'replicad';
+import type { CadDocument } from '../document/types';
 import { initOCCT } from './occt';
 import { shapeToMesh } from './mesh';
-import type { FaceInfo, KernelApi, MeshPayload, SurfaceType } from './protocol';
+import { RecomputeEngine } from './recompute';
+import type { FaceInfo, KernelApi, RecomputeResult, SurfaceType } from './protocol';
 
 export class KernelService implements Record<keyof KernelApi, (...a: never[]) => unknown> {
+  private readonly engine = new RecomputeEngine();
+  /** Sólido final del último recálculo (propiedad del motor). */
   private current: AnyShape | null = null;
 
   constructor(private readonly wasmUrl?: string) {}
@@ -15,13 +19,12 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     return { occtLoadMs: Math.round(performance.now() - t0) };
   }
 
-  buildBox(width: number, depth: number, height: number): MeshPayload {
-    for (const [name, v] of [['ancho', width], ['profundidad', depth], ['alto', height]] as const) {
-      if (!(Number.isFinite(v) && v > 0)) throw new Error(`La ${name} de la caja debe ser > 0 (recibido ${v})`);
-    }
-    const shape = makeBaseBox(width, depth, height);
-    this.replaceCurrent(shape);
-    return shapeToMesh(shape);
+  recompute(doc: CadDocument): RecomputeResult {
+    const t0 = performance.now();
+    const { results, shape } = this.engine.run(doc);
+    this.current = shape;
+    const mesh = shape ? shapeToMesh(shape) : null;
+    return { features: results, mesh, totalMs: Math.round(performance.now() - t0) };
   }
 
   faceInfo(faceIndex: number): FaceInfo {
@@ -40,8 +43,8 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     };
   }
 
-  private replaceCurrent(shape: AnyShape) {
-    this.current?.delete();
-    this.current = shape;
+  dispose() {
+    this.engine.dispose();
+    this.current = null;
   }
 }

@@ -1,27 +1,38 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { createKernelClient } from '../kernel/client';
-import type { FaceInfo } from '../kernel/protocol';
+import type { FaceInfo, MeshPayload } from '../kernel/protocol';
 import { Viewport } from '../viewport/Viewport';
-
-/** Caja de demostración de la fase 1 (mm). En la fase 2 la reemplaza el documento de features. */
-const DEMO_BOX = { width: 40, depth: 30, height: 20 };
-
-type KernelStatus =
-  | { state: 'loading' }
-  | { state: 'ready'; occtLoadMs: number; buildMs: number }
-  | { state: 'error'; message: string };
+import { FeatureEditor } from './FeatureEditor';
+import { createCadStore } from './store';
+import { Timeline } from './Timeline';
 
 export function App() {
   let viewportEl!: HTMLDivElement;
   let viewport: Viewport | undefined;
+  let framed = false;
   const kernel = createKernelClient();
 
-  const [status, setStatus] = createSignal<KernelStatus>({ state: 'loading' });
   const [selection, setSelection] = createSignal<FaceInfo[]>([]);
   const [hovered, setHovered] = createSignal<number | null>(null);
   let selectionRequest = 0;
 
-  onMount(async () => {
+  const showMesh = (mesh: MeshPayload | null) => {
+    if (!viewport) return;
+    if (!mesh) {
+      viewport.clear();
+      return;
+    }
+    viewport.setMesh(mesh);
+    // Solo se encuadra la primera vez; después se respeta la cámara del usuario.
+    if (!framed) {
+      viewport.fitView();
+      framed = true;
+    }
+  };
+
+  const store = createCadStore(kernel, showMesh);
+
+  onMount(() => {
     viewport = new Viewport(viewportEl, {
       onHoverChange: setHovered,
       onSelectionChange: async (faces) => {
@@ -29,37 +40,33 @@ export function App() {
         try {
           const infos = await Promise.all(faces.map((f) => kernel.faceInfo(f)));
           if (req === selectionRequest) setSelection(infos);
-        } catch (err) {
-          setStatus({ state: 'error', message: (err as Error).message });
+        } catch {
+          if (req === selectionRequest) setSelection([]);
         }
       },
     });
-    try {
-      const { occtLoadMs } = await kernel.init();
-      const t0 = performance.now();
-      const mesh = await kernel.buildBox(DEMO_BOX.width, DEMO_BOX.depth, DEMO_BOX.height);
-      const buildMs = Math.round(performance.now() - t0);
-      viewport.setMesh(mesh);
-      viewport.fitView();
-      setStatus({ state: 'ready', occtLoadMs, buildMs });
-    } catch (err) {
-      setStatus({ state: 'error', message: (err as Error).message });
-    }
+    void store.start();
   });
 
   onCleanup(() => viewport?.dispose());
+
+  const ready = () => store.kernelState().state === 'ready';
 
   return (
     <div class="app">
       <header class="toolbar">
         <span class="brand">CAD</span>
-        <button onClick={() => viewport?.fitView()} disabled={status().state !== 'ready'} title="Encuadrar (F)">
-          Encuadrar
+        <button class="primary" onClick={() => store.addExtrude()} disabled={!ready()} title="Agregar una extrusión">
+          ▤ Extrusión
         </button>
-        <button onClick={() => viewport?.setSelection([])} disabled={selection().length === 0}>
-          Limpiar selección
-        </button>
+        <span class="sep" />
+        <button onClick={() => viewport?.fitView()} disabled={!ready()} title="Encuadrar (F)">Encuadrar</button>
+        <button onClick={() => viewport?.setSelection([])} disabled={selection().length === 0}>Limpiar selección</button>
       </header>
+
+      <aside class="left">
+        <Timeline store={store} />
+      </aside>
 
       <main class="viewport" tabIndex={0} onKeyDown={(e) => {
         if (e.key === 'f' || e.key === 'F') viewport?.fitView();
@@ -67,13 +74,16 @@ export function App() {
       }}>
         {/* Contenedor propio para el canvas: Solid no debe reconciliar sus hijos. */}
         <div class="viewport-canvas" ref={viewportEl} />
-        <Show when={status().state === 'loading'}>
+        <Show when={store.kernelState().state === 'loading'}>
           <div class="overlay">Cargando OpenCascade…</div>
         </Show>
       </main>
 
       <aside class="panel">
-        <h2>Selección</h2>
+        <h2>Parámetros</h2>
+        <FeatureEditor store={store} />
+
+        <h2 class="section-gap">Selección</h2>
         <Show when={selection().length > 0} fallback={<p class="muted">Clic en una cara para seleccionarla. Shift/Ctrl + clic para agregar o quitar.</p>}>
           <For each={selection()}>
             {(f) => (
@@ -91,10 +101,18 @@ export function App() {
 
       <footer class="statusbar">
         {(() => {
-          const s = status();
-          if (s.state === 'loading') return <span>Kernel: cargando…</span>;
-          if (s.state === 'error') return <span class="error">Error: {s.message}</span>;
-          return <span>Kernel listo · OCCT {s.occtLoadMs} ms · caja {s.buildMs} ms</span>;
+          const k = store.kernelState();
+          if (k.state === 'loading') return <span>Kernel: cargando…</span>;
+          if (k.state === 'error') return <span class="error">Error del kernel: {k.message}</span>;
+          if (store.computing()) return <span>Recalculando…</span>;
+          const s = store.stats();
+          if (!s) return <span>Kernel listo</span>;
+          return (
+            <span>
+              Recalculado en {s.totalMs} ms · {s.computed} calculadas, {s.cached} desde cache
+              <Show when={s.errors > 0}> · <span class="error">{s.errors} con error</span></Show>
+            </span>
+          );
         })()}
         <span class="spacer" />
         <span>{hovered() !== null ? `Cara #${hovered()}` : ''}</span>

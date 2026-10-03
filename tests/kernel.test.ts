@@ -2,6 +2,19 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { makeBaseBox } from 'replicad';
 import { initOCCT } from '../src/kernel/occt';
 import { KernelService } from '../src/kernel/service';
+import { addFeature, emptyDocument, makeExtrude } from '../src/document/ops';
+
+/** Documento con una caja 40×30×20 centrada en XY, apoyada en Z=0. */
+function boxDoc(w = 40, d = 30, h = 20) {
+  const doc = emptyDocument();
+  return addFeature(doc, makeExtrude(doc, { profile: { kind: 'rectangle', plane: 'XY', offset: 0, center: [0, 0], width: w, height: d }, distance: h }));
+}
+
+function box(k: KernelService, w?: number, d?: number, h?: number) {
+  const r = k.recompute(boxDoc(w, d, h));
+  if (!r.mesh) throw new Error('sin malla');
+  return r.mesh;
+}
 
 type OC = Awaited<ReturnType<typeof initOCCT>>;
 let oc: OC;
@@ -14,7 +27,7 @@ describe('KernelService', () => {
   it('genera una caja con 6 caras planas y malla asociada a cada cara', async () => {
     const k = new KernelService();
     await k.init();
-    const m = k.buildBox(40, 30, 20);
+    const m = box(k);
 
     expect(m.faceRanges.length).toBe(12);
     expect(m.edgeRanges.length).toBe(24);
@@ -34,7 +47,7 @@ describe('KernelService', () => {
   it('los triángulos de cada rango pertenecen geométricamente a esa cara', async () => {
     const k = new KernelService();
     await k.init();
-    const m = k.buildBox(40, 30, 20);
+    const m = box(k);
     for (let f = 0; f < 6; f++) {
       const info = k.faceInfo(f);
       const [start, count] = [m.faceRanges[2 * f], m.faceRanges[2 * f + 1]];
@@ -51,7 +64,7 @@ describe('KernelService', () => {
   it('faceInfo da área, normal exterior y tipo de superficie', async () => {
     const k = new KernelService();
     await k.init();
-    k.buildBox(40, 30, 20);
+    box(k);
     const infos = Array.from({ length: 6 }, (_, i) => k.faceInfo(i));
     const top = infos.find((f) => Math.abs(f.center[2] - 20) < 1e-6)!;
     const bottom = infos.find((f) => Math.abs(f.center[2]) < 1e-6)!;
@@ -64,14 +77,19 @@ describe('KernelService', () => {
     expect(side.normal[0]).toBeCloseTo(1, 6);
   });
 
-  it('rechaza dimensiones inválidas y caras fuera de rango', async () => {
+  it('sin sólido no hay malla; caras fuera de rango dan error', async () => {
     const k = new KernelService();
     await k.init();
     expect(() => k.faceInfo(0)).toThrow(/No hay sólido/);
-    expect(() => k.buildBox(0, 10, 10)).toThrow(/> 0/);
-    expect(() => k.buildBox(10, Number.NaN, 10)).toThrow(/> 0/);
-    k.buildBox(10, 10, 10);
+    const empty = k.recompute(emptyDocument());
+    expect(empty.mesh).toBeNull();
+    expect(empty.features).toEqual([]);
+    const bad = k.recompute(boxDoc(0, 10, 10));
+    expect(bad.mesh).toBeNull();
+    expect(bad.features[0].status).toBe('error');
+    box(k, 10, 10, 10);
     expect(() => k.faceInfo(6)).toThrow(/fuera de rango/);
+    k.dispose();
   });
 });
 
