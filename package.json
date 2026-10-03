@@ -1,0 +1,30 @@
+{
+  "name": "cad-parametrico",
+  "version": "1.0.0",
+  "description": "CAD paramétrico basado en historial, en el navegador",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "replicad": "^1.1.0",
+    "replicad-opencascadejs": "^1.1.0",
+    "solid-js": "^1.9.15",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^5.0.3"
+  },
+  "private": true
+}
