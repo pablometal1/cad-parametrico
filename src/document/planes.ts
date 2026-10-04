@@ -1,6 +1,8 @@
 // Sistemas de coordenadas de los planos de sketch. Compartido por la UI y el kernel.
 import type { BasePlane, SketchPlaneRef } from './types';
 
+type BasePlaneRef = Extract<SketchPlaneRef, { kind: 'base' }>;
+
 export type Vec3 = [number, number, number];
 
 export interface PlaneFrame {
@@ -20,9 +22,39 @@ const BASE_FRAMES: Record<BasePlane, Omit<PlaneFrame, 'origin'>> = {
   YZ: { xDir: [0, 1, 0], yDir: [0, 0, 1], normal: [1, 0, 0] },
 };
 
-export function basePlaneFrame(ref: SketchPlaneRef): PlaneFrame {
+export function basePlaneFrame(ref: BasePlaneRef): PlaneFrame {
   const f = BASE_FRAMES[ref.plane];
   return { ...f, origin: scale(f.normal, ref.offset) };
+}
+
+/**
+ * Sistema de coordenadas de un sketch sobre una cara plana con normal `normal` que pasa por `point`.
+ * - Origen: proyección del origen global sobre el plano (estable si la cara cambia de tamaño).
+ * - Eje u: proyección del eje X global (o del Y si la normal es paralela a X).
+ * - Eje v: normal × u (sistema derecho visto desde afuera de la cara).
+ * Para caras con la misma normal que un plano base (XY, XZ, YZ) coincide con ese plano.
+ */
+export function faceFrame(point: Vec3, normal: Vec3, offset = 0): PlaneFrame {
+  const n = normalize(normal);
+  const d = dot(point, n) + offset;
+  const ref: Vec3 = Math.abs(n[0]) > 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const xDir = normalize(sub(ref, scale(n, dot(ref, n))));
+  const yDir = cross(n, xDir);
+  return { origin: scale(n, d), xDir, yDir, normal: n };
+}
+
+/** Coordenadas (u, v) de un punto 3D en el plano. */
+export function toPlane(frame: PlaneFrame, p: Vec3): [number, number] {
+  const r = sub(p, frame.origin);
+  return [dot(r, frame.xDir), dot(r, frame.yDir)];
+}
+
+export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export function normalize(v: Vec3): Vec3 {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
 }
 
 export function toWorld(frame: PlaneFrame, u: number, v: number): Vec3 {

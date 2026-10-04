@@ -1,5 +1,5 @@
 // Editor 2D de sketch: dibujo, selección, arrastre con el solver y restricciones.
-import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchCurve, type SketchData } from '../../document/types';
 import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, sub, type ArcParams } from '../../sketch/geometry';
 import { SketchIndex, type Vec2 } from '../../sketch/model';
@@ -57,6 +57,8 @@ interface Label {
 export function SketchEditor(props: {
   session: SketchSession;
   title: string;
+  /** Contorno de la cara de apoyo (segmentos u1,v1,u2,v2…), si el sketch está sobre una cara. */
+  reference?: () => Float32Array | undefined;
   onFinish: () => void;
   onCancel: () => void;
 }) {
@@ -88,6 +90,8 @@ export function SketchEditor(props: {
     const idx = index();
     const pts: Vec2[] = [[0, 0]];
     for (const p of idx.points()) pts.push([p.x, p.y]);
+    const ref = props.reference?.();
+    if (ref) for (let i = 0; i + 1 < ref.length; i += 2) pts.push([ref[i], ref[i + 1]]);
     for (const c of idx.curves()) {
       if (c.type === 'circle') {
         const ctr = idx.point(c.center);
@@ -104,6 +108,16 @@ export function SketchEditor(props: {
     const scale = Math.min(w / (spanX * 1.4), h / (spanY * 1.4));
     setView({ cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, scale });
   }
+
+  // El contorno de la cara de apoyo llega con el primer recálculo: se re-encuadra una vez al recibirlo.
+  let fittedToReference = false;
+  createEffect(() => {
+    const ref = props.reference?.();
+    if (!fittedToReference && ref && ref.length > 0) {
+      fittedToReference = true;
+      untrack(fit);
+    }
+  });
 
   onMount(() => {
     const ro = new ResizeObserver(() => {
@@ -458,6 +472,18 @@ export function SketchEditor(props: {
             );
           })()}
 
+          {/* Contorno de la cara de apoyo: solo referencia visual, no seleccionable. */}
+          {(() => {
+            const ref = props.reference?.();
+            if (!ref || ref.length === 0) return null;
+            const parts: string[] = [];
+            for (let i = 0; i + 3 < ref.length; i += 4) {
+              const a = toScreen([ref[i], ref[i + 1]]);
+              const b = toScreen([ref[i + 2], ref[i + 3]]);
+              parts.push(`M${a[0]} ${a[1]}L${b[0]} ${b[1]}`);
+            }
+            return <path class="face-reference" d={parts.join('')} />;
+          })()}
           {/* Se regenera entero en cada cambio: las líneas no cambian de identidad al mover sus puntos. */}
           {index().curves().map((c) => curveElement(c))}
 

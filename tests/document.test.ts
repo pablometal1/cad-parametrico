@@ -183,3 +183,27 @@ describe('serialización', () => {
     expect(() => parseDocument(JSON.stringify(d))).not.toThrow();
   });
 });
+
+describe('serialización de features de la fase 4', () => {
+  it('revolución, redondeo, chaflán, vaciado y sketch sobre cara van y vuelven', async () => {
+    const { makeRevolve, makeFillet, makeChamfer, makeShell } = await import('../src/document/ops');
+    let doc = emptyDocument();
+    const sk = makeSketch(doc, profileData(rect(10, 10)));
+    doc = addFeature(doc, sk);
+    doc = addFeature(doc, makeRevolve(doc, sk, { angle: 90, axis: { kind: 'sketchLine', line: 'l1' } }));
+    const edge = { name: 'a|b', center: [1, 2, 3] as [number, number, number], length: 4 };
+    const face = { name: 'f', type: 'PLANE', center: [0, 0, 1] as [number, number, number], normal: [0, 0, 1] as [number, number, number], area: 9 };
+    doc = addFeature(doc, makeFillet(doc, [edge], 1.5));
+    doc = addFeature(doc, makeChamfer(doc, [edge, edge], 0.5));
+    doc = addFeature(doc, makeShell(doc, [face], 2));
+    doc = addFeature(doc, makeSketch(doc, { plane: { kind: 'face', face, offset: 1 } }));
+    expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+
+    const bad = JSON.parse(serializeDocument(doc));
+    bad.features[2].edges[0].center = [1, 2];
+    expect(() => parseDocument(JSON.stringify(bad))).toThrow(/edges\[0\]\.center/);
+    const bad2 = JSON.parse(serializeDocument(doc));
+    bad2.features[1].axis = { kind: 'otro' };
+    expect(() => parseDocument(JSON.stringify(bad2))).toThrow(/axis/);
+  });
+});

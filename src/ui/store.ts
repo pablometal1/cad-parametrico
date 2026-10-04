@@ -2,7 +2,9 @@
 import { batch, createMemo, createSignal } from 'solid-js';
 import solverWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
 import * as ops from '../document/ops';
-import type { BasePlane, CadDocument, Feature, FeatureId, SketchData, SketchFeature } from '../document/types';
+import type {
+  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature,
+} from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -36,6 +38,14 @@ export function initialDocument(): CadDocument {
   return ops.addFeature(doc, ops.makeExtrude(doc, sketch.id));
 }
 
+/** Modo "elegir referencias": el historial se retrocede hasta la feature para elegir sobre su entrada. */
+export interface Picking {
+  featureId: FeatureId;
+  kind: 'edges' | 'faces' | 'face';
+  /** Marcador de retroceso a restaurar al terminar. */
+  previousRollback: number | null;
+}
+
 export interface StoreCallbacks {
   onMesh: (mesh: MeshPayload | null) => void;
   onSketches: (sketches: RecomputeResult['sketches']) => void;
@@ -50,6 +60,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   const [stats, setStats] = createSignal<RecomputeStats | null>(null);
   const [editing, setEditing] = createSignal<SketchEditing | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
+  const [picking, setPicking] = createSignal<Picking | null>(null);
 
   const selectedFeature = createMemo(() => {
     const id = selectedId();
@@ -108,9 +119,25 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     }
   }
 
+  /** Toma la última feature de perfil posible: el sketch seleccionado o el último sin usar. */
+  function sketchForProfile(): SketchFeature | null {
+    const sel = selectedFeature();
+    return sel?.type === 'sketch' ? sel : ops.unusedSketches(doc()).at(-1) ?? null;
+  }
+
+  async function withRefs<T>(fetch: () => Promise<T>): Promise<T | null> {
+    try {
+      return await fetch();
+    } catch (err) {
+      setNotice((err as Error).message);
+      return null;
+    }
+  }
+
   return {
     doc,
     results,
+    picking,
     selectedId,
     selectedFeature,
     kernelState,
@@ -174,13 +201,101 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
      * todavía sin usar. Devuelve un mensaje si no hay ninguno.
      */
     addExtrude(): string | null {
-      const sel = selectedFeature();
-      const sketch = sel?.type === 'sketch' ? sel : ops.unusedSketches(doc()).at(-1);
+      const sketch = sketchForProfile();
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
       const f = ops.makeExtrude(doc(), sketch.id);
       apply((d) => ops.addFeature(d, f));
       setSelectedId(f.id);
       return null;
+    },
+
+    addRevolve(): string | null {
+      const sketch = sketchForProfile();
+      if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
+      const f = ops.makeRevolve(doc(), sketch);
+      apply((d) => ops.addFeature(d, f));
+      setSelectedId(f.id);
+      return null;
+    },
+
+    /** Redondeo o chaflán de las aristas elegidas en el viewport (índices del sólido mostrado). */
+    async addEdgeFeature(type: 'fillet' | 'chamfer', edges: number[]) {
+      if (edges.length === 0) return setNotice('Seleccioná una o más aristas en el modelo (Shift + clic para varias)');
+      const refs = await withRefs(() => kernel.edgeRefs(edges));
+      if (!refs) return;
+      const f = type === 'fillet' ? ops.makeFillet(doc(), refs) : ops.makeChamfer(doc(), refs);
+      apply((d) => ops.addFeature(d, f));
+      setSelectedId(f.id);
+    },
+
+    async addShell(faces: number[]) {
+      if (faces.length === 0) return setNotice('Seleccioná las caras a quitar (p. ej. la superior) y volvé a tocar Vaciado');
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      const f = ops.makeShell(doc(), refs);
+      apply((d) => ops.addFeature(d, f));
+      setSelectedId(f.id);
+    },
+
+    /** Crea un sketch sobre una cara plana del sólido mostrado y entra a editarlo. */
+    async newSketchOnFace(face: number) {
+      const refs = await withRefs(() => kernel.faceRefs([face]));
+      if (!refs) return;
+      if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
+      const f = ops.makeSketch(doc(), { plane: { kind: 'face', face: refs[0], offset: 0 } });
+      apply((d) => ops.addFeature(d, f));
+      batch(() => {
+        setSelectedId(f.id);
+        setEditing({ featureId: f.id, isNew: true });
+      });
+    },
+
+    /** Entra al modo elegir referencias para una feature existente (retrocede el historial hasta ella). */
+    beginPick(featureId: FeatureId) {
+      const d = doc();
+      const i = d.features.findIndex((f) => f.id === featureId);
+      const f = d.features[i];
+      if (!f) return;
+      const kind = f.type === 'fillet' || f.type === 'chamfer' ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      setPicking({ featureId, kind, previousRollback: d.rollback });
+      apply((x) => ops.setRollback(x, i));
+    },
+
+    /** Aplica la selección del viewport a la feature en edición y restaura el marcador. */
+    async finishPick(sel: { faces: number[]; edges: number[] }) {
+      const p = picking();
+      if (!p) return;
+      if (p.kind === 'edges') {
+        if (!sel.edges.length) return setNotice('Seleccioná al menos una arista');
+        const refs = await withRefs(() => kernel.edgeRefs(sel.edges));
+        if (!refs) return;
+        apply((d) => ops.setRollback(ops.updateFeature<FilletFeature | ChamferFeature>(d, p.featureId, { edges: refs }), p.previousRollback));
+      } else if (p.kind === 'faces') {
+        const refs = await withRefs(() => kernel.faceRefs(sel.faces));
+        if (!refs) return;
+        apply((d) => ops.setRollback(ops.updateFeature<ShellFeature>(d, p.featureId, { faces: refs }), p.previousRollback));
+      } else {
+        if (sel.faces.length !== 1) return setNotice('Seleccioná una cara plana');
+        const refs = await withRefs(() => kernel.faceRefs(sel.faces));
+        if (!refs) return;
+        if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
+        const sk = ops.findFeature(doc(), p.featureId) as SketchFeature;
+        apply((d) => ops.setRollback(
+          ops.updateFeature<SketchFeature>(d, p.featureId, { plane: { kind: 'face', face: refs[0], offset: sk.plane.offset } }),
+          p.previousRollback,
+        ));
+      }
+      batch(() => {
+        setPicking(null);
+        setNotice(null);
+      });
+    },
+
+    cancelPick() {
+      const p = picking();
+      if (!p) return;
+      apply((d) => ops.setRollback(d, p.previousRollback));
+      setPicking(null);
     },
 
     updateFeature<F extends Feature>(id: FeatureId, patch: Partial<Omit<F, 'id' | 'type'>>) {

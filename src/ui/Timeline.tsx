@@ -12,6 +12,15 @@ const STATUS_LABEL: Record<FeatureStatus, string> = {
   rolledBack: 'Después del marcador',
 };
 
+export const FEATURE_ICONS: Record<Feature['type'], string> = {
+  sketch: '✎',
+  extrude: '▤',
+  revolve: '◔',
+  fillet: '◜',
+  chamfer: '◸',
+  shell: '▢',
+};
+
 export function Timeline(props: { store: CadStore }) {
   const { store } = props;
   const active = () => activeCount(store.doc());
@@ -64,7 +73,7 @@ export function Timeline(props: { store: CadStore }) {
                     title={status() === 'pending' ? 'Calculando…' : STATUS_LABEL[status() as FeatureStatus]}
                   >
                     <span class="feature-icon" aria-hidden="true">
-                      {status() === 'error' ? '!' : f.type === 'extrude' ? '▤' : '✎'}
+                      {status() === 'error' ? '!' : FEATURE_ICONS[f.type]}
                     </span>
                     <span class="feature-main">
                       <span class="feature-name">{f.name}</span>

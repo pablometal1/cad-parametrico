@@ -1,11 +1,12 @@
 // Feature de sketch en el kernel: resuelve las restricciones y construye las caras de sus perfiles.
-import { assembleWire, makeCircle, makeFace, makeLine, makeThreePointArc, type Edge, type Face } from 'replicad';
-import { basePlaneFrame, scale, toWorld, type PlaneFrame } from '../../document/planes';
+import { assembleWire, makeCircle, makeFace, makeLine, makeThreePointArc, type AnyShape, type Edge, type Face } from 'replicad';
+import { basePlaneFrame, faceFrame, scale, toPlane, toWorld, type PlaneFrame } from '../../document/planes';
 import type { SketchData, SketchFeature } from '../../document/types';
-import { arcParams } from '../../sketch/geometry';
+import { arcParams, curveDistance } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
 import { findProfiles, ProfileError, type ProfileLoop, type ProfileRegion } from '../../sketch/profiles';
 import { solveSketch } from '../../sketch/solver';
+import { resolveFace, type History, type NameBuilder, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 
 /** Resultado de evaluar un sketch: lo que necesitan las features que lo usan. */
@@ -15,9 +16,12 @@ export interface EvaluatedSketch {
   regions: ProfileRegion[];
   openChains: number;
   dof: number;
+  /** Contorno de la cara de apoyo en coordenadas del sketch (pares u,v por segmento). */
+  reference: number[];
 }
 
-export function evaluateSketch(feature: SketchFeature): EvaluatedSketch {
+export function evaluateSketch(feature: SketchFeature, input: NamedShape | null): EvaluatedSketch {
+  const { frame, reference } = sketchFrame(feature, input);
   let solved;
   try {
     solved = solveSketch(feature);
@@ -39,12 +43,58 @@ export function evaluateSketch(feature: SketchFeature): EvaluatedSketch {
     throw err;
   }
   return {
-    frame: basePlaneFrame(feature.plane),
+    frame,
+    reference,
     data: solved.data,
     regions: analysis.regions,
     openChains: analysis.openChains,
     dof: solved.dof,
   };
+}
+
+/** Plano del sketch: base, o la cara plana referenciada del sólido de entrada. */
+function sketchFrame(feature: SketchFeature, input: NamedShape | null): { frame: PlaneFrame; reference: number[] } {
+  const plane = feature.plane;
+  if (plane.kind === 'base') return { frame: basePlaneFrame(plane), reference: [] };
+  if (!input) throw new FeatureError('No hay un sólido donde apoyar el sketch');
+  const face = input.shape.faces[resolveFace(input, plane.face)];
+  if (face.geomType !== 'PLANE') throw new FeatureError('La cara de apoyo del sketch ya no es plana');
+  const c = face.center;
+  const frame = faceFrame(c.toTuple(), face.normalAt(c).toTuple(), plane.offset);
+  return { frame, reference: outline(face, frame) };
+}
+
+/** Bordes de una cara proyectados al plano del sketch, como segmentos (u1,v1,u2,v2,…). */
+function outline(face: Face, frame: PlaneFrame): number[] {
+  const out: number[] = [];
+  for (const e of face.edges) {
+    const n = e.geomType === 'LINE' ? 1 : 32;
+    let prev = toPlane(frame, e.pointAt(0).toTuple());
+    for (let i = 1; i <= n; i++) {
+      const p = toPlane(frame, e.pointAt(i / n).toTuple());
+      out.push(prev[0], prev[1], p[0], p[1]);
+      prev = p;
+    }
+  }
+  return out;
+}
+
+/**
+ * Nombra las caras laterales de un barrido (prisma o revolución) según la curva del sketch
+ * que generó cada arista del perfil: `<feature>:side:<curva>`.
+ */
+export function nameSweep(nb: NameBuilder, history: History, s: EvaluatedSketch, profile: AnyShape, featureId: string) {
+  const index = new SketchIndex(s.data);
+  const curves = index.curves().filter((c) => !c.construction);
+  for (const edge of profile.edges) {
+    const [u, v] = toPlane(s.frame, edge.pointAt(0.5).toTuple());
+    let best: { id: string; d: number } | null = null;
+    for (const c of curves) {
+      const d = curveDistance(index, c, [u, v]);
+      if (!best || d < best.d) best = { id: c.id, d };
+    }
+    if (best && best.d < 1e-4) nb.generated(history, edge.wrapped, `${featureId}:side:${best.id}`);
+  }
 }
 
 /** Texto informativo para el historial. */

@@ -7,15 +7,46 @@ export type FeatureId = string;
 
 export type BasePlane = 'XY' | 'XZ' | 'YZ';
 
+export type Vec3 = [number, number, number];
+
+// ---------------------------------------------------------------- Referencias topológicas
+
+/**
+ * Referencia a una cara del sólido: nombre topológico (derivado de la historia) más una huella
+ * geométrica para desempatar o recuperar la cara si el nombre cambia.
+ */
+export interface FaceRef {
+  name: string;
+  /** Tipo de superficie de OCCT (PLANE, CYLINDRE…). */
+  type: string;
+  center: Vec3;
+  /** Solo para caras planas. */
+  normal?: Vec3;
+  area: number;
+}
+
+/** Referencia a una arista: nombre (par de caras vecinas) más huella geométrica. */
+export interface EdgeRef {
+  name: string;
+  center: Vec3;
+  length: number;
+}
+
 // ---------------------------------------------------------------- Sketch
 
-/** Plano de un sketch. En la fase 4 se agrega la variante "cara plana del sólido". */
-export type SketchPlaneRef = {
-  kind: 'base';
-  plane: BasePlane;
-  /** Desplazamiento a lo largo de la normal del plano (mm). */
-  offset: number;
-};
+/** Plano de un sketch: un plano base o una cara plana del sólido. */
+export type SketchPlaneRef =
+  | {
+      kind: 'base';
+      plane: BasePlane;
+      /** Desplazamiento a lo largo de la normal del plano (mm). */
+      offset: number;
+    }
+  | {
+      kind: 'face';
+      face: FaceRef;
+      offset: number;
+    };
 
 export type SketchEntityId = string;
 
@@ -114,7 +145,42 @@ export interface ExtrudeFeature extends FeatureBase {
   operation: BooleanOperation;
 }
 
-export type Feature = SketchFeature | ExtrudeFeature;
+/** Eje de revolución: un eje del propio sketch o una de sus líneas. */
+export type RevolveAxis =
+  | { kind: 'sketchAxis'; axis: 'u' | 'v' }
+  | { kind: 'sketchLine'; line: SketchEntityId };
+
+export interface RevolveFeature extends FeatureBase {
+  type: 'revolve';
+  sketch: FeatureId;
+  axis: RevolveAxis;
+  /** Ángulo en grados (0, 360]. */
+  angle: number;
+  operation: BooleanOperation;
+}
+
+export interface FilletFeature extends FeatureBase {
+  type: 'fillet';
+  edges: EdgeRef[];
+  radius: number;
+}
+
+export interface ChamferFeature extends FeatureBase {
+  type: 'chamfer';
+  edges: EdgeRef[];
+  distance: number;
+}
+
+/** Vaciado hacia adentro, quitando las caras indicadas. */
+export interface ShellFeature extends FeatureBase {
+  type: 'shell';
+  faces: FaceRef[];
+  thickness: number;
+}
+
+export type Feature = SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature;
+/** Features que consumen un sketch. */
+export type ProfileFeature = ExtrudeFeature | RevolveFeature;
 export type FeatureType = Feature['type'];
 
 export interface CadDocument {

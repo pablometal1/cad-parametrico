@@ -1,17 +1,19 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
-import type { AnyShape } from 'replicad';
 import { activeCount } from '../document/ops';
-import type { CadDocument, ExtrudeFeature, Feature, FeatureId } from '../document/types';
+import type { CadDocument, Feature, FeatureId, ProfileFeature } from '../document/types';
 import { describeError, FeatureError, hashString } from './occtUtils';
+import type { NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
+import { runRevolve } from './features/revolve';
+import { runEdgeFeature, runShell } from './features/dressup';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
 interface CacheEntry {
-  /** Hash de (clave de la entrada + parámetros de la feature). */
+  /** Hash de (clave de la entrada + parámetros de la feature + estado de dependencias). */
   key: string;
-  /** Sólido después de la feature. Si `owned` es false, es el mismo objeto que la entrada. */
-  output: AnyShape | null;
+  /** Sólido nombrado después de la feature. Si `owned` es false, es el mismo objeto que la entrada. */
+  output: NamedShape | null;
   owned: boolean;
   /** Para features de sketch: el sketch resuelto, que consumen las features posteriores. */
   sketch?: EvaluatedSketch;
@@ -23,16 +25,16 @@ interface CacheEntry {
 
 export interface RecomputeOutput {
   results: FeatureResult[];
-  /** Sólido final (propiedad del motor: válido hasta la próxima llamada a run o dispose). */
-  shape: AnyShape | null;
-  /** Sketches evaluados en este recálculo (para que la UI los dibuje en 3D). */
+  /** Sólido final con nombres (propiedad del motor: válido hasta la próxima llamada a run o dispose). */
+  shape: NamedShape | null;
+  /** Sketches evaluados en este recálculo. */
   sketches: Map<FeatureId, EvaluatedSketch>;
 }
 
 const ROOT_KEY = 'root';
 
 interface Context {
-  input: AnyShape | null;
+  input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
   doc: CadDocument;
   index: number;
@@ -45,7 +47,7 @@ export class RecomputeEngine {
     const active = activeCount(doc);
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
-    let current: AnyShape | null = null;
+    let current: NamedShape | null = null;
     let currentKey = ROOT_KEY;
 
     doc.features.forEach((feature, index) => {
@@ -93,18 +95,23 @@ export class RecomputeEngine {
 
   private compute(feature: Feature, ctx: Context, key: string): CacheEntry {
     const t0 = performance.now();
+    const ok = (output: NamedShape): CacheEntry => ({ key, output, owned: true, status: 'ok', timeMs: elapsed(t0) });
     try {
       switch (feature.type) {
         case 'sketch': {
-          const sketch = evaluateSketch(feature);
+          const sketch = evaluateSketch(feature, ctx.input);
           // Un sketch no modifica el sólido.
           return { key, output: ctx.input, owned: false, sketch, status: 'ok', info: describeSketch(sketch), timeMs: elapsed(t0) };
         }
-        case 'extrude': {
-          const sketch = resolveSketch(feature, ctx);
-          const output = runExtrude(feature, sketch, ctx.input);
-          return { key, output, owned: true, status: 'ok', timeMs: elapsed(t0) };
-        }
+        case 'extrude':
+          return ok(runExtrude(feature, resolveSketch(feature, ctx), ctx.input));
+        case 'revolve':
+          return ok(runRevolve(feature, resolveSketch(feature, ctx), ctx.input));
+        case 'fillet':
+        case 'chamfer':
+          return ok(runEdgeFeature(feature, ctx.input));
+        case 'shell':
+          return ok(runShell(feature, ctx.input));
       }
     } catch (err) {
       return { key, output: ctx.input, owned: false, status: 'error', error: describeError(err), timeMs: elapsed(t0) };
@@ -122,14 +129,14 @@ export class RecomputeEngine {
   }
 
   private release(entry: CacheEntry) {
-    if (entry.owned && entry.output) entry.output.delete();
+    if (entry.owned && entry.output) entry.output.shape.delete();
     entry.output = null;
     entry.owned = false;
   }
 }
 
 function dependencyState(feature: Feature, ctx: Context): string {
-  if (feature.type !== 'extrude') return '';
+  if (feature.type !== 'extrude' && feature.type !== 'revolve') return '';
   try {
     resolveSketch(feature, ctx);
     return 'ok';
@@ -139,11 +146,12 @@ function dependencyState(feature: Feature, ctx: Context): string {
 }
 
 /** Busca el sketch que usa una feature y explica por qué no está disponible si falta. */
-function resolveSketch(feature: ExtrudeFeature, ctx: Context): EvaluatedSketch {
+function resolveSketch(feature: ProfileFeature, ctx: Context): EvaluatedSketch {
   const evaluated = ctx.sketches.get(feature.sketch);
   if (evaluated) return evaluated;
+  const what = feature.type === 'extrude' ? 'esta extrusión' : 'esta revolución';
   const i = ctx.doc.features.findIndex((f) => f.id === feature.sketch);
-  if (i < 0) throw new FeatureError('El sketch de esta extrusión fue borrado');
+  if (i < 0) throw new FeatureError(`El sketch de ${what} fue borrado`);
   const target = ctx.doc.features[i];
   if (target.type !== 'sketch') throw new FeatureError(`"${target.name}" no es un sketch`);
   if (i > ctx.index) throw new FeatureError(`El sketch "${target.name}" está después en el historial`);

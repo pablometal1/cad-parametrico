@@ -1,14 +1,18 @@
-// Feature de extrusión: prisma del perfil y operación booleana con el sólido previo.
-import { cast, getOC, makeCompound, type AnyShape } from 'replicad';
+// Feature de extrusión: prisma de los perfiles del sketch y operación booleana con el sólido previo.
+import { cast, getOC, makeCompound } from 'replicad';
 import type { ExtrudeFeature } from '../../document/types';
-import { FeatureError, isValidShape } from '../occtUtils';
-import { buildSketchFaces, type EvaluatedSketch } from './sketch';
+import { historyOf, NameBuilder, type NamedShape } from '../naming';
+import { FeatureError } from '../occtUtils';
+import { combine } from './boolean';
+import { buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
+
+export { volume } from './measure';
 
 /**
- * Ejecuta la extrusión de todos los perfiles cerrados del sketch.
- * No modifica ni libera `input`; devuelve un sólido nuevo propiedad del llamador.
+ * Extruye todos los perfiles cerrados del sketch y los combina con `input`.
+ * No modifica `input`; devuelve un sólido nuevo propiedad del llamador.
  */
-export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, input: AnyShape | null): AnyShape {
+export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
   const oc = getOC();
   const d = feature.distance;
   if (!(d > 0)) throw new FeatureError(`La distancia debe ser mayor que 0 (es ${d})`);
@@ -30,71 +34,19 @@ export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, inp
   // Varias regiones se extruyen juntas como un compound de caras.
   const profile = faces.length === 1 ? faces[0] : makeCompound(faces);
   const prism = new oc.BRepPrimAPI_MakePrism(profile.wrapped, vec, false, true);
-  let tool: AnyShape;
+  let tool: NamedShape;
   try {
     if (!prism.IsDone()) throw new FeatureError('No se pudo extruir el perfil');
-    tool = cast(prism.Shape());
+    const shape = cast(prism.Shape());
+    const nb = new NameBuilder(shape);
+    nameSweep(nb, historyOf(prism), sketch, profile, feature.id);
+    nb.addAll(cast(prism.FirstShape()), `${feature.id}:start`);
+    nb.addAll(cast(prism.LastShape()), `${feature.id}:end`);
+    tool = nb.finish(feature.id);
   } finally {
     prism.delete();
     vec.delete();
     profile.delete();
   }
-
-  if (feature.operation === 'new') {
-    return input ? makeCompound([input.clone(), tool]) : tool;
-  }
-
-  const result = boolean(feature.operation, input!, tool);
-  tool.delete();
-  return result;
-}
-
-function boolean(op: 'join' | 'cut', input: AnyShape, tool: AnyShape): AnyShape {
-  const oc = getOC();
-  const range = new oc.Message_ProgressRange();
-  const algo = op === 'join'
-    ? new oc.BRepAlgoAPI_Fuse(input.wrapped, tool.wrapped, range)
-    : new oc.BRepAlgoAPI_Cut(input.wrapped, tool.wrapped, range);
-  try {
-    if (!algo.IsDone() || algo.HasErrors()) {
-      throw new FeatureError(op === 'join' ? 'Falló la unión con el sólido previo' : 'Falló el corte del sólido previo');
-    }
-    // Unifica caras coplanares y aristas colineales que deja la booleana (conserva la historia).
-    algo.SimplifyResult(true, true, 1e-6);
-    const result = cast(algo.Shape());
-    if (result.solids.length === 0) {
-      result.delete();
-      throw new FeatureError(op === 'cut' ? 'El corte elimina todo el sólido' : 'La unión no produjo un sólido');
-    }
-    if (!isValidShape(result)) {
-      result.delete();
-      throw new FeatureError('El resultado de la operación booleana no es un sólido válido');
-    }
-    if (op === 'cut' && sameVolumeAsInput(input, result)) {
-      // No es error para OCCT, pero casi siempre indica un corte que no toca el sólido.
-      result.delete();
-      throw new FeatureError('El corte no intersecta el sólido');
-    }
-    return result;
-  } finally {
-    algo.delete();
-    range.delete();
-  }
-}
-
-function sameVolumeAsInput(input: AnyShape, result: AnyShape): boolean {
-  const v0 = volume(input);
-  const v1 = volume(result);
-  return Math.abs(v0 - v1) <= 1e-9 * Math.max(1, v0);
-}
-
-export function volume(shape: AnyShape): number {
-  const oc = getOC();
-  const props = new oc.GProp_GProps();
-  try {
-    oc.BRepGProp.VolumeProperties(shape.wrapped, props, false, false, false);
-    return props.Mass();
-  } finally {
-    props.delete();
-  }
+  return combine(feature.operation, input, tool, feature.id);
 }

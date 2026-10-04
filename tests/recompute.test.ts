@@ -3,7 +3,7 @@ import { addFeature, deleteFeature, makeExtrude, makeSketch, setRollback, setSup
 import type { CadDocument, ExtrudeFeature, SketchFeature } from '../src/document/types';
 import { initOCCT } from '../src/kernel/occt';
 import { RecomputeEngine } from '../src/kernel/recompute';
-import { volume } from '../src/kernel/features/extrude';
+import { volume } from '../src/kernel/features/measure';
 import { initSolver } from '../src/sketch/solver';
 import { SketchBuilder } from '../src/sketch/builders';
 import { build, circle, extrudeIds, profileData, rect } from './helpers';
@@ -17,7 +17,8 @@ afterEach(() => engine?.dispose());
 
 function run(doc: CadDocument) {
   engine ??= new RecomputeEngine();
-  const out = engine.run(doc);
+  const named = engine.run(doc);
+  const out = { ...named, shape: named.shape?.shape ?? null };
   const ext = new Set(extrudeIds(doc));
   const extrudes = out.results.filter((r) => ext.has(r.id));
   return {

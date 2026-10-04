@@ -1,7 +1,8 @@
 // Operaciones puras sobre el documento. Nunca mutan: devuelven un documento nuevo.
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
-  type CadDocument, type ExtrudeFeature, type Feature, type FeatureId, type FeatureType, type SketchFeature,
+  type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
+  type FeatureType, type FilletFeature, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -88,7 +89,14 @@ export function rollbackAfter(doc: CadDocument, id: FeatureId): CadDocument {
   return setRollback(doc, indexOrThrow(doc, id) + 1);
 }
 
-const TYPE_LABELS: Record<FeatureType, string> = { sketch: 'Sketch', extrude: 'Extrusión' };
+export const TYPE_LABELS: Record<FeatureType, string> = {
+  sketch: 'Sketch',
+  extrude: 'Extrusión',
+  revolve: 'Revolución',
+  fillet: 'Redondeo',
+  chamfer: 'Chaflán',
+  shell: 'Vaciado',
+};
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
 export function nextFeatureName(doc: CadDocument, type: FeatureType): string {
@@ -123,28 +131,69 @@ export function makeExtrude(
   sketch: FeatureId,
   overrides: Partial<Omit<ExtrudeFeature, 'type' | 'sketch'>> = {},
 ): ExtrudeFeature {
-  const hasSolid = doc.features.slice(0, activeCount(doc)).some((f) => f.type === 'extrude' && !f.suppressed);
   return {
-    id: newFeatureId(),
-    type: 'extrude',
-    name: nextFeatureName(doc, 'extrude'),
-    suppressed: false,
+    ...base(doc, 'extrude'),
     sketch,
     distance: 20,
     direction: 'normal',
-    operation: hasSolid ? 'join' : 'new',
+    operation: hasSolidBefore(doc) ? 'join' : 'new',
     ...overrides,
   };
 }
 
-/** Features que usan a la indicada (por ahora: extrusiones que usan un sketch). */
+/** ¿La feature consume un sketch (extrusión o revolución)? */
+export function isProfileFeature(f: Feature): f is ProfileFeature {
+  return f.type === 'extrude' || f.type === 'revolve';
+}
+
+/**
+ * Features que dependen directamente de la indicada por id (las que usan un sketch).
+ * Las referencias a caras/aristas son por nombre y no se listan acá.
+ */
 export function dependents(doc: CadDocument, id: FeatureId): Feature[] {
-  return doc.features.filter((f) => f.type === 'extrude' && f.sketch === id);
+  return doc.features.filter((f) => isProfileFeature(f) && f.sketch === id);
 }
 
 /** Sketches activos que todavía no usa ninguna feature activa. */
 export function unusedSketches(doc: CadDocument): SketchFeature[] {
   const active = doc.features.slice(0, activeCount(doc)).filter((f) => !f.suppressed);
-  const used = new Set(active.flatMap((f) => (f.type === 'extrude' ? [f.sketch] : [])));
+  const used = new Set(active.flatMap((f) => (isProfileFeature(f) ? [f.sketch] : [])));
   return active.filter((f): f is SketchFeature => f.type === 'sketch' && !used.has(f.id));
+}
+
+function hasSolidBefore(doc: CadDocument): boolean {
+  return doc.features.slice(0, activeCount(doc)).some((f) => isProfileFeature(f) && !f.suppressed);
+}
+
+function base<T extends FeatureType>(doc: CadDocument, type: T) {
+  return { id: newFeatureId(), type, name: nextFeatureName(doc, type), suppressed: false };
+}
+
+export function makeRevolve(
+  doc: CadDocument,
+  sketch: SketchFeature,
+  overrides: Partial<Omit<RevolveFeature, 'type' | 'sketch'>> = {},
+): RevolveFeature {
+  // Eje por defecto: la primera línea de construcción del sketch, o su eje vertical.
+  const axisLine = sketch.entities.find((e) => e.type === 'line' && e.construction);
+  return {
+    ...base(doc, 'revolve'),
+    sketch: sketch.id,
+    axis: axisLine ? { kind: 'sketchLine', line: axisLine.id } : { kind: 'sketchAxis', axis: 'v' },
+    angle: 360,
+    operation: hasSolidBefore(doc) ? 'join' : 'new',
+    ...overrides,
+  };
+}
+
+export function makeFillet(doc: CadDocument, edges: EdgeRef[], radius = 2): FilletFeature {
+  return { ...base(doc, 'fillet'), edges, radius };
+}
+
+export function makeChamfer(doc: CadDocument, edges: EdgeRef[], distance = 1): ChamferFeature {
+  return { ...base(doc, 'chamfer'), edges, distance };
+}
+
+export function makeShell(doc: CadDocument, faces: FaceRef[], thickness = 2): ShellFeature {
+  return { ...base(doc, 'shell'), faces, thickness };
 }

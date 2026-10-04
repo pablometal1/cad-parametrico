@@ -2,7 +2,7 @@
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
-  type SketchEntity, type SketchFeature, type SketchPlaneRef,
+  type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
 } from './types';
 
 export function serializeDocument(doc: CadDocument): string {
@@ -60,6 +60,26 @@ function validateFeature(raw: unknown, path: string): Feature {
   switch (o.type) {
     case 'sketch':
       return validateSketch(o, base, path);
+    case 'revolve': {
+      const ax = obj(o.axis, `${path}.axis`);
+      const axis: RevolveFeature['axis'] =
+        ax.kind === 'sketchAxis'
+          ? { kind: 'sketchAxis', axis: oneOf(ax.axis, ['u', 'v'] as const, `${path}.axis.axis`) }
+          : ax.kind === 'sketchLine'
+            ? { kind: 'sketchLine', line: str(ax.line, `${path}.axis.line`) }
+            : (() => { throw new DocumentFormatError(`${path}.axis.kind`, 'debe ser sketchAxis o sketchLine'); })();
+      return {
+        ...base, type: 'revolve', sketch: str(o.sketch, `${path}.sketch`), axis,
+        angle: num(o.angle, `${path}.angle`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+      };
+    }
+    case 'fillet':
+      return { ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`) };
+    case 'chamfer':
+      return { ...base, type: 'chamfer', edges: list(o.edges, `${path}.edges`, edgeRef), distance: num(o.distance, `${path}.distance`) };
+    case 'shell':
+      return { ...base, type: 'shell', faces: list(o.faces, `${path}.faces`, faceRef), thickness: num(o.thickness, `${path}.thickness`) };
     case 'extrude': {
       const f: ExtrudeFeature = {
         ...base,
@@ -82,12 +102,18 @@ function validateSketch(
   path: string,
 ): SketchFeature {
   const po = obj(o.plane, `${path}.plane`);
-  if (po.kind !== 'base') throw new DocumentFormatError(`${path}.plane.kind`, 'solo se admiten planos base');
-  const plane: SketchPlaneRef = {
-    kind: 'base',
-    plane: oneOf(po.plane, ['XY', 'XZ', 'YZ'] as const satisfies readonly BasePlane[], `${path}.plane.plane`),
-    offset: num(po.offset, `${path}.plane.offset`),
-  };
+  let plane: SketchPlaneRef;
+  if (po.kind === 'base') {
+    plane = {
+      kind: 'base',
+      plane: oneOf(po.plane, ['XY', 'XZ', 'YZ'] as const satisfies readonly BasePlane[], `${path}.plane.plane`),
+      offset: num(po.offset, `${path}.plane.offset`),
+    };
+  } else if (po.kind === 'face') {
+    plane = { kind: 'face', face: faceRef(po.face, `${path}.plane.face`), offset: num(po.offset, `${path}.plane.offset`) };
+  } else {
+    throw new DocumentFormatError(`${path}.plane.kind`, 'debe ser "base" o "face"');
+  }
   if (!Array.isArray(o.entities)) throw new DocumentFormatError(`${path}.entities`, 'debe ser una lista');
   if (!Array.isArray(o.constraints)) throw new DocumentFormatError(`${path}.constraints`, 'debe ser una lista');
 
@@ -162,6 +188,33 @@ function validateConstraint(raw: unknown, path: string): SketchConstraint {
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de restricción desconocido: ${String(o.type)}`);
   }
+}
+
+function vec3(v: unknown, path: string): Vec3 {
+  if (!Array.isArray(v) || v.length !== 3) throw new DocumentFormatError(path, 'debe ser [x, y, z]');
+  return [num(v[0], `${path}[0]`), num(v[1], `${path}[1]`), num(v[2], `${path}[2]`)];
+}
+
+function faceRef(raw: unknown, path: string): FaceRef {
+  const o = obj(raw, path);
+  const ref: FaceRef = {
+    name: str(o.name, `${path}.name`),
+    type: str(o.type, `${path}.type`),
+    center: vec3(o.center, `${path}.center`),
+    area: num(o.area, `${path}.area`),
+  };
+  if (o.normal !== undefined) ref.normal = vec3(o.normal, `${path}.normal`);
+  return ref;
+}
+
+function edgeRef(raw: unknown, path: string): EdgeRef {
+  const o = obj(raw, path);
+  return { name: str(o.name, `${path}.name`), center: vec3(o.center, `${path}.center`), length: num(o.length, `${path}.length`) };
+}
+
+function list<T>(v: unknown, path: string, item: (x: unknown, p: string) => T): T[] {
+  if (!Array.isArray(v)) throw new DocumentFormatError(path, 'debe ser una lista');
+  return v.map((x, i) => item(x, `${path}[${i}]`));
 }
 
 function obj(v: unknown, path: string): Record<string, unknown> {

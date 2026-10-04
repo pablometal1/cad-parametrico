@@ -1,5 +1,5 @@
 // Tipos compartidos entre el hilo principal y el worker del kernel.
-import type { CadDocument } from '../document/types';
+import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 
 /** Malla lista para Three.js. Los buffers se transfieren (sin copia) desde el worker. */
 export interface MeshPayload {
@@ -29,6 +29,22 @@ export interface FaceInfo {
   normal: [number, number, number];
 }
 
+export interface SketchLines {
+  id: string;
+  /** Curvas del sketch en 3D: segmentos xyz consecutivos. */
+  segments: Float32Array;
+  construction: Float32Array;
+  /** Contorno de la cara de apoyo en coordenadas del sketch (u1,v1,u2,v2…); vacío en planos base. */
+  reference: Float32Array;
+}
+
+export interface EdgeInfo {
+  index: number;
+  curveType: string;
+  length: number;
+  midpoint: [number, number, number];
+}
+
 export type FeatureStatus = 'ok' | 'error' | 'suppressed' | 'rolledBack';
 
 export interface FeatureResult {
@@ -48,7 +64,7 @@ export interface RecomputeResult {
   /** null si no hay sólido (documento vacío o todo suprimido/retrocedido). */
   mesh: MeshPayload | null;
   /** Curvas de los sketches evaluados, en 3D (segmentos xyz consecutivos), para dibujarlas en el viewport. */
-  sketches: { id: string; segments: Float32Array; construction: Float32Array }[];
+  sketches: SketchLines[];
   totalMs: number;
 }
 
@@ -57,6 +73,11 @@ export interface KernelApi {
   init(): { occtLoadMs: number };
   recompute(doc: CadDocument): RecomputeResult;
   faceInfo(faceIndex: number): FaceInfo;
+  edgeInfo(edgeIndex: number): EdgeInfo;
+  /** Referencias topológicas (nombre + huella) de caras del sólido mostrado. */
+  faceRefs(indices: number[]): FaceRef[];
+  /** Referencias topológicas de aristas del sólido mostrado. */
+  edgeRefs(indices: number[]): EdgeRef[];
 }
 
 export type KernelMethod = keyof KernelApi;
