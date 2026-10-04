@@ -281,3 +281,47 @@ button.wide { width: 100%; margin-top: 6px; }
 }
 .face-reference { stroke: #8fa3b8; stroke-width: 1.2; stroke-dasharray: 4 3; fill: none; pointer-events: none; }
 .menu button:disabled { opacity: 0.4; }
+
+/* Controles de vista (dentro del área 3D) */
+.view-cube { position: absolute; top: 10px; right: 10px; width: 96px; height: 96px; z-index: 3; }
+.view-controls {
+  position: absolute; top: 112px; right: 10px; z-index: 3;
+  display: flex; flex-direction: column; gap: 4px; width: 96px;
+}
+.view-controls button {
+  padding: 3px 0; font-size: 13px;
+  background: rgba(32, 36, 42, 0.85); border-color: #3a424c;
+}
+.view-controls button:hover { background: #363d46; }
+
+/* Etiqueta del manipulador 3D */
+.manip-label {
+  position: absolute; z-index: 4; pointer-events: auto; cursor: text;
+  background: rgba(40, 32, 22, 0.92); color: #ffd9a8;
+  border: 1px solid #8a6a40; border-radius: 4px;
+  padding: 2px 7px; font-size: 12px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.manip-label:hover { border-color: #ffa040; }
+.manip-label input {
+  width: 64px; background: #16191d; color: var(--text);
+  border: 1px solid #ffa040; border-radius: 3px; padding: 1px 4px; font: inherit;
+}
+
+/* Panel flotante de la herramienta */
+.tool-dialog {
+  position: absolute; top: 10px; left: 10px; z-index: 6; width: 280px;
+  background: var(--panel); border: 1px solid #46505c; border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column; max-height: calc(100% - 20px);
+}
+.tool-dialog-title {
+  padding: 8px 10px; font-weight: 600; color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+.tool-dialog-body { padding: 4px 10px 8px; overflow-y: auto; }
+.tool-dialog-body h3:first-of-type { margin-top: 8px; }
+.tool-dialog-actions {
+  display: flex; justify-content: flex-end; gap: 6px;
+  padding: 8px 10px; border-top: 1px solid var(--border);
+}

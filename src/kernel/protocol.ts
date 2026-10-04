@@ -38,7 +38,43 @@ export interface SketchLines {
   construction: Float32Array;
   /** Contorno de la cara de apoyo en coordenadas del sketch (u1,v1,u2,v2…); vacío en planos base. */
   reference: Float32Array;
+  /** Plano del sketch y extensión de su geometría (u0, v0, u1, v1), para dibujarlo en 3D. */
+  plane: { origin: V3; xDir: V3; yDir: V3; normal: V3 };
+  bounds: [number, number, number, number];
 }
+
+type V3 = [number, number, number];
+
+/**
+ * Asa para modificar un parámetro arrastrando en 3D.
+ * - lineal: el asa está en `origin + dir · value · factor`; arrastrar a lo largo de `dir` cambia el valor.
+ * - angular: el asa gira alrededor de `axis` (por `center`), desde `startDir`, a distancia `radius`.
+ */
+export type Manipulator =
+  | {
+      kind: 'linear';
+      featureId: string;
+      param: 'distance' | 'radius' | 'thickness';
+      label: string;
+      origin: V3;
+      dir: V3;
+      factor: number;
+      value: number;
+      min: number;
+    }
+  | {
+      kind: 'angular';
+      featureId: string;
+      param: 'angle';
+      label: string;
+      center: V3;
+      axis: V3;
+      startDir: V3;
+      radius: number;
+      value: number;
+      /** Largo con el que dibujar el eje de revolución. */
+      axisLength: number;
+    };
 
 export interface EdgeInfo {
   index: number;
@@ -80,6 +116,8 @@ export interface KernelApi {
   faceRefs(indices: number[]): FaceRef[];
   /** Referencias topológicas de aristas del sólido mostrado. */
   edgeRefs(indices: number[]): EdgeRef[];
+  /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */
+  manipulator(featureId: string): Manipulator | null;
 }
 
 export type KernelMethod = keyof KernelApi;

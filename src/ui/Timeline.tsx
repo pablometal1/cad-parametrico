@@ -69,7 +69,7 @@ export function Timeline(props: { store: CadStore }) {
                   <li
                     class={`feature status-${status()}${store.selectedId() === f.id ? ' selected' : ''}`}
                     onClick={() => store.selectFeature(f.id)}
-                    onDblClick={() => f.type === 'sketch' && store.editSketch(f.id)}
+                    onDblClick={() => (f.type === 'sketch' ? store.editSketch(f.id) : store.openDialog(f.id, false))}
                     title={status() === 'pending' ? 'Calculando…' : STATUS_LABEL[status() as FeatureStatus]}
                   >
                     <span class="feature-icon" aria-hidden="true">

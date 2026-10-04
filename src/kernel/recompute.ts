@@ -42,6 +42,16 @@ interface Context {
 
 export class RecomputeEngine {
   private cache = new Map<FeatureId, CacheEntry>();
+  /** Sólido de entrada de cada feature evaluada en el último recálculo (propiedad de la cache). */
+  private lastInputs = new Map<FeatureId, NamedShape | null>();
+  private lastSketches = new Map<FeatureId, EvaluatedSketch>();
+  private lastDoc: CadDocument | null = null;
+
+  /** Contexto de la feature en el último recálculo, o null si no se evaluó (retrocedida/suprimida). */
+  contextOf(id: FeatureId): { input: NamedShape | null; sketches: Map<FeatureId, EvaluatedSketch>; doc: CadDocument } | null {
+    if (!this.lastDoc || !this.lastInputs.has(id)) return null;
+    return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, doc: this.lastDoc };
+  }
 
   run(doc: CadDocument): RecomputeOutput {
     const active = activeCount(doc);
@@ -49,6 +59,9 @@ export class RecomputeEngine {
     const sketches = new Map<FeatureId, EvaluatedSketch>();
     let current: NamedShape | null = null;
     let currentKey = ROOT_KEY;
+    this.lastInputs = new Map();
+    this.lastSketches = sketches;
+    this.lastDoc = doc;
 
     doc.features.forEach((feature, index) => {
       if (index >= active) {
@@ -62,6 +75,7 @@ export class RecomputeEngine {
       }
 
       const ctx: Context = { input: current, sketches, doc, index };
+      this.lastInputs.set(feature.id, current);
       // La clave incluye el estado de las dependencias (p. ej. un sketch borrado vs. suprimido).
       const key = hashString(currentKey + '\u0000' + featureFingerprint(feature) + '\u0000' + dependencyState(feature, ctx));
       let entry = this.cache.get(feature.id);
@@ -86,6 +100,8 @@ export class RecomputeEngine {
   dispose() {
     for (const entry of this.cache.values()) this.release(entry);
     this.cache.clear();
+    this.lastInputs.clear();
+    this.lastDoc = null;
   }
 
   /** Cantidad de entradas en cache (para tests y diagnóstico). */

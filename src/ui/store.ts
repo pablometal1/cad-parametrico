@@ -38,6 +38,15 @@ export function initialDocument(): CadDocument {
   return ops.addFeature(doc, ops.makeExtrude(doc, sketch.id));
 }
 
+/** Panel flotante de edición de una feature (con vista previa en vivo y Aceptar/Cancelar). */
+export interface ToolDialog {
+  featureId: FeatureId;
+  /** Creada al abrir el panel: cancelar la borra. */
+  isNew: boolean;
+  /** Valores al abrir, para restaurarlos al cancelar. */
+  original: Feature;
+}
+
 /** Modo "elegir referencias": el historial se retrocede hasta la feature para elegir sobre su entrada. */
 export interface Picking {
   featureId: FeatureId;
@@ -61,6 +70,17 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   const [editing, setEditing] = createSignal<SketchEditing | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [picking, setPicking] = createSignal<Picking | null>(null);
+  const [dialog, setDialog] = createSignal<ToolDialog | null>(null);
+
+  /** Abre el panel flotante de una feature; guarda una copia para poder cancelar. */
+  function openDialog(id: FeatureId, isNew: boolean) {
+    const f = ops.findFeature(doc(), id);
+    if (!f || f.type === 'sketch') return;
+    batch(() => {
+      setSelectedId(id);
+      setDialog({ featureId: id, isNew, original: f });
+    });
+  }
 
   const selectedFeature = createMemo(() => {
     const id = selectedId();
@@ -138,6 +158,28 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     doc,
     results,
     picking,
+    dialog,
+    openDialog,
+
+    /** Acepta los cambios del panel flotante. */
+    acceptDialog() {
+      setDialog(null);
+    },
+
+    /** Cancela: una feature nueva se borra; una existente vuelve a sus valores originales. */
+    cancelDialog() {
+      const d = dialog();
+      if (!d) return;
+      setDialog(null);
+      if (!ops.findFeature(doc(), d.featureId)) return;
+      if (d.isNew) {
+        if (selectedId() === d.featureId) setSelectedId(null);
+        apply((x) => ops.deleteFeature(x, d.featureId));
+      } else {
+        const { id: _id, type: _type, ...original } = d.original;
+        apply((x) => ops.updateFeature(x, d.featureId, original));
+      }
+    },
     selectedId,
     selectedFeature,
     kernelState,
@@ -205,7 +247,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
       const f = ops.makeExtrude(doc(), sketch.id);
       apply((d) => ops.addFeature(d, f));
-      setSelectedId(f.id);
+      openDialog(f.id, true);
       return null;
     },
 
@@ -214,7 +256,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
       const f = ops.makeRevolve(doc(), sketch);
       apply((d) => ops.addFeature(d, f));
-      setSelectedId(f.id);
+      openDialog(f.id, true);
       return null;
     },
 
@@ -225,7 +267,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!refs) return;
       const f = type === 'fillet' ? ops.makeFillet(doc(), refs) : ops.makeChamfer(doc(), refs);
       apply((d) => ops.addFeature(d, f));
-      setSelectedId(f.id);
+      openDialog(f.id, true);
     },
 
     async addShell(faces: number[]) {
@@ -234,7 +276,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!refs) return;
       const f = ops.makeShell(doc(), refs);
       apply((d) => ops.addFeature(d, f));
-      setSelectedId(f.id);
+      openDialog(f.id, true);
     },
 
     /** Crea un sketch sobre una cara plana del sólido mostrado y entra a editarlo. */

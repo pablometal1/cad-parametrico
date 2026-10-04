@@ -7,7 +7,9 @@ import { shapeToMesh } from './mesh';
 import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
-import type { EdgeInfo, FaceInfo, KernelApi, RecomputeResult, SurfaceType } from './protocol';
+import type { EdgeInfo, FaceInfo, KernelApi, Manipulator, RecomputeResult, SurfaceType } from './protocol';
+import type { EvaluatedSketch } from './features/sketch';
+import { manipulatorFor } from './manipulators';
 
 export class KernelService implements Record<keyof KernelApi, (...a: never[]) => unknown> {
   private readonly engine = new RecomputeEngine();
@@ -30,7 +32,13 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     return {
       features: results,
       mesh,
-      sketches: [...sketches].map(([id, s]) => ({ id, ...sketchSegments(s), reference: new Float32Array(s.reference) })),
+      sketches: [...sketches].map(([id, s]) => ({
+        id,
+        ...sketchSegments(s),
+        reference: new Float32Array(s.reference),
+        plane: { origin: s.frame.origin, xDir: s.frame.xDir, yDir: s.frame.yDir, normal: s.frame.normal },
+        bounds: sketchBounds(s),
+      })),
       totalMs: Math.round(performance.now() - t0),
     };
   }
@@ -82,6 +90,12 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     return indices.map((i) => edgeRefOf(shape, i));
   }
 
+  manipulator(featureId: string): Manipulator | null {
+    const ctx = this.engine.contextOf(featureId);
+    const feature = ctx?.doc.features.find((f) => f.id === featureId);
+    return ctx && feature ? manipulatorFor(feature, ctx) : null;
+  }
+
   dispose() {
     this.engine.dispose();
     this.current = null;
@@ -91,4 +105,25 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     if (!this.current) throw new Error('No hay sólido cargado');
     return this.current;
   }
+}
+
+/** Extensión (u0, v0, u1, v1) de la geometría y del contorno de referencia de un sketch, con margen. */
+function sketchBounds(s: EvaluatedSketch): [number, number, number, number] {
+  let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+  const grow = (u: number, v: number) => {
+    u0 = Math.min(u0, u); v0 = Math.min(v0, v); u1 = Math.max(u1, u); v1 = Math.max(v1, v);
+  };
+  for (const e of s.data.entities) if (e.type === 'point') grow(e.x, e.y);
+  for (const e of s.data.entities) {
+    if (e.type !== 'circle') continue;
+    const c = s.data.entities.find((p) => p.id === e.center);
+    if (c?.type === 'point') {
+      grow(c.x - e.radius, c.y - e.radius);
+      grow(c.x + e.radius, c.y + e.radius);
+    }
+  }
+  for (let i = 0; i + 1 < s.reference.length; i += 2) grow(s.reference[i], s.reference[i + 1]);
+  if (!Number.isFinite(u0)) return [-25, -25, 25, 25];
+  const m = Math.max(5, 0.15 * Math.max(u1 - u0, v1 - v0));
+  return [u0 - m, v0 - m, u1 + m, v1 + m];
 }

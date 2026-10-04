@@ -4,7 +4,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import type { MeshPayload, SketchLines } from '../kernel/protocol';
+import type { Manipulator, MeshPayload, SketchLines } from '../kernel/protocol';
+import { ManipulatorWidget, type ManipulatorHandlers } from './ManipulatorWidget';
+import { VIEW_DIRECTIONS, ViewCube, type StandardView } from './ViewCube';
+
+export type { StandardView };
+export type Projection = 'perspective' | 'orthographic';
 
 export type PickKind = 'face' | 'edge';
 
@@ -40,7 +45,14 @@ const EDGE_PICK_PX = 6;
 export class Viewport {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera: THREE.PerspectiveCamera;
+  private readonly perspCamera: THREE.PerspectiveCamera;
+  private readonly orthoCamera: THREE.OrthographicCamera;
+  private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  private readonly viewCube: ViewCube;
+  private readonly manipulator: ManipulatorWidget;
+  private readonly planeGroup = new THREE.Group();
+  /** Animación de cámara hacia una vista estándar. */
+  private anim: { from: THREE.Vector3; to: THREE.Vector3; upFrom: THREE.Vector3; upTo: THREE.Vector3; t0: number } | null = null;
   private readonly controls: OrbitControls;
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
@@ -66,6 +78,8 @@ export class Viewport {
   private pickable: Record<PickKind, boolean> = { face: true, edge: true };
   private pointerDown: { x: number; y: number } | null = null;
   private needsRender = true;
+  private animDistance = 0;
+  private projectionButton: HTMLButtonElement | null = null;
 
   constructor(private readonly container: HTMLElement, private readonly events: ViewportEvents = {}) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -74,9 +88,17 @@ export class Viewport {
     container.appendChild(this.renderer.domElement);
 
     // Convención CAD: Z hacia arriba.
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100_000);
-    this.camera.up.set(0, 0, 1);
-    this.camera.position.set(80, -100, 70);
+    this.perspCamera = new THREE.PerspectiveCamera(40, 1, 0.1, 100_000);
+    this.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -100_000, 100_000);
+    for (const cam of [this.perspCamera, this.orthoCamera]) {
+      cam.up.set(0, 0, 1);
+      cam.position.set(80, -100, 70);
+      const key = new THREE.DirectionalLight(0xffffff, 1.4);
+      key.position.set(0.5, 0.3, 1); // relativa a la cámara
+      cam.add(key);
+      this.scene.add(cam);
+    }
+    this.camera = this.perspCamera;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -84,10 +106,6 @@ export class Viewport {
     this.controls.addEventListener('change', () => (this.needsRender = true));
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.4);
-    key.position.set(0.5, 0.3, 1); // relativa a la cámara
-    this.camera.add(key);
-    this.scene.add(this.camera);
 
     this.grid = new THREE.GridHelper(200, 20, 0x556070, 0x343a44);
     this.grid.rotation.x = Math.PI / 2; // al plano XY
@@ -95,6 +113,14 @@ export class Viewport {
     this.scene.add(new THREE.AxesHelper(20));
     this.scene.add(this.modelGroup);
     this.scene.add(this.sketchGroup);
+    this.scene.add(this.planeGroup);
+
+    this.manipulator = new ManipulatorWidget(container, () => (this.needsRender = true));
+    this.scene.add(this.manipulator.group);
+
+    this.viewCube = new ViewCube((v) => this.setStandardView(v));
+    container.appendChild(this.viewCube.element);
+    container.appendChild(this.buildViewControls());
 
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', this.onPointerDown);
@@ -217,18 +243,107 @@ export class Viewport {
   }
 
   /** Encuadra el modelo completo. */
-  fitView() {
+  fitView(direction?: THREE.Vector3) {
     if (!this.mesh) return;
     const sphere = this.mesh.geometry.boundingSphere!;
-    const fov = THREE.MathUtils.degToRad(this.camera.fov);
+    const fov = THREE.MathUtils.degToRad(this.perspCamera.fov);
     const dist = (sphere.radius / Math.sin(fov / 2)) * 1.15;
-    const dir = new THREE.Vector3(0.55, -0.7, 0.45).normalize();
+    const dir = direction ?? this.camera.position.clone().sub(this.controls.target).normalize();
+    if (!direction && dir.lengthSq() < 0.5) dir.set(0.55, -0.7, 0.45).normalize();
     this.controls.target.copy(sphere.center);
     this.camera.position.copy(sphere.center).addScaledVector(dir, dist);
-    this.camera.near = Math.max(dist / 1000, 0.01);
-    this.camera.far = dist * 100;
-    this.camera.updateProjectionMatrix();
+    this.perspCamera.near = Math.max(dist / 1000, 0.01);
+    this.perspCamera.far = dist * 100;
+    this.perspCamera.updateProjectionMatrix();
+    this.orthoCamera.zoom = 1;
+    this.updateOrthoFrustum();
     this.controls.update();
+    this.needsRender = true;
+  }
+
+  /** Gira la cámara (animada) a una vista estándar, manteniendo objetivo y distancia. */
+  setStandardView(view: StandardView) {
+    const { dir, up } = VIEW_DIRECTIONS[view];
+    const dist = this.camera.position.distanceTo(this.controls.target);
+    this.anim = {
+      from: this.camera.position.clone().sub(this.controls.target).normalize(),
+      to: dir.clone(),
+      upFrom: this.camera.up.clone(),
+      upTo: up.clone(),
+      t0: performance.now(),
+    };
+    this.animDistance = dist;
+    this.needsRender = true;
+  }
+
+  get projection(): Projection {
+    return this.camera === this.orthoCamera ? 'orthographic' : 'perspective';
+  }
+
+  setProjection(p: Projection) {
+    const next = p === 'orthographic' ? this.orthoCamera : this.perspCamera;
+    if (next === this.camera) return;
+    next.position.copy(this.camera.position);
+    next.up.copy(this.camera.up);
+    next.lookAt(this.controls.target);
+    this.camera = next;
+    this.controls.object = next;
+    if (p === 'orthographic') {
+      this.orthoCamera.zoom = 1;
+      this.updateOrthoFrustum();
+    }
+    this.controls.update();
+    this.updateProjectionButton();
+    this.needsRender = true;
+  }
+
+  /** Acerca (factor < 1) o aleja (factor > 1) respecto del objetivo. */
+  zoomBy(factor: number) {
+    if (this.camera === this.orthoCamera) {
+      this.orthoCamera.zoom /= factor;
+      this.orthoCamera.updateProjectionMatrix();
+    } else {
+      const t = this.controls.target;
+      this.camera.position.sub(t).multiplyScalar(factor).add(t);
+    }
+    this.controls.update();
+    this.needsRender = true;
+  }
+
+  /** Manipulador 3D de la feature seleccionada (null para ocultarlo). */
+  setManipulator(spec: Manipulator | null, handlers: ManipulatorHandlers | null) {
+    this.manipulator.set(spec, handlers);
+    this.needsRender = true;
+  }
+
+  /** Planos translúcidos de los sketches indicados (vista previa del plano de trabajo). */
+  setSketchPlanes(sketches: SketchLines[], visible: ReadonlySet<string>) {
+    for (const child of [...this.planeGroup.children]) {
+      const m = child as THREE.Mesh | THREE.LineLoop;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      this.planeGroup.remove(m);
+    }
+    for (const sk of sketches) {
+      if (!visible.has(sk.id)) continue;
+      const { origin, xDir, yDir } = sk.plane;
+      const [u0, v0, u1, v1] = sk.bounds;
+      const P = (u: number, v: number) => new THREE.Vector3(
+        origin[0] + xDir[0] * u + yDir[0] * v,
+        origin[1] + xDir[1] * u + yDir[1] * v,
+        origin[2] + xDir[2] * u + yDir[2] * v,
+      );
+      const corners = [P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v1)];
+      const g = new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]);
+      g.computeVertexNormals();
+      const quad = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        color: 0x4a90d9, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false,
+      }));
+      const border = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), new THREE.LineBasicMaterial({
+        color: 0x4a90d9, transparent: true, opacity: 0.6,
+      }));
+      this.planeGroup.add(quad, border);
+    }
     this.needsRender = true;
   }
 
@@ -244,6 +359,8 @@ export class Viewport {
 
   dispose() {
     this.renderer.setAnimationLoop(null);
+    this.viewCube.dispose();
+    this.manipulator.dispose();
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearModel();
@@ -253,10 +370,13 @@ export class Viewport {
   }
 
   private tick = () => {
+    this.stepAnimation();
     this.controls.update();
     if (!this.needsRender) return;
     this.needsRender = false;
+    this.manipulator.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.renderer.render(this.scene, this.camera);
+    this.viewCube.sync(this.camera, this.controls.target);
   };
 
   private resize() {
@@ -264,8 +384,9 @@ export class Viewport {
     const h = Math.max(1, this.container.clientHeight);
     this.renderer.setSize(w, h, false);
     this.highlightMaterial.resolution.set(w, h);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.perspCamera.aspect = w / h;
+    this.perspCamera.updateProjectionMatrix();
+    this.updateOrthoFrustum();
     this.needsRender = true;
   }
 
@@ -330,19 +451,96 @@ export class Viewport {
     this.needsRender = true;
   }
 
-  private pick(ev: PointerEvent): PickItem | null {
-    if (!this.mesh) return null;
+  private size() {
+    return { w: Math.max(1, this.container.clientWidth), h: Math.max(1, this.container.clientHeight) };
+  }
+
+  /** Tamaño en unidades del mundo de un píxel de pantalla en el punto `p`. */
+  private worldPerPixel(p: THREE.Vector3): number {
+    const h = this.size().h;
+    if (this.camera === this.orthoCamera) {
+      return (this.orthoCamera.top - this.orthoCamera.bottom) / this.orthoCamera.zoom / h;
+    }
+    const depth = p.clone().sub(this.camera.position).dot(this.camera.getWorldDirection(new THREE.Vector3()));
+    return (2 * Math.max(depth, 1e-3) * Math.tan(THREE.MathUtils.degToRad(this.perspCamera.fov / 2))) / h;
+  }
+
+  /** El frustum ortográfico abarca lo mismo que la perspectiva a la distancia del objetivo. */
+  private updateOrthoFrustum() {
+    const { w, h } = this.size();
+    const dist = this.camera.position.distanceTo(this.controls.target) || 100;
+    const halfH = dist * Math.tan(THREE.MathUtils.degToRad(this.perspCamera.fov / 2));
+    this.orthoCamera.top = halfH;
+    this.orthoCamera.bottom = -halfH;
+    this.orthoCamera.left = (-halfH * w) / h;
+    this.orthoCamera.right = (halfH * w) / h;
+    this.orthoCamera.updateProjectionMatrix();
+  }
+
+  private stepAnimation() {
+    const a = this.anim;
+    if (!a) return;
+    const t = Math.min(1, (performance.now() - a.t0) / 350);
+    const k = t * t * (3 - 2 * t); // suavizado
+    const dir = a.from.clone().lerp(a.to, k);
+    if (dir.lengthSq() < 1e-6) dir.copy(a.to); // vistas opuestas: salto directo
+    dir.normalize();
+    this.camera.position.copy(this.controls.target).addScaledVector(dir, this.animDistance);
+    this.camera.up.copy(a.upFrom.clone().lerp(a.upTo, k).normalize());
+    this.camera.lookAt(this.controls.target);
+    if (t >= 1) {
+      this.anim = null;
+      for (const cam of [this.perspCamera, this.orthoCamera]) cam.up.copy(a.upTo);
+    }
+    this.needsRender = true;
+  }
+
+  private buildViewControls(): HTMLDivElement {
+    const bar = document.createElement('div');
+    bar.className = 'view-controls';
+    const button = (text: string, title: string, onClick: () => void) => {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.title = title;
+      b.addEventListener('click', onClick);
+      bar.appendChild(b);
+      return b;
+    };
+    button('⌂', 'Vista isométrica', () => this.setStandardView('iso'));
+    button('⤢', 'Encuadrar todo (F)', () => this.fitView());
+    button('+', 'Acercar', () => this.zoomBy(0.8));
+    button('−', 'Alejar', () => this.zoomBy(1.25));
+    this.projectionButton = button('', '', () =>
+      this.setProjection(this.projection === 'perspective' ? 'orthographic' : 'perspective'),
+    );
+    this.updateProjectionButton();
+    return bar;
+  }
+
+  private updateProjectionButton() {
+    if (!this.projectionButton) return;
+    const ortho = this.projection === 'orthographic';
+    this.projectionButton.textContent = ortho ? 'Orto' : 'Persp';
+    this.projectionButton.title = ortho ? 'Proyección ortográfica (clic: perspectiva)' : 'Proyección en perspectiva (clic: ortográfica)';
+  }
+
+  private rayFrom(ev: PointerEvent): THREE.Raycaster {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((ev.clientX - rect.left) / rect.width) * 2 - 1,
       -((ev.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster;
+  }
+
+  private pick(ev: PointerEvent): PickItem | null {
+    if (!this.mesh) return null;
+    this.rayFrom(ev);
     const faceHit = this.raycaster.intersectObject(this.mesh, false)[0];
 
     // Umbral de aristas en unidades del mundo, equivalente a EDGE_PICK_PX en pantalla.
-    const depth = faceHit?.distance ?? this.camera.position.distanceTo(this.controls.target);
-    const worldPerPx = (2 * depth * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) / rect.height;
+    const worldPerPx = this.worldPerPixel(faceHit?.point ?? this.controls.target);
     if (this.pickable.edge && this.edges) {
       this.raycaster.params.Line = { threshold: worldPerPx * EDGE_PICK_PX };
       const edgeHit = this.raycaster.intersectObject(this.edges, false)[0];
@@ -360,10 +558,24 @@ export class Viewport {
   }
 
   private onPointerDown = (ev: PointerEvent) => {
-    if (ev.button === 0) this.pointerDown = { x: ev.clientX, y: ev.clientY };
+    if (ev.button !== 0) return;
+    // El asa del manipulador tiene prioridad sobre la órbita y la selección.
+    if (this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
+      this.manipulator.beginDrag();
+      this.controls.enabled = false;
+      this.renderer.domElement.setPointerCapture(ev.pointerId);
+      return;
+    }
+    this.pointerDown = { x: ev.clientX, y: ev.clientY };
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (this.manipulator.isDragging) {
+      this.manipulator.endDrag();
+      this.controls.enabled = true;
+      this.renderer.domElement.releasePointerCapture(ev.pointerId);
+      return;
+    }
     const down = this.pointerDown;
     this.pointerDown = null;
     if (ev.button !== 0 || !down) return;
@@ -385,7 +597,17 @@ export class Viewport {
   };
 
   private onPointerMove = (ev: PointerEvent) => {
+    if (this.manipulator.isDragging) {
+      this.manipulator.drag(this.rayFrom(ev), ev.shiftKey);
+      return;
+    }
     if (ev.buttons !== 0) return; // no resaltar mientras se orbita
+    if (this.manipulator.active) {
+      const over = this.manipulator.hitTest(this.rayFrom(ev));
+      this.manipulator.setHover(over);
+      this.renderer.domElement.style.cursor = over ? 'grab' : '';
+      if (over) return this.setHovered(null);
+    }
     this.setHovered(this.pick(ev));
   };
 

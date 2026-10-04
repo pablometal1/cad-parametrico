@@ -154,6 +154,19 @@ export function edgeNames(named: NamedShape): { table: ShapeTable<Edge>; names: 
   return { table, names };
 }
 
+/** Índices de las caras vecinas a cada arista (en el orden de `shape.edges`). */
+export function edgeAdjacency(named: NamedShape): { table: ShapeTable<Edge>; adjacent: number[][] } {
+  const table = ShapeTable.edges(named.shape);
+  const adjacent: number[][] = table.items.map(() => []);
+  named.shape.faces.forEach((face, fi) => {
+    for (const e of face.edges) {
+      const ei = table.indexOf(e.wrapped, e.hashCode);
+      if (ei >= 0 && !adjacent[ei].includes(fi)) adjacent[ei].push(fi);
+    }
+  });
+  return { table, adjacent };
+}
+
 /** Tipo de arista para mostrar y elegir: 0 = normal, 1 = tangente (unión suave), 2 = costura. */
 export const EDGE_NORMAL = 0;
 export const EDGE_TANGENT = 1;

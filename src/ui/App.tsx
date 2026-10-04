@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
-import { findFeature, unusedSketches } from '../document/ops';
+import { findFeature, isProfileFeature, TYPE_LABELS, unusedSketches } from '../document/ops';
 import type { BasePlane, SketchFeature } from '../document/types';
 import { createKernelClient } from '../kernel/client';
 import type { EdgeInfo, FaceInfo, MeshPayload, RecomputeResult } from '../kernel/protocol';
@@ -8,7 +8,7 @@ import { FeatureEditor } from './FeatureEditor';
 import { createSketchSession } from './sketch/session';
 import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
-import { Timeline } from './Timeline';
+import { FEATURE_ICONS, Timeline } from './Timeline';
 
 const PLANE_MENU: { plane: BasePlane; label: string }[] = [
   { plane: 'XY', label: 'Plano XY (planta)' },
@@ -52,12 +52,46 @@ export function App() {
 
   const store = createCadStore(kernel, { onMesh: showMesh, onSketches: setSketchLines });
 
-  // Sketches visibles en 3D: los que todavía no usa ninguna feature, más el seleccionado.
+  // Sketches visibles en 3D: los que todavía no usa ninguna feature, más el seleccionado y el
+  // de la extrusión/revolución seleccionada (vista previa del perfil y de su plano de trabajo).
   createEffect(() => {
     const visible = new Set(unusedSketches(store.doc()).map((s) => s.id));
+    const planes = new Set<string>();
     const sel = store.selectedFeature();
-    if (sel?.type === 'sketch') visible.add(sel.id);
+    if (sel?.type === 'sketch') {
+      visible.add(sel.id);
+      planes.add(sel.id);
+    }
+    if (sel && isProfileFeature(sel)) {
+      visible.add(sel.sketch);
+      planes.add(sel.sketch);
+    }
     viewport?.setSketches(sketchLines(), visible);
+    viewport?.setSketchPlanes(sketchLines(), store.editing() ? new Set() : planes);
+  });
+
+  // Manipulador 3D de la feature seleccionada: se pide al kernel después de cada recálculo.
+  let manipulatorRequest = 0;
+  createEffect(() => {
+    const id = store.selectedId();
+    store.results(); // re-evaluar tras cada recálculo
+    const feature = id ? findFeature(store.doc(), id) : undefined;
+    const req = ++manipulatorRequest;
+    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || !ready()) {
+      viewport?.setManipulator(null, null);
+      return;
+    }
+    kernel.manipulator(feature.id).then(
+      (m) => {
+        if (req !== manipulatorRequest) return;
+        viewport?.setManipulator(m, m && {
+          // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle…).
+          onDrag: (value) => store.updateFeature(m.featureId, { [m.param]: value }),
+          onCommit: (value) => store.updateFeature(m.featureId, { [m.param]: value }),
+        });
+      },
+      () => req === manipulatorRequest && viewport?.setManipulator(null, null),
+    );
   });
 
   // En modo elegir, solo se puede seleccionar el tipo de entidad que se pide.
@@ -163,6 +197,25 @@ export function App() {
         <Show when={store.kernelState().state === 'loading'}>
           <div class="overlay">Cargando OpenCascade…</div>
         </Show>
+        <Show when={store.dialog() && !store.picking() && store.selectedFeature()}>
+          {(f) => (
+            <div class="tool-dialog" onKeyDown={(e) => {
+              if (e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT') store.cancelDialog();
+            }}>
+              <div class="tool-dialog-title">
+                <span>{FEATURE_ICONS[f().type]} {store.dialog()!.isNew ? newFeatureTitle(f().type) : `Editar ${f().name}`}</span>
+              </div>
+              <div class="tool-dialog-body">
+                <FeatureEditor store={store} />
+                <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
+              </div>
+              <div class="tool-dialog-actions">
+                <button onClick={() => store.cancelDialog()}>Cancelar</button>
+                <button class="primary" onClick={() => store.acceptDialog()}>✓ Aceptar</button>
+              </div>
+            </div>
+          )}
+        </Show>
         <Show when={store.picking()}>
           {(p) => (
             <div class="pick-banner">
@@ -193,7 +246,9 @@ export function App() {
 
       <aside class="panel">
         <h2>Parámetros</h2>
-        <FeatureEditor store={store} />
+        <Show when={!store.dialog()} fallback={<p class="muted">Editando en el cuadro de la herramienta (en el área 3D).</p>}>
+          <FeatureEditor store={store} />
+        </Show>
 
         <h2 class="section-gap">Selección</h2>
         <Show
@@ -245,6 +300,12 @@ export function App() {
       </footer>
     </div>
   );
+}
+
+/** "Nueva extrusión", "Nuevo redondeo"… */
+function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
+  const feminine = type === 'extrude' || type === 'revolve';
+  return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
 }
 
 function fmtVec(v: [number, number, number]) {

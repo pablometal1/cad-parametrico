@@ -54,7 +54,7 @@ export function runRevolve(feature: RevolveFeature, sketch: EvaluatedSketch, inp
 }
 
 /** Punto y dirección del eje en 3D. */
-function revolveAxis(feature: RevolveFeature, s: EvaluatedSketch): [Vec3, Vec3] {
+export function revolveAxis(feature: RevolveFeature, s: EvaluatedSketch): [Vec3, Vec3] {
   const f = s.frame;
   if (feature.axis.kind === 'sketchAxis') return [f.origin, feature.axis.axis === 'u' ? f.xDir : f.yDir];
   const index = new SketchIndex(s.data);
