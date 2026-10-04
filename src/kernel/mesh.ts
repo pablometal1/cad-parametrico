@@ -11,7 +11,7 @@ export interface MeshOptions {
 
 export const DEFAULT_MESH_OPTIONS: MeshOptions = { tolerance: 0.01, angularTolerance: 0.1 };
 
-export function shapeToMesh(shape: AnyShape, opts: MeshOptions = DEFAULT_MESH_OPTIONS): MeshPayload {
+export function shapeToMesh(shape: AnyShape, edgeKinds?: Uint8Array, opts: MeshOptions = DEFAULT_MESH_OPTIONS): MeshPayload {
   const faces = shape.faces;
   const edges = shape.edges;
   const m = shape.mesh(opts);
@@ -44,13 +44,14 @@ export function shapeToMesh(shape: AnyShape, opts: MeshOptions = DEFAULT_MESH_OP
     faceRanges,
     edgePositions: new Float32Array(em.lines),
     edgeRanges,
+    edgeKinds: edgeKinds ?? new Uint8Array(edges.length),
     bbox: { min: [...min] as [number, number, number], max: [...max] as [number, number, number] },
   };
 }
 
 /** Buffers a transferir con postMessage. */
 export function meshTransferables(m: MeshPayload): ArrayBuffer[] {
-  return [m.positions, m.normals, m.indices, m.faceRanges, m.edgePositions, m.edgeRanges]
+  return [m.positions, m.normals, m.indices, m.faceRanges, m.edgePositions, m.edgeRanges, m.edgeKinds]
     .map((a) => a.buffer as ArrayBuffer);
 }
 

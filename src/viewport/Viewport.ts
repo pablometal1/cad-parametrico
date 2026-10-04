@@ -27,6 +27,11 @@ export interface ViewportEvents {
 const COLOR_BASE = new THREE.Color(0xb8c4d0);
 const COLOR_HOVER = new THREE.Color(0x7fb8ff);
 const COLOR_SELECTED = new THREE.Color(0xff9a3c);
+const COLOR_EDGE = new THREE.Color(0x15181c);
+/** Aristas entre caras tangentes: se ven, pero más suaves (como en Fusion/FreeCAD). */
+const COLOR_TANGENT_EDGE = new THREE.Color(0x6f7a86);
+const EDGE_TANGENT = 1;
+const EDGE_SEAM = 2;
 /** Movimiento máximo del puntero (px) para considerar un clic y no un arrastre de órbita. */
 const CLICK_TOLERANCE_PX = 4;
 /** Distancia en px a la que una arista se puede elegir. */
@@ -118,12 +123,23 @@ export class Viewport {
 
     this.edgePositions = data.edgePositions;
     this.edgeRanges = data.edgeRanges;
-    this.segmentEdge = new Int32Array(data.edgePositions.length / 6).fill(-1);
+    // Líneas visibles: sin costuras (no son bordes reales); las tangentes se dibujan tenues.
+    const linePos: number[] = [];
+    const lineCol: number[] = [];
+    const segEdge: number[] = [];
     for (let e = 0; e < data.edgeRanges.length / 2; e++) {
+      const kind = data.edgeKinds[e];
+      if (kind === EDGE_SEAM) continue;
+      const c = kind === EDGE_TANGENT ? COLOR_TANGENT_EDGE : COLOR_EDGE;
       const start = data.edgeRanges[2 * e];
       const count = data.edgeRanges[2 * e + 1];
-      this.segmentEdge.fill(e, start / 2, (start + count) / 2);
+      for (let p = start; p < start + count; p++) {
+        linePos.push(data.edgePositions[3 * p], data.edgePositions[3 * p + 1], data.edgePositions[3 * p + 2]);
+        lineCol.push(c.r, c.g, c.b);
+      }
+      for (let k = 0; k < count / 2; k++) segEdge.push(e);
     }
+    this.segmentEdge = Int32Array.from(segEdge);
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
@@ -146,8 +162,9 @@ export class Viewport {
     this.modelGroup.add(this.mesh);
 
     const eg = new THREE.BufferGeometry();
-    eg.setAttribute('position', new THREE.BufferAttribute(data.edgePositions, 3));
-    this.edges = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x15181c }));
+    eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(linePos), 3));
+    eg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(lineCol), 3));
+    this.edges = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ vertexColors: true }));
     this.modelGroup.add(this.edges);
 
     this.hovered = null;

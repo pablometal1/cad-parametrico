@@ -12,6 +12,8 @@ export interface MeshPayload {
   edgePositions: Float32Array;
   /** Por arista B-rep: [inicioPunto, cantidadPuntos]. */
   edgeRanges: Uint32Array;
+  /** Por arista: 0 normal, 1 tangente (unión suave), 2 costura (no se dibuja ni se elige). */
+  edgeKinds: Uint8Array;
   bbox: { min: [number, number, number]; max: [number, number, number] };
 }
 

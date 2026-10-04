@@ -4,7 +4,7 @@ import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
 import { initOCCT } from './occt';
 import { shapeToMesh } from './mesh';
-import { edgeRefOf, faceRefOf, type NamedShape } from './naming';
+import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
 import type { EdgeInfo, FaceInfo, KernelApi, RecomputeResult, SurfaceType } from './protocol';
@@ -26,7 +26,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const t0 = performance.now();
     const { results, shape, sketches } = this.engine.run(doc);
     this.current = shape;
-    const mesh = shape ? shapeToMesh(shape.shape) : null;
+    const mesh = shape ? shapeToMesh(shape.shape, edgeKinds(shape)) : null;
     return {
       features: results,
       mesh,
@@ -41,13 +41,16 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const face = faces[faceIndex];
     if (!face) throw new Error(`Cara ${faceIndex} fuera de rango (el sólido tiene ${faces.length})`);
     const center = face.center;
-    const normal = face.normalAt(center);
+    // En caras curvas el centro de masa no está sobre la superficie: normalAt lo proyecta,
+    // pero el vector no viene unitario.
+    const [nx, ny, nz] = face.normalAt(center).toTuple();
+    const len = Math.hypot(nx, ny, nz) || 1;
     return {
       index: faceIndex,
       surfaceType: face.geomType as SurfaceType,
       area: measureArea(face),
       center: center.toTuple(),
-      normal: normal.toTuple(),
+      normal: [nx / len, ny / len, nz / len],
     };
   }
 
@@ -65,6 +68,17 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
 
   edgeRefs(indices: number[]): EdgeRef[] {
     const shape = this.requireShape();
+    const kinds = edgeKinds(shape);
+    const bad = indices.filter((i) => kinds[i] !== EDGE_NORMAL);
+    if (bad.length) {
+      const what = bad.every((i) => kinds[i] === EDGE_SEAM)
+        ? 'es una costura de la superficie, no un borde real'
+        : bad.every((i) => kinds[i] === EDGE_TANGENT)
+          ? 'une dos caras tangentes (transición suave)'
+          : 'es tangente o una costura';
+      const n = bad.length === 1 ? 'Una de las aristas elegidas' : `${bad.length} de las aristas elegidas`;
+      throw new Error(`${n} ${what}: no se puede redondear ni achaflanar. Elegí bordes con esquina viva.`);
+    }
     return indices.map((i) => edgeRefOf(shape, i));
   }
 

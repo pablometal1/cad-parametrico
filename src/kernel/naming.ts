@@ -154,6 +154,46 @@ export function edgeNames(named: NamedShape): { table: ShapeTable<Edge>; names: 
   return { table, names };
 }
 
+/** Tipo de arista para mostrar y elegir: 0 = normal, 1 = tangente (unión suave), 2 = costura. */
+export const EDGE_NORMAL = 0;
+export const EDGE_TANGENT = 1;
+export const EDGE_SEAM = 2;
+
+/** Ángulo máximo entre normales para considerar tangentes a dos caras vecinas (≈1°). */
+const TANGENT_SIN = Math.sin((1 * Math.PI) / 180);
+
+/**
+ * Clasifica las aristas: una costura tiene la misma cara a ambos lados (cierre de un cilindro,
+ * p. ej.); una arista tangente separa dos caras con la misma normal en su punto medio.
+ * Ninguna de las dos se puede redondear ni achaflanar.
+ */
+export function edgeKinds(named: NamedShape): Uint8Array {
+  const table = ShapeTable.edges(named.shape);
+  const faces = named.shape.faces;
+  const adjacent: number[][] = table.items.map(() => []);
+  faces.forEach((face, fi) => {
+    for (const e of face.edges) {
+      const ei = table.indexOf(e.wrapped, e.hashCode);
+      if (ei >= 0 && !adjacent[ei].includes(fi)) adjacent[ei].push(fi);
+    }
+  });
+  return Uint8Array.from(adjacent, (adj, ei) => {
+    if (adj.length === 1) return EDGE_SEAM;
+    if (adj.length !== 2) return EDGE_NORMAL;
+    try {
+      const p = table.items[ei].pointAt(0.5);
+      // normalAt no devuelve vectores unitarios en caras curvas: se normalizan.
+      const a = unit(faces[adj[0]].normalAt(p).toTuple());
+      const b = unit(faces[adj[1]].normalAt(p).toTuple());
+      const cross = Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
+      const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      return cross < TANGENT_SIN && dot > 0 ? EDGE_TANGENT : EDGE_NORMAL;
+    } catch {
+      return EDGE_NORMAL;
+    }
+  });
+}
+
 // ---------------------------------------------------------------- huellas y referencias
 
 export function faceRefOf(named: NamedShape, index: number): FaceRef {
@@ -228,6 +268,11 @@ function minBy(items: number[], f: (i: number) => number): number {
     }
   }
   return best;
+}
+
+function unit(v: number[]): Vec3 {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
 }
 
 const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);

@@ -288,3 +288,40 @@ describe('redondeo, chaflán, vaciado y revolución', () => {
     expect(r.shape!.shape.boundingBox.bounds[0][1]).toBeCloseTo(-18, 6);
   });
 });
+
+describe('aristas que no admiten redondeo', () => {
+  it('clasifica costuras y aristas tangentes', async () => {
+    const { edgeKinds, EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT } = await import('../src/kernel/naming');
+    engine = new RecomputeEngine();
+    // Agujero cilíndrico: su superficie tiene una costura.
+    const hole = run(build({ profile: rect(40, 30), distance: 20 }, { profile: circle(5), distance: 50, operation: 'cut', direction: 'symmetric' }));
+    const k1 = Array.from(edgeKinds(hole.shape!));
+    expect(k1.filter((k) => k === EDGE_SEAM)).toHaveLength(1);
+    expect(k1.filter((k) => k === EDGE_NORMAL)).toHaveLength(14);
+    engine.dispose();
+
+    // Redondeo: sus dos bordes con las caras vecinas son tangentes.
+    let doc = boxDoc();
+    const ref = edgeAt(run(doc).shape!, [0, -15, 20]);
+    doc = addFeature(doc, makeFillet(doc, [ref], 3));
+    const k2 = Array.from(edgeKinds(run(doc).shape!));
+    expect(k2.filter((k) => k === EDGE_TANGENT)).toHaveLength(2);
+    expect(k2.filter((k) => k === EDGE_SEAM)).toHaveLength(0);
+  });
+
+  it('el kernel rechaza elegir costuras o aristas tangentes con un mensaje claro', async () => {
+    const { KernelService } = await import('../src/kernel/service');
+    const { edgeKinds, EDGE_SEAM } = await import('../src/kernel/naming');
+    const k = new KernelService();
+    await k.init();
+    const doc = build({ profile: rect(40, 30), distance: 20 }, { profile: circle(5), distance: 50, operation: 'cut', direction: 'symmetric' });
+    const r = k.recompute(doc);
+    const seam = Array.from(r.mesh!.edgeKinds).indexOf(EDGE_SEAM);
+    expect(seam).toBeGreaterThanOrEqual(0);
+    expect(() => k.edgeRefs([seam])).toThrow(/costura/);
+    const normal = Array.from(r.mesh!.edgeKinds).indexOf(0);
+    expect(k.edgeRefs([normal])).toHaveLength(1);
+    void edgeKinds;
+    k.dispose();
+  });
+});
