@@ -54,7 +54,7 @@ export type Manipulator =
   | {
       kind: 'linear';
       featureId: string;
-      param: 'distance' | 'radius' | 'thickness';
+      param: 'distance' | 'radius' | 'thickness' | 'depth';
       label: string;
       origin: V3;
       dir: V3;

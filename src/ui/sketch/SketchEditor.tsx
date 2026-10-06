@@ -22,6 +22,7 @@ const DRAG_THRESHOLD_PX = 3;
 
 const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
   { id: 'select', label: 'Seleccionar', key: 'Esc', icon: 'select' },
+  { id: 'point', label: 'Punto (centro de agujero)', key: 'O', icon: 'point' },
   { id: 'line', label: 'Línea', key: 'L', icon: 'line' },
   { id: 'rectangle', label: 'Rectángulo', key: 'R', icon: 'rectangle' },
   { id: 'circle', label: 'Círculo', key: 'C', icon: 'circle' },
@@ -309,6 +310,7 @@ export function SketchEditor(props: {
     }
     if (e.key === 'Escape') s.escape();
     else if (e.key === 'Delete' || e.key === 'Backspace') s.deleteSelection();
+    else if (k === 'o') s.setTool('point');
     else if (k === 'l') s.setTool('line');
     else if (k === 'r') s.setTool('rectangle');
     else if (k === 'c') s.setTool('circle');

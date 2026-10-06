@@ -71,6 +71,13 @@ export function App() {
     else if (id === 'revolve') store.setNotice(store.addRevolve());
     else if (id === 'sweep') store.setNotice(store.addSweep());
     else if (id === 'loft') store.setNotice(store.addLoft());
+    else if (id === 'hole') {
+      const msg = store.addHole();
+      // Sin centros pero con una cara elegida: se marcan ahí con la herramienta Punto.
+      if (msg && sel.faces.length === 1) {
+        void startDrawing('point').then(() => store.setNotice('Marcá los centros de los agujeros y apretá Enter; después tocá Agujero (Shift+H)'));
+      } else store.setNotice(msg);
+    }
     else if (id === 'pattern' || id === 'mirror') store.setNotice(store.addCopy(id));
     else if (id === 'fillet' || id === 'chamfer') store.addEdgeFeature(id, sel.edges);
     else store.addShell(sel.faces);
@@ -532,7 +539,7 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane'].includes(f().type)}>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole'].includes(f().type)}>
                   <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
                 </Show>
               </div>

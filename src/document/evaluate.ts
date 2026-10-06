@@ -31,6 +31,12 @@ export function fieldLabel(path: string): string {
     count: 'la cantidad',
     spacing: 'la separación',
     'plane.offset': 'el desplazamiento',
+    diameter: 'el diámetro',
+    depth: 'la profundidad',
+    cbDiameter: 'el diámetro del cajeado',
+    cbDepth: 'la profundidad del cajeado',
+    csDiameter: 'el diámetro del avellanado',
+    csAngle: 'el ángulo del avellanado',
   };
   if (path.startsWith('constraint:')) return `la cota ${path.slice(11)}`;
   return labels[path] ?? path;

@@ -10,6 +10,7 @@ import { runRevolve } from './features/revolve';
 import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
 import { runLoft, runSweep } from './features/sweep';
+import { runHole } from './features/hole';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -213,6 +214,8 @@ export class RecomputeEngine {
             resolveSketchById(feature.path, 'la trayectoria de este barrido', ctx),
             ctx.input,
           ));
+        case 'hole':
+          return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
         case 'loft':
           return ok(runLoft(
             feature,
@@ -246,6 +249,10 @@ function dependencyState(feature: Feature, ctx: Context): string {
   try {
     if (feature.type === 'extrude' || feature.type === 'revolve') {
       resolveSketch(feature, ctx);
+      return 'ok';
+    }
+    if (feature.type === 'hole') {
+      resolveSketchById(feature.sketch, 'un sketch', ctx);
       return 'ok';
     }
     if (feature.type === 'sweep' || feature.type === 'loft') {

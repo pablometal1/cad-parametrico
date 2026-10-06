@@ -3,8 +3,9 @@ import { Icon } from './icons';
 import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature,
 } from '../document/types';
+import { HOLE_PRESETS, holeCenters, PRESET_GROUPS, type HolePresetGroup } from '../document/holes';
 import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
 
@@ -56,6 +57,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
                 <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
+              </Match>
+              <Match when={feature().type === 'hole'}>
+                <HolePanel store={store} feature={feature() as HoleFeature} />
               </Match>
               <Match when={feature().type === 'plane'}>
                 <PlanePanel store={store} feature={feature() as PlaneFeature} />
@@ -183,6 +187,77 @@ function ShellPanel(props: { store: CadStore; feature: ShellFeature }) {
         {f().faces.length === 0 ? 'Sin caras quitadas: queda hueco y cerrado.' : `${f().faces.length} cara${f().faces.length === 1 ? '' : 's'} quitada${f().faces.length === 1 ? '' : 's'}`}
       </p>
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir caras a quitar…</button>
+    </>
+  );
+}
+
+const HOLE_KINDS = [
+  { value: 'simple', label: 'Simple' },
+  { value: 'counterbore', label: 'Cajeado (cabeza cilíndrica)' },
+  { value: 'countersink', label: 'Avellanado (cabeza plana)' },
+] as const satisfies readonly { value: HoleFeature['kind']; label: string }[];
+
+function HolePanel(props: { store: CadStore; feature: HoleFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<HoleFeature>) => props.store.updateFeature<HoleFeature>(f().id, patch);
+  const centers = () => {
+    const sk = props.store.doc().features.find((x) => x.id === f().sketch);
+    return sk?.type === 'sketch' ? holeCenters(sk).length : 0;
+  };
+  const groups = Object.keys(PRESET_GROUPS) as HolePresetGroup[];
+  return (
+    <>
+      <h3>Agujero</h3>
+      <SelectField label="Sketch" value={f().sketch} options={sketchOptions(props.store, f().id, f().sketch)} onChange={(sketch) => update({ sketch })} />
+      <label class="field">
+        <span class="field-label">Medida</span>
+        <span class="field-input">
+          <select value="" onChange={(e) => {
+            const p = HOLE_PRESETS.find((x) => x.id === e.currentTarget.value);
+            e.currentTarget.value = '';
+            if (p) update(p.values);
+          }}>
+            <option value="">Elegir tornillo o inserto…</option>
+            <For each={groups}>
+              {(g) => (
+                <optgroup label={PRESET_GROUPS[g]}>
+                  <For each={HOLE_PRESETS.filter((p) => p.group === g)}>{(p) => <option value={p.id}>{p.label}</option>}</For>
+                </optgroup>
+              )}
+            </For>
+          </select>
+        </span>
+      </label>
+      <SelectField label="Tipo" value={f().kind} options={HOLE_KINDS} onChange={(kind) => update({ kind })} />
+      <Num store={props.store} id={f().id} path="diameter" label="Diámetro" unit="mm" />
+      <Show when={f().kind === 'counterbore'}>
+        <Num store={props.store} id={f().id} path="cbDiameter" label="Ø cajeado" unit="mm" />
+        <Num store={props.store} id={f().id} path="cbDepth" label="Prof. cajeado" unit="mm" />
+      </Show>
+      <Show when={f().kind === 'countersink'}>
+        <Num store={props.store} id={f().id} path="csDiameter" label="Ø avellanado" unit="mm" />
+        <Num store={props.store} id={f().id} path="csAngle" label="Ángulo" unit="°" />
+      </Show>
+      <SelectField label="Hasta" value={f().extent}
+        options={[{ value: 'through', label: 'Pasante (atraviesa todo)' }, { value: 'distance', label: 'Profundidad' }] as const}
+        onChange={(extent) => update({ extent })} />
+      <Show when={f().extent === 'distance'}>
+        <Num store={props.store} id={f().id} path="depth" label="Profundidad" unit="mm" />
+        <SelectField label="Fondo" value={f().tip}
+          options={[{ value: 'flat', label: 'Plano' }, { value: 'drill', label: 'Punta de mecha (118°)' }] as const}
+          onChange={(tip) => update({ tip })} />
+      </Show>
+      <label class="field">
+        <span class="field-label">Dirección</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().reversed} onChange={(e) => update({ reversed: e.currentTarget.checked })} />
+          <span class="muted">invertir</span>
+        </span>
+      </label>
+      <p class="hint">
+        {centers()} agujero{centers() === 1 ? '' : 's'}: uno por cada punto suelto o círculo del sketch.
+        Las medidas de la lista son para impresión 3D; en FDM los agujeros suelen salir algo más chicos, probá con una pieza de prueba.
+      </p>
     </>
   );
 }

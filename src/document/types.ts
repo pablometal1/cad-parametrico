@@ -265,9 +265,32 @@ export interface PlaneFeature extends FeatureBase {
   distance: number;
 }
 
+/**
+ * Agujero en cada centro del sketch (puntos sueltos y centros de círculos), perpendicular a su
+ * plano y hacia adentro del material (contra la normal del sketch, o a favor si `reversed`).
+ */
+export interface HoleFeature extends FeatureBase {
+  type: 'hole';
+  sketch: FeatureId;
+  kind: 'simple' | 'counterbore' | 'countersink';
+  diameter: number;
+  /** Hasta una profundidad o pasante (atraviesa todo el sólido). */
+  extent: 'distance' | 'through';
+  depth: number;
+  /** Fondo plano o punta de mecha (118°); solo con profundidad. */
+  tip: 'flat' | 'drill';
+  /** Cajeado: diámetro y profundidad del alojamiento de la cabeza. */
+  cbDiameter: number;
+  cbDepth: number;
+  /** Avellanado: diámetro en la superficie y ángulo del cono (90° para tornillos métricos). */
+  csDiameter: number;
+  csAngle: number;
+  reversed: boolean;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

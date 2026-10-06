@@ -123,6 +123,20 @@ function validateFeature(raw: unknown, path: string): Feature {
         distance: num(o.distance, `${path}.distance`),
       };
     }
+    case 'hole':
+      return {
+        ...base, type: 'hole', sketch: str(o.sketch, `${path}.sketch`),
+        kind: oneOf(o.kind, ['simple', 'counterbore', 'countersink'] as const, `${path}.kind`),
+        diameter: num(o.diameter, `${path}.diameter`),
+        extent: oneOf(o.extent, ['distance', 'through'] as const, `${path}.extent`),
+        depth: num(o.depth, `${path}.depth`),
+        tip: oneOf(o.tip, ['flat', 'drill'] as const, `${path}.tip`),
+        cbDiameter: num(o.cbDiameter, `${path}.cbDiameter`),
+        cbDepth: num(o.cbDepth, `${path}.cbDepth`),
+        csDiameter: num(o.csDiameter, `${path}.csDiameter`),
+        csAngle: num(o.csAngle, `${path}.csAngle`),
+        reversed: bool(o.reversed, `${path}.reversed`),
+      };
     case 'loft':
       return {
         ...base, type: 'loft', sections: list(o.sections, `${path}.sections`, str),

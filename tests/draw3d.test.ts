@@ -150,3 +150,22 @@ function captureHandlers(d: ReturnType<typeof createDirectDraw>, vp: { setDrawMo
   void d;
   return (vp as unknown as { handlers: { click: (uv: [number, number], s: [number, number], e: PointerEvent) => void } }).handlers;
 }
+
+describe('herramienta Punto', () => {
+  it('cada clic agrega un centro de agujero; sobre un punto existente (el origen) no agrega nada', async () => {
+    const { holeCenters } = await import('../src/document/holes');
+    const { vp } = fakeViewport();
+    const fs = fakeStore();
+    const d = createRoot(() => createDirectDraw(fs.store as never, () => vp as never));
+    d.start(target(), 'point');
+    const h = captureHandlers(d, vp);
+    // Lejos entre sí y del origen: en este viewport de prueba 1 px = 1 mm (enganche a ~10 px).
+    h.click([15, 15], screen(15, 15), ev());
+    h.click([30, 20], screen(30, 20), ev());
+    h.click([0.1, 0.1], screen(0.1, 0.1), ev()); // se engancha al origen: no es un punto nuevo
+    h.click([30.5, 20.5], screen(30.5, 20.5), ev()); // se engancha al punto anterior
+    const data = fs.commits.at(-1)!.data;
+    expect(holeCenters(data).map((c) => c.pos)).toEqual([[15, 15], [30, 20]]);
+    d.stop();
+  });
+});

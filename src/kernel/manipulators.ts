@@ -1,4 +1,5 @@
 // Ubicación de los manipuladores 3D de cada feature (asas para arrastrar parámetros).
+import { holeCenters } from '../document/holes';
 import type { PlaneFrame } from '../document/planes';
 import { dot, normalize, sub, toWorld, type Vec3 } from '../document/planes';
 import type { Feature, FeatureId } from '../document/types';
@@ -87,6 +88,18 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
           kind: 'linear', featureId: feature.id, param: 'distance', label: 'Distancia',
           origin: [0, 1, 2].map((i) => f.origin[i] - f.normal[i] * feature.distance) as [number, number, number],
           dir: f.normal, factor: 1, value: feature.distance, min: -1e6,
+        };
+      }
+      case 'hole': {
+        // Asa de profundidad en el primer centro, hacia adentro del material.
+        const s = ctx.sketches.get(feature.sketch);
+        const c = s ? holeCenters(s.data)[0] : undefined;
+        if (!s || !c || feature.extent !== 'distance') return null;
+        const n = s.frame.normal;
+        return {
+          kind: 'linear', featureId: feature.id, param: 'depth', label: 'Profundidad',
+          origin: toWorld(s.frame, c.pos[0], c.pos[1]), dir: feature.reversed ? n : scale(n, -1), factor: 1,
+          value: feature.depth, min: 0.01,
         };
       }
       case 'sketch':

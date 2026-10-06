@@ -3,6 +3,7 @@ import type { DrawTool } from './draw3d/controller';
 import type { IconName } from './iconPaths';
 
 export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: string }[] = [
+  { id: 'point', label: 'Punto (centro de agujero)', icon: 'point', key: 'O' },
   { id: 'line', label: 'Línea', icon: 'line', key: 'L' },
   { id: 'rectangle', label: 'Rectángulo', icon: 'rectangle', key: 'R' },
   { id: 'circle', label: 'Círculo', icon: 'circle', key: 'C' },
@@ -12,13 +13,14 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
   { id: 'slot', label: 'Ranura', icon: 'slot', key: 'S' },
 ];
 
-export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
+export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
   { id: 'revolve', label: 'Revolución', icon: 'revolve', key: 'Shift+R', desc: 'Girar el sketch seleccionado alrededor de un eje' },
   { id: 'sweep', label: 'Barrido', icon: 'sweep', key: 'Shift+B', desc: 'Pasar un perfil cerrado a lo largo de una trayectoria (otro sketch con líneas y arcos)' },
   { id: 'loft', label: 'Solevación', icon: 'loft', key: 'Shift+L', desc: 'Unir dos o más perfiles (sketches en distintos planos) con una forma suave' },
+  { id: 'hole', label: 'Agujero', icon: 'hole', key: 'Shift+H', desc: 'Agujeros en los puntos de un sketch: pasante, ciego, cajeado o avellanado, con medidas de tornillos e insertos', sepBefore: true },
   { id: 'pattern', label: 'Patrón', icon: 'pattern', key: 'Shift+P', desc: 'Repetir la extrusión/revolución seleccionada (lineal o circular)', sepBefore: true },
   { id: 'mirror', label: 'Simetría', icon: 'mirror', key: 'Shift+M', desc: 'Reflejar la extrusión/revolución seleccionada respecto de un plano' },
   { id: 'fillet', label: 'Redondeo', icon: 'fillet', key: 'Shift+F', desc: 'Redondear las aristas seleccionadas', sepBefore: true },
@@ -84,7 +86,7 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
   {
     title: 'Editor de sketch',
     rows: [
-      ['L R E C A P S', 'Las mismas herramientas de dibujo'],
+      ['O L R E C A P S', 'Las mismas herramientas de dibujo'],
       ['G', 'Pasar a construcción'],
       ['Supr', 'Borrar selección'],
       ['Doble clic', 'Editar el valor de una cota'],

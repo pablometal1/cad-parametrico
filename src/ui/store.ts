@@ -1,4 +1,5 @@
 // Estado de la aplicación: el documento (fuente de verdad), su historial y los resultados del recálculo.
+import { holeCenters } from '../document/holes';
 import { findProfiles } from '../sketch/profiles';
 import { batch, createEffect, createMemo, createSignal, on } from 'solid-js';
 import solverWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
@@ -511,6 +512,19 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         setSelectedId(f.id);
         setEditing({ featureId: f.id, isNew: true });
       });
+    },
+
+    /**
+     * Agujero en los centros del sketch elegido (o del último sin usar que tenga puntos o círculos).
+     * Devuelve un mensaje si no hay ninguno.
+     */
+    addHole(): string | null {
+      const sel = selectedFeature();
+      const withCenters = (s: SketchFeature) => holeCenters(s).length > 0;
+      const sketch = sel?.type === 'sketch' && withCenters(sel) ? sel : [...ops.unusedSketches(doc())].reverse().find(withCenters);
+      if (!sketch) return 'Para un agujero: elegí una cara plana y marcá los centros con la herramienta Punto (O), o dibujá círculos donde van';
+      addWithDialog(ops.makeHole(doc(), sketch.id));
+      return null;
     },
 
     /** Mueve una feature en el historial. Devuelve el motivo si no se puede. */

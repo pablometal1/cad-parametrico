@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -102,6 +102,7 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   sweep: 'Barrido',
   loft: 'Solevación',
   plane: 'Plano',
+  hole: 'Agujero',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -162,6 +163,8 @@ export function sketchesUsedBy(f: Feature): FeatureId[] {
       return [f.profile, f.path];
     case 'loft':
       return f.sections;
+    case 'hole':
+      return [f.sketch];
     default:
       return [];
   }
@@ -311,6 +314,14 @@ export function makeMirror(doc: CadDocument, source: FeatureId, plane: BasePlane
 /** Plano de construcción: por defecto, XY desplazado 20 mm. */
 export function makePlane(doc: CadDocument, reference: PlaneReference = { kind: 'base', plane: 'XY' }, overrides: Partial<Omit<PlaneFeature, 'type'>> = {}): PlaneFeature {
   return { ...base(doc, 'plane'), reference, axis: 'none', angle: 0, distance: 20, ...overrides };
+}
+
+/** Agujero M3 de paso libre, pasante, en los centros del sketch. */
+export function makeHole(doc: CadDocument, sketch: FeatureId, overrides: Partial<Omit<HoleFeature, 'type'>> = {}): HoleFeature {
+  return {
+    ...base(doc, 'hole'), sketch, kind: 'simple', diameter: 3.4, extent: 'through', depth: 10, tip: 'flat',
+    cbDiameter: 6.5, cbDepth: 3.3, csDiameter: 6.7, csAngle: 90, reversed: false, ...overrides,
+  };
 }
 
 export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId, overrides: Partial<Omit<SweepFeature, 'type'>> = {}): SweepFeature {

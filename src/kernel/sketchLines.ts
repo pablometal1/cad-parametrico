@@ -13,5 +13,13 @@ export function sketchSegments(s: EvaluatedSketch): { segments: Float32Array; co
     const out = c.construction ? aux : normal;
     for (let i = 0; i + 1 < pts.length; i++) out.push(...pts[i], ...pts[i + 1]);
   }
+  // Puntos sueltos (centros de agujero): una cruz chica para que se vean en 3D.
+  const used = new Set(index.curves().flatMap((c) => (c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.center, c.start, c.end] : [c.center])));
+  const k = 0.75;
+  for (const p of index.points()) {
+    if (used.has(p.id)) continue;
+    normal.push(...toWorld(s.frame, p.x - k, p.y), ...toWorld(s.frame, p.x + k, p.y));
+    normal.push(...toWorld(s.frame, p.x, p.y - k), ...toWorld(s.frame, p.x, p.y + k));
+  }
   return { segments: new Float32Array(normal), construction: new Float32Array(aux) };
 }

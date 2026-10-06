@@ -9,7 +9,7 @@ import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
+export type Tool = 'select' | 'point' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
 
 /** Posición del cursor, opcionalmente enganchada a un punto existente. */
 export interface Anchor {
@@ -132,6 +132,14 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     switch (tool()) {
       case 'select':
         return;
+      case 'point': {
+        // Un punto suelto (centro de agujero). Sobre un punto existente no agrega nada.
+        if (at.pointId) return;
+        const b = new SketchBuilder(data());
+        b.point(at.pos);
+        commit(b.data);
+        return;
+      }
       case 'line': {
         if (!p || p.tool !== 'line') {
           setPending({ tool: 'line', start: at, chainStart: null });
@@ -446,6 +454,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
 export type SketchSession = ReturnType<typeof createSketchSession>;
 
 const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
+  point: 'Punto: clic donde va cada centro de agujero (después, Agujero los usa todos).',
   line: 'Línea: clic en el inicio y en cada vértice. Esc termina; clic en el primer punto cierra.',
   rectangle: 'Rectángulo: clic en dos esquinas opuestas.',
   circle: 'Círculo: clic en el centro y luego en un punto del borde.',
