@@ -121,6 +121,10 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   /** Planos de construcción del último recálculo. */
   const [planeFrames, setPlaneFrames] = createSignal<Map<FeatureId, RecomputeResult['planes'][number]['frame']>>(new Map());
 
+  /** Error del último recálculo que no es de una feature (malla, memoria…); null si anduvo. */
+  const [recomputeError, setRecomputeError] = createSignal<string | null>(null);
+  let retried = false;
+
   async function pump() {
     if (running || kernelState().state !== 'ready') return;
     running = true;
@@ -143,9 +147,25 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
           callbacks.onSketches(r.sketches);
           setPlaneFrames(new Map(r.planes.map((p) => [p.id, p.frame])));
         } catch (err) {
-          setKernelState({ state: 'error', message: (err as Error).message });
-          return;
+          // Un error inesperado (no de una feature) puede dejar a OpenCascade en mal estado:
+          // se reinicia el kernel y se reintenta una vez. Si vuelve a fallar se avisa, pero la app
+          // sigue: el próximo cambio (por ejemplo, deshacer) se vuelve a calcular.
+          if (!retried) {
+            retried = true;
+            setRecomputeError('Reiniciando el kernel…');
+            try {
+              await kernel.restart();
+              pending = pending ?? d;
+              continue;
+            } catch {
+              // sigue abajo con el error original
+            }
+          }
+          setRecomputeError((err as Error).message);
+          continue;
         }
+        retried = false;
+        setRecomputeError(null);
       }
     } finally {
       running = false;
@@ -256,6 +276,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   return {
     doc,
     planeFrames,
+    recomputeError,
     evaluated,
     results,
     picking,

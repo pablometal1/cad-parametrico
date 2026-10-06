@@ -6,12 +6,13 @@ import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
 import { evaluateDocument } from '../document/evaluate';
 import { initOCCT } from './occt';
-import { shapeToMesh } from './mesh';
+import { displayMeshOptions, shapeToMesh } from './mesh';
+import { describeError } from './occtUtils';
 import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
 import type {
-  EdgeInfo, ExportFormat, ExportQuality, ExportResult, FaceInfo, KernelApi, Manipulator, MassProperties, Measurement, RecomputeResult,
+  EdgeInfo, ExportFormat, ExportQuality, ExportResult, FaceInfo, KernelApi, Manipulator, MassProperties, Measurement, MeshPayload, RecomputeResult,
   SurfaceType,
 } from './protocol';
 import { getOC } from 'replicad';
@@ -44,7 +45,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const evaluated = evaluateDocument(doc);
     const { results, shape, sketches, planes } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
-    const mesh = shape ? shapeToMesh(shape.shape, edgeKinds(shape)) : null;
+    const mesh = shape ? meshForDisplay(shape) : null;
     return {
       features: results,
       mesh,
@@ -271,5 +272,28 @@ function cylinderInfo(face: Parameters<typeof cylinderOf>[0]): FaceInfo['cylinde
     return { radius: c.radius, internal: c.internal, length: c.z1 - c.z0 };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Malla para el viewport, con precisión según el tamaño. Si OpenCascade falla con la fina
+ * (pasa con superficies complejas, como roscas largas), se intenta una más gruesa.
+ */
+const MAX_DISPLAY_TRIANGLES = 150_000;
+
+function meshForDisplay(shape: NamedShape): MeshPayload {
+  const kinds = edgeKinds(shape);
+  try {
+    const fine = shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape));
+    if (fine.indices.length / 3 <= MAX_DISPLAY_TRIANGLES) return fine;
+    // Demasiados triángulos (superficies como roscas de paso grande): una más gruesa, si es menor.
+    const coarse = shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));
+    return coarse.indices.length < fine.indices.length ? coarse : fine;
+  } catch {
+    try {
+      return shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));
+    } catch (err) {
+      throw new Error(`No se pudo generar la malla para mostrar la pieza (${describeError(err)})`);
+    }
   }
 }

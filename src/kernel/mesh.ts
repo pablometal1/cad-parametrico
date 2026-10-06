@@ -11,6 +11,17 @@ export interface MeshOptions {
 
 export const DEFAULT_MESH_OPTIONS: MeshOptions = { tolerance: 0.01, angularTolerance: 0.1 };
 
+/**
+ * Precisión de la malla que se muestra, según el tamaño de la pieza: 0,01 mm fijo en una rosca
+ * de 60 mm daba cientos de miles de triángulos. La exportación tiene su propia calidad.
+ */
+export function displayMeshOptions(shape: AnyShape, coarse = false): MeshOptions {
+  const [min, max] = shape.boundingBox.bounds;
+  const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  const tolerance = Math.min(0.2, Math.max(0.01, diag / 2000));
+  return coarse ? { tolerance: tolerance * 5, angularTolerance: 0.5 } : { tolerance, angularTolerance: 0.25 };
+}
+
 export function shapeToMesh(shape: AnyShape, edgeKinds?: Uint8Array, opts: MeshOptions = DEFAULT_MESH_OPTIONS): MeshPayload {
   const faces = shape.faces;
   const edges = shape.edges;

@@ -697,6 +697,8 @@ export function App() {
           if (k.state === 'loading') return <span>Kernel: cargando…</span>;
           if (k.state === 'error') return <span class="error">Error del kernel: {k.message}</span>;
           if (store.computing()) return <span>Recalculando…</span>;
+          const re = store.recomputeError();
+          if (re) return <span class="error">No se pudo recalcular: {re}. Deshacé el último cambio (Ctrl+Z) o probá otros valores.</span>;
           const s = store.stats();
           if (!s) return <span>Kernel listo</span>;
           return (

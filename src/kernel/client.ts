@@ -3,26 +3,36 @@ import type { KernelApi, KernelMethod, RpcRequest, RpcResponse } from './protoco
 
 export type KernelClient = {
   [K in KernelMethod]: (...args: Parameters<KernelApi[K]>) => Promise<ReturnType<KernelApi[K]>>;
+} & {
+  /**
+   * Descarta el worker y arranca uno nuevo (memoria de OpenCascade limpia). Se usa cuando un
+   * recálculo falla de forma inesperada: después de un error interno el estado del WASM no es confiable.
+   */
+  restart(): Promise<void>;
 };
 
 export function createKernelClient(): KernelClient {
-  const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   let nextId = 1;
 
-  worker.onmessage = (ev: MessageEvent<RpcResponse>) => {
-    const msg = ev.data;
-    const p = pending.get(msg.id);
-    if (!p) return;
-    pending.delete(msg.id);
-    if (msg.ok) p.resolve(msg.result);
-    else p.reject(new Error(msg.error));
+  const spawn = () => {
+    const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (ev: MessageEvent<RpcResponse>) => {
+      const msg = ev.data;
+      const p = pending.get(msg.id);
+      if (!p) return;
+      pending.delete(msg.id);
+      if (msg.ok) p.resolve(msg.result);
+      else p.reject(new Error(msg.error));
+    };
+    w.onerror = (ev) => {
+      const err = new Error(`El worker del kernel falló: ${ev.message}`);
+      for (const p of pending.values()) p.reject(err);
+      pending.clear();
+    };
+    return w;
   };
-  worker.onerror = (ev) => {
-    const err = new Error(`El worker del kernel falló: ${ev.message}`);
-    for (const p of pending.values()) p.reject(err);
-    pending.clear();
-  };
+  let worker = spawn();
 
   const call = (method: KernelMethod, args: unknown[]) =>
     new Promise((resolve, reject) => {
@@ -32,8 +42,16 @@ export function createKernelClient(): KernelClient {
     });
 
   // Objeto explícito (no Proxy) para que no parezca "thenable" al pasarlo por promesas.
-  const client = {} as Record<KernelMethod, (...a: unknown[]) => Promise<unknown>>;
+  const client = {} as Record<KernelMethod, (...a: unknown[]) => Promise<unknown>> & { restart(): Promise<void> };
   for (const m of KERNEL_METHODS) client[m] = (...args) => call(m, args);
+  client.restart = async () => {
+    worker.terminate();
+    const err = new Error('El kernel se reinició');
+    for (const p of pending.values()) p.reject(err);
+    pending.clear();
+    worker = spawn();
+    await call('init', []);
+  };
   return client as KernelClient;
 }
 
