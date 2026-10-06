@@ -29,7 +29,7 @@ const PLANE_MENU: { plane: BasePlane; label: string }[] = [
 
 function pickText(kind: keyof typeof PICK_TEXT, type: string | undefined) {
   if (type === 'thread') return 'Elegí la cara cilíndrica a roscar (pared de un agujero o una barra)';
-  if (type === 'plane') return 'Elegí una cara plana como referencia del plano';
+  if (type === 'plane') return kind === 'edges' ? 'Elegí la arista recta que hace de eje de giro' : 'Elegí una cara plana como referencia del plano';
   return PICK_TEXT[kind];
 }
 
@@ -367,6 +367,15 @@ export function App() {
 
   onMount(() => {
     viewport = new Viewport(viewportEl, {
+      // Elegir sketches y planos haciendo clic en 3D; clic en el vacío deselecciona.
+      onFeaturePick: (id) => {
+        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
+        store.selectFeature(id);
+      },
+      onEmptyClick: () => {
+        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
+        store.selectFeature(null);
+      },
       onHoverChange: setHovered,
       onSelectionChange: async (sel) => {
         setViewSel(sel);

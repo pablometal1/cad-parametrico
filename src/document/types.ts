@@ -260,7 +260,9 @@ export interface LoftFeature extends FeatureBase {
 export interface PlaneFeature extends FeatureBase {
   type: 'plane';
   reference: PlaneReference;
-  axis: 'none' | GlobalAxis;
+  /** 'edge': gira alrededor de la recta de una arista del modelo (`axisEdge`). */
+  axis: 'none' | GlobalAxis | 'edge';
+  axisEdge?: EdgeRef;
   angle: number;
   distance: number;
 }

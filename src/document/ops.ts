@@ -219,6 +219,7 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
   if (f.type === 'sketch' && f.plane.kind === 'plane') req.add(f.plane.plane);
   if (f.type === 'plane' && f.reference.kind === 'plane') req.add(f.reference.plane);
   if (f.type === 'plane' && f.reference.kind === 'face') names.push(f.reference.face.name);
+  if (f.type === 'plane' && f.axis === 'edge' && f.axisEdge) names.push(f.axisEdge.name);
   if (f.type === 'fillet' || f.type === 'chamfer') names.push(...f.edges.map((e) => e.name));
   if (f.type === 'shell') names.push(...f.faces.map((x) => x.name));
   if (f.type === 'thread') names.push(f.face.name);

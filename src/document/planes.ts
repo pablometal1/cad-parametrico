@@ -81,16 +81,22 @@ const AXIS_DIRS: Record<'X' | 'Y' | 'Z', Vec3> = { X: [1, 0, 0], Y: [0, 1, 0], Z
  * Plano de construcción a partir de una referencia: giro alrededor de un eje paralelo a X/Y/Z
  * que pasa por el origen de la referencia, y después desplazamiento sobre la nueva normal.
  */
-export function constructionFrame(ref: PlaneFrame, axis: 'none' | 'X' | 'Y' | 'Z', angle: number, distance: number): PlaneFrame {
-  let { xDir, yDir, normal } = ref;
+export function constructionFrame(
+  ref: PlaneFrame, axis: 'none' | 'X' | 'Y' | 'Z' | { point: Vec3; dir: Vec3 }, angle: number, distance: number,
+): PlaneFrame {
+  let { origin, xDir, yDir, normal } = ref;
   if (axis !== 'none' && angle !== 0) {
-    const k = AXIS_DIRS[axis];
+    // Eje global (por el origen de la referencia) o una recta cualquiera (arista del modelo).
+    const k = typeof axis === 'string' ? AXIS_DIRS[axis] : normalize(axis.dir);
+    const pivot = typeof axis === 'string' ? ref.origin : axis.point;
     xDir = normalize(rotate(xDir, k, angle));
     yDir = normalize(rotate(yDir, k, angle));
     normal = normalize(rotate(normal, k, angle));
+    const r = rotate(sub(origin, pivot), k, angle);
+    origin = [0, 1, 2].map((i) => pivot[i] + r[i]) as Vec3;
   }
-  const origin = [0, 1, 2].map((i) => ref.origin[i] + normal[i] * distance) as Vec3;
-  return { origin, xDir, yDir, normal };
+  const moved = [0, 1, 2].map((i) => origin[i] + normal[i] * distance) as Vec3;
+  return { origin: moved, xDir, yDir, normal };
 }
 
 /** Desplaza un plano a lo largo de su normal. */

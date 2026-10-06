@@ -42,6 +42,10 @@ export interface PickItem {
 export interface ViewportEvents {
   onSelectionChange?: (sel: ViewportSelection) => void;
   onHoverChange?: (item: PickItem | null) => void;
+  /** Clic sobre un sketch o un plano de construcción visibles (id de la feature). */
+  onFeaturePick?: (featureId: string) => void;
+  /** Clic en el vacío (sin modelo, sketch ni plano debajo). */
+  onEmptyClick?: () => void;
 }
 
 const COLOR_HOVER = new THREE.Color(0x7fb8ff);
@@ -259,6 +263,7 @@ export class Viewport {
           : new THREE.LineBasicMaterial({ color: 0xffc857 });
         const lines = new THREE.LineSegments(g, mat);
         if (construction) lines.computeLineDistances();
+        lines.userData.featureId = sk.id;
         this.sketchGroup.add(lines);
       }
     }
@@ -438,6 +443,7 @@ export class Viewport {
         color: 0xf0a040, transparent: true, opacity: p.selected ? 1 : 0.55,
       }));
       quad.renderOrder = border.renderOrder = 5;
+      quad.userData.featureId = border.userData.featureId = p.id;
       this.constructionGroup.add(quad, border);
     }
     this.needsRender = true;
@@ -745,6 +751,31 @@ export class Viewport {
     return this.raycaster;
   }
 
+  /**
+   * Sketch o plano de construcción bajo el cursor. Las líneas de sketch y los bordes de los planos
+   * ganan si no están detrás del modelo; el área de un plano, solo donde no hay modelo.
+   */
+  private pickFeature(ev: PointerEvent): string | null {
+    this.rayFrom(ev);
+    const faceHit = this.mesh ? this.raycaster.intersectObject(this.mesh, false)[0] : undefined;
+    const worldPerPx = this.worldPerPixel(faceHit?.point ?? this.controls.target);
+    this.raycaster.params.Line = { threshold: worldPerPx * EDGE_PICK_PX };
+    const lines = [
+      ...this.sketchGroup.children,
+      ...this.constructionGroup.children.filter((c) => (c as THREE.Object3D).type === 'LineLoop'),
+    ];
+    const lineHit = this.raycaster.intersectObjects(lines, false)[0];
+    if (lineHit && (!faceHit || lineHit.distance <= faceHit.distance + worldPerPx * 4)) {
+      return (lineHit.object.userData.featureId as string | undefined) ?? null;
+    }
+    if (!faceHit) {
+      const quads = this.constructionGroup.children.filter((c) => (c as THREE.Object3D).type === 'Mesh');
+      const quadHit = this.raycaster.intersectObjects(quads, false)[0];
+      if (quadHit) return (quadHit.object.userData.featureId as string | undefined) ?? null;
+    }
+    return null;
+  }
+
   private pick(ev: PointerEvent): PickItem | null {
     if (!this.mesh) return null;
     this.rayFrom(ev);
@@ -796,10 +827,19 @@ export class Viewport {
       if (uv) this.drawHandlers.click(uv, this.screenOf(ev), ev);
       return;
     }
-    const item = this.pick(ev);
     const multi = ev.shiftKey || ev.ctrlKey || ev.metaKey;
+    const feature = this.pickable.face && this.pickable.edge && !multi ? this.pickFeature(ev) : null;
+    if (feature) {
+      this.setSelection({ faces: [], edges: [] });
+      this.events.onFeaturePick?.(feature);
+      return;
+    }
+    const item = this.pick(ev);
     if (!item) {
-      if (!multi) this.setSelection({ faces: [], edges: [] });
+      if (!multi) {
+        this.setSelection({ faces: [], edges: [] });
+        this.events.onEmptyClick?.();
+      }
       return;
     }
     const key = item.kind === 'face' ? 'faces' : 'edges';

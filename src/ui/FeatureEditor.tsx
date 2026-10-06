@@ -323,6 +323,7 @@ const PLANE_AXES = [
   { value: 'X', label: 'Eje X' },
   { value: 'Y', label: 'Eje Y' },
   { value: 'Z', label: 'Eje Z' },
+  { value: 'edge', label: 'Arista del modelo…' },
 ] as const satisfies readonly { value: PlaneFeature['axis']; label: string }[];
 
 function PlanePanel(props: { store: CadStore; feature: PlaneFeature }) {
@@ -344,13 +345,22 @@ function PlanePanel(props: { store: CadStore; feature: PlaneFeature }) {
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}>
         <Icon name="select" size={15} />{f().reference.kind === 'face' ? 'Cambiar cara de referencia…' : 'Usar una cara del modelo…'}
       </button>
-      <SelectField label="Girar en" value={f().axis} options={PLANE_AXES} onChange={(axis) => update({ axis })} />
+      <SelectField label="Girar en" value={f().axis} options={PLANE_AXES} onChange={(axis) => {
+        // Arista: se elige en el modelo (si ya había una, se reutiliza).
+        if (axis === 'edge' && !f().axisEdge) props.store.beginPick(f().id, true);
+        else update({ axis });
+      }} />
+      <Show when={f().axis === 'edge'}>
+        <button class="wide with-icon" onClick={() => props.store.beginPick(f().id, true)}><Icon name="select" size={15} />Cambiar arista del eje…</button>
+      </Show>
       <Show when={f().axis !== 'none'}>
         <Num store={props.store} id={f().id} path="angle" label="Ángulo" unit="°" />
       </Show>
       <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
       <p class="hint">
-        Se gira alrededor de un eje paralelo a {f().axis === 'none' ? 'X, Y o Z' : f().axis} que pasa por el origen de la referencia,
+        {f().axis === 'edge'
+          ? 'Se gira alrededor de la recta de la arista elegida'
+          : `Se gira alrededor de un eje paralelo a ${f().axis === 'none' ? 'X, Y o Z' : f().axis} que pasa por el origen de la referencia`},
         y después se desplaza sobre la nueva normal. Distancia negativa: hacia el otro lado.
       </p>
       <button class="primary wide with-icon" onClick={() => props.store.newSketchOnPlane(f().id)}>

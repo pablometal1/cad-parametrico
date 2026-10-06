@@ -118,7 +118,8 @@ function validateFeature(raw: unknown, path: string): Feature {
               : (() => { throw new DocumentFormatError(`${path}.reference.kind`, 'debe ser base, plane o face'); })();
       return {
         ...base, type: 'plane', reference,
-        axis: oneOf(o.axis, ['none', 'X', 'Y', 'Z'] as const, `${path}.axis`),
+        axis: oneOf(o.axis, ['none', 'X', 'Y', 'Z', 'edge'] as const, `${path}.axis`),
+        ...(o.axisEdge !== undefined ? { axisEdge: edgeRef(o.axisEdge, `${path}.axisEdge`) } : {}),
         angle: num(o.angle, `${path}.angle`),
         distance: num(o.distance, `${path}.distance`),
       };

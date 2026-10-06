@@ -614,12 +614,13 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     // ------------------------------------------------------------ modo elegir referencias
 
     /** Entra al modo elegir referencias para una feature existente (retrocede el historial hasta ella). */
-    beginPick(featureId: FeatureId) {
+    /** `edgeAxis`: para un plano, elegir la arista que hace de eje de giro (en vez de la cara). */
+    beginPick(featureId: FeatureId, edgeAxis = false) {
       const d = doc();
       const i = d.features.findIndex((f) => f.id === featureId);
       const f = d.features[i];
       if (!f) return;
-      const kind = f.type === 'fillet' || f.type === 'chamfer' ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      const kind = f.type === 'fillet' || f.type === 'chamfer' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
       // Para un sketch o un plano: el modelo hasta antes de la feature (la cara tiene que existir antes).
       setPicking({ featureId, kind, before: d });
       apply((x) => ops.setRollback(x, i), { history: false });
@@ -631,7 +632,15 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!p) return;
       const restore = (d: CadDocument) => ops.setRollback(d, p.before.rollback);
       const opts: CommitOptions = { base: p.before };
-      if (p.kind === 'edges') {
+      if (p.kind === 'edges' && ops.findFeature(doc(), p.featureId)?.type === 'plane') {
+        if (sel.edges.length !== 1) return setNotice('Seleccioná una arista recta como eje');
+        const info = await withRefs(() => kernel.edgeInfo(sel.edges[0]));
+        if (!info) return;
+        if (info.curveType !== 'LINE') return setNotice('La arista del eje tiene que ser recta');
+        const refs = await withRefs(() => kernel.edgeRefs(sel.edges));
+        if (!refs) return;
+        apply((d) => restore(ops.updateFeature<PlaneFeature>(d, p.featureId, { axis: 'edge', axisEdge: refs[0] })), opts);
+      } else if (p.kind === 'edges') {
         if (!sel.edges.length) return setNotice('Seleccioná al menos una arista');
         const refs = await withRefs(() => kernel.edgeRefs(sel.edges));
         if (!refs) return;

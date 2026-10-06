@@ -148,3 +148,40 @@ function withShape<T>(doc: CadDocument, fn: (s: NamedShape) => T): T {
     e.dispose();
   }
 }
+
+describe('plano girado alrededor de una arista', () => {
+  it('contiene la arista y se inclina el ángulo pedido', async () => {
+    const { edgeRefOf } = await import('../src/kernel/naming');
+    const box = build({ profile: rect(40, 30), distance: 20 });
+    const [top, edge] = withShape(box, (s) => [
+      faceRefOf(s, s.shape.faces.findIndex((f) => f.geomType === 'PLANE' && Math.abs(f.center.toTuple()[2] - 20) < 1e-6)),
+      edgeRefOf(s, s.shape.edges.findIndex((e) => {
+        const m = e.pointAt(0.5).toTuple();
+        return Math.abs(m[1] + 15) < 1e-6 && Math.abs(m[2] - 20) < 1e-6;
+      })),
+    ] as const);
+    const plane = makePlane(box, { kind: 'face', face: top } as PlaneReference, { axis: 'edge', axisEdge: edge, angle: 30, distance: 0 });
+    const r = run(addFeature(box, plane));
+    expect(r.statuses).toEqual(['ok', 'ok', 'ok']);
+    const f = r.planes.get(plane.id)!;
+    // Normal: Z girado 30° alrededor de X (sentido canónico +X de la arista).
+    close(f.normal, [0, -0.5, Math.cos(Math.PI / 6)]);
+    // Los dos extremos de la arista quedan sobre el plano.
+    for (const x of [-20, 20]) {
+      const p = [x, -15, 20];
+      expect(p.reduce((acc, v, i) => acc + (v - f.origin[i]) * f.normal[i], 0)).toBeCloseTo(0, 9);
+    }
+    // Depende de la extrusión que creó la arista; se guarda y se abre igual.
+    const doc = addFeature(box, plane);
+    expect(moveBlocker(doc, plane.id, 0)).toMatch(/usa "Extrusión1"/);
+    expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+  });
+
+  it('una arista curva como eje da un error claro', async () => {
+    const { edgeRefOf } = await import('../src/kernel/naming');
+    const cyl = build({ profile: { kind: 'circle', r: 5 }, distance: 10 });
+    const curved = withShape(cyl, (s) => edgeRefOf(s, s.shape.edges.findIndex((e) => e.geomType === 'CIRCLE')));
+    const plane = makePlane(cyl, { kind: 'base', plane: 'XY' }, { axis: 'edge', axisEdge: curved, angle: 10 });
+    expect(run(addFeature(cyl, plane)).errors[2]).toMatch(/tiene que ser recta/);
+  });
+});
