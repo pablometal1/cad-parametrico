@@ -3,9 +3,9 @@ import { Icon } from './icons';
 import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature,
 } from '../document/types';
-import { HOLE_PRESETS, holeCenters, PRESET_GROUPS, type HolePresetGroup } from '../document/holes';
+import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
 import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
 
@@ -57,6 +57,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
                 <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
+              </Match>
+              <Match when={feature().type === 'thread'}>
+                <ThreadPanel store={store} feature={feature() as ThreadFeature} />
               </Match>
               <Match when={feature().type === 'hole'}>
                 <HolePanel store={store} feature={feature() as HoleFeature} />
@@ -229,7 +232,23 @@ function HolePanel(props: { store: CadStore; feature: HoleFeature }) {
         </span>
       </label>
       <SelectField label="Tipo" value={f().kind} options={HOLE_KINDS} onChange={(kind) => update({ kind })} />
-      <Num store={props.store} id={f().id} path="diameter" label="Diámetro" unit="mm" />
+      <label class="field">
+        <span class="field-label">Rosca</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().thread}
+            onChange={(e) => update(e.currentTarget.checked ? { thread: true, threadPitch: coarsePitch(f().diameter) } : { thread: false })} />
+          <span class="muted">modelada (se imprime)</span>
+        </span>
+      </label>
+      <Num store={props.store} id={f().id} path="diameter" label={f().thread ? 'Ø nominal' : 'Diámetro'} unit="mm" />
+      <Show when={f().thread}>
+        <Num store={props.store} id={f().id} path="threadPitch" label="Paso" unit="mm" />
+        <Num store={props.store} id={f().id} path="threadClearance" label="Holgura" unit="mm" />
+        <p class="hint">
+          M{fmtMm(f().diameter)} × {fmtMm(f().threadPitch)}: se perfora a Ø{fmtMm(threadBore(f().diameter, f().threadPitch, f().threadClearance))}.
+          La holgura agranda la rosca para que el tornillo entre en una pieza impresa (0,2 mm suele andar en FDM).
+        </p>
+      </Show>
       <Show when={f().kind === 'counterbore'}>
         <Num store={props.store} id={f().id} path="cbDiameter" label="Ø cajeado" unit="mm" />
         <Num store={props.store} id={f().id} path="cbDepth" label="Prof. cajeado" unit="mm" />
@@ -257,6 +276,36 @@ function HolePanel(props: { store: CadStore; feature: HoleFeature }) {
       <p class="hint">
         {centers()} agujero{centers() === 1 ? '' : 's'}: uno por cada punto suelto o círculo del sketch.
         Las medidas de la lista son para impresión 3D; en FDM los agujeros suelen salir algo más chicos, probá con una pieza de prueba.
+      </p>
+    </>
+  );
+}
+
+const fmtMm = (v: number) => String(Math.round(v * 1000) / 1000);
+
+function ThreadPanel(props: { store: CadStore; feature: ThreadFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<ThreadFeature>) => props.store.updateFeature<ThreadFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Rosca</h3>
+      <Num store={props.store} id={f().id} path="pitch" label="Paso" unit="mm" />
+      <Num store={props.store} id={f().id} path="clearance" label="Holgura" unit="mm" />
+      <Num store={props.store} id={f().id} path="length" label="Largo" unit="mm" />
+      <Show when={f().length > 0}>
+        <label class="field">
+          <span class="field-label">Desde</span>
+          <span class="field-input">
+            <input type="checkbox" checked={f().fromStart} onChange={(e) => update({ fromStart: e.currentTarget.checked })} />
+            <span class="muted">el otro extremo</span>
+          </span>
+        </label>
+      </Show>
+      <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Cambiar cara…</button>
+      <p class="hint">
+        En un agujero la rosca es interna (su diámetro es el menor de la rosca); en una barra, externa (su diámetro es el
+        mayor). Largo 0 = toda la cara. Paso grueso ISO: M4 0,7 · M5 0,8 · M6 1 · M8 1,25 · M10 1,5 · M12 1,75.
+        La holgura deja juego para que enrosque impreso.
       </p>
     </>
   );

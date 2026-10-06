@@ -17,6 +17,7 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   loft: 'loft',
   plane: 'plane',
   hole: 'hole',
+  thread: 'thread',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {

@@ -286,11 +286,31 @@ export interface HoleFeature extends FeatureBase {
   csDiameter: number;
   csAngle: number;
   reversed: boolean;
+  /**
+   * Rosca modelada (métrica, 60°): `diameter` pasa a ser el nominal (M8 = 8); se perfora al
+   * diámetro menor y se talla el hilo. `threadClearance` agranda todo (diametral) para que enrosque impreso.
+   */
+  thread: boolean;
+  threadPitch: number;
+  threadClearance: number;
+}
+
+/**
+ * Rosca sobre una cara cilíndrica: interna si es un agujero (su diámetro es el menor), externa si
+ * es una barra (su diámetro es el mayor). `length` 0 = toda la cara; si no, desde un extremo.
+ */
+export interface ThreadFeature extends FeatureBase {
+  type: 'thread';
+  face: FaceRef;
+  pitch: number;
+  clearance: number;
+  length: number;
+  fromStart: boolean;
 }
 
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

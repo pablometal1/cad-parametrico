@@ -13,7 +13,7 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
   { id: 'slot', label: 'Ranura', icon: 'slot', key: 'S' },
 ];
 
-export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
+export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'thread' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
@@ -21,6 +21,7 @@ export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; ke
   { id: 'sweep', label: 'Barrido', icon: 'sweep', key: 'Shift+B', desc: 'Pasar un perfil cerrado a lo largo de una trayectoria (otro sketch con líneas y arcos)' },
   { id: 'loft', label: 'Solevación', icon: 'loft', key: 'Shift+L', desc: 'Unir dos o más perfiles (sketches en distintos planos) con una forma suave' },
   { id: 'hole', label: 'Agujero', icon: 'hole', key: 'Shift+H', desc: 'Agujeros en los puntos de un sketch: pasante, ciego, cajeado o avellanado, con medidas de tornillos e insertos', sepBefore: true },
+  { id: 'thread', label: 'Rosca', icon: 'thread', key: 'Shift+T', desc: 'Rosca modelada en la cara cilíndrica seleccionada: interna en un agujero, externa en una barra (tornillos, tapas)' },
   { id: 'pattern', label: 'Patrón', icon: 'pattern', key: 'Shift+P', desc: 'Repetir la extrusión/revolución seleccionada (lineal o circular)', sepBefore: true },
   { id: 'mirror', label: 'Simetría', icon: 'mirror', key: 'Shift+M', desc: 'Reflejar la extrusión/revolución seleccionada respecto de un plano' },
   { id: 'fillet', label: 'Redondeo', icon: 'fillet', key: 'Shift+F', desc: 'Redondear las aristas seleccionadas', sepBefore: true },

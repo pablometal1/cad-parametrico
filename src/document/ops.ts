@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -103,6 +103,7 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   loft: 'Solevación',
   plane: 'Plano',
   hole: 'Agujero',
+  thread: 'Rosca',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -220,6 +221,7 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
   if (f.type === 'plane' && f.reference.kind === 'face') names.push(f.reference.face.name);
   if (f.type === 'fillet' || f.type === 'chamfer') names.push(...f.edges.map((e) => e.name));
   if (f.type === 'shell') names.push(...f.faces.map((x) => x.name));
+  if (f.type === 'thread') names.push(f.face.name);
   for (const n of names) for (const id of idsInRefName(n)) req.add(id);
   req.delete(f.id);
   return req;
@@ -320,8 +322,14 @@ export function makePlane(doc: CadDocument, reference: PlaneReference = { kind: 
 export function makeHole(doc: CadDocument, sketch: FeatureId, overrides: Partial<Omit<HoleFeature, 'type'>> = {}): HoleFeature {
   return {
     ...base(doc, 'hole'), sketch, kind: 'simple', diameter: 3.4, extent: 'through', depth: 10, tip: 'flat',
-    cbDiameter: 6.5, cbDepth: 3.3, csDiameter: 6.7, csAngle: 90, reversed: false, ...overrides,
+    cbDiameter: 6.5, cbDepth: 3.3, csDiameter: 6.7, csAngle: 90, reversed: false,
+    thread: false, threadPitch: 1.25, threadClearance: 0.2, ...overrides,
   };
+}
+
+/** Rosca sobre una cara cilíndrica, con el paso grueso ISO más cercano a su diámetro. */
+export function makeThread(doc: CadDocument, face: FaceRef, pitch: number, overrides: Partial<Omit<ThreadFeature, 'type'>> = {}): ThreadFeature {
+  return { ...base(doc, 'thread'), face, pitch, clearance: 0.2, length: 0, fromStart: false, ...overrides };
 }
 
 export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId, overrides: Partial<Omit<SweepFeature, 'type'>> = {}): SweepFeature {

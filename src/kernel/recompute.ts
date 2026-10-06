@@ -11,6 +11,7 @@ import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
 import { runLoft, runSweep } from './features/sweep';
 import { runHole } from './features/hole';
+import { runThread } from './features/thread';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -214,6 +215,8 @@ export class RecomputeEngine {
             resolveSketchById(feature.path, 'la trayectoria de este barrido', ctx),
             ctx.input,
           ));
+        case 'thread':
+          return ok(runThread(feature, ctx.input));
         case 'hole':
           return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
         case 'loft':

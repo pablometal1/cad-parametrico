@@ -24,14 +24,30 @@ export function holeCenters(data: SketchData): { id: string; pos: [number, numbe
   });
 }
 
-export type HolePresetGroup = 'clearance' | 'counterbore' | 'countersink' | 'insert' | 'tap';
+/** Métrica ISO de paso grueso: [diámetro nominal, paso]. */
+export const ISO_COARSE: [number, number][] = [
+  [2, 0.4], [2.5, 0.45], [3, 0.5], [4, 0.7], [5, 0.8], [6, 1], [8, 1.25], [10, 1.5], [12, 1.75], [16, 2], [20, 2.5], [24, 3],
+];
+
+/** Paso grueso ISO del diámetro nominal más cercano. */
+export function coarsePitch(nominal: number): number {
+  return ISO_COARSE.reduce((best, cur) => (Math.abs(cur[0] - nominal) < Math.abs(best[0] - nominal) ? cur : best))[1];
+}
+
+/** Diámetro de perforación de una rosca interna: el menor ISO (D − 1,0825·P) más la holgura. */
+export function threadBore(nominal: number, pitch: number, clearance: number) {
+  return nominal - 1.0825 * pitch + clearance;
+}
+
+export type HolePresetGroup = 'clearance' | 'counterbore' | 'countersink' | 'insert' | 'tap' | 'thread';
 
 export interface HolePreset {
   id: string;
   group: HolePresetGroup;
   label: string;
   /** Campos que fija el preset (el resto queda como estaba). */
-  values: Partial<Pick<HoleFeature, 'kind' | 'diameter' | 'depth' | 'extent' | 'tip' | 'cbDiameter' | 'cbDepth' | 'csDiameter' | 'csAngle'>>;
+  values: Partial<Pick<HoleFeature,
+    'kind' | 'diameter' | 'depth' | 'extent' | 'tip' | 'cbDiameter' | 'cbDepth' | 'csDiameter' | 'csAngle' | 'thread' | 'threadPitch'>>;
 }
 
 export const PRESET_GROUPS: Record<HolePresetGroup, string> = {
@@ -40,6 +56,7 @@ export const PRESET_GROUPS: Record<HolePresetGroup, string> = {
   countersink: 'Avellanado para cabeza plana (DIN 7991)',
   insert: 'Inserto roscado térmico',
   tap: 'Rosca en el plástico (atornillar directo)',
+  thread: 'Rosca modelada (impresa)',
 };
 
 const SIZES = ['M2', 'M2.5', 'M3', 'M4', 'M5', 'M6', 'M8'] as const;
@@ -61,29 +78,39 @@ const TAP: Partial<Record<(typeof SIZES)[number], number>> = { M2: 1.6, 'M2.5': 
 export const HOLE_PRESETS: HolePreset[] = [
   ...SIZES.map((s): HolePreset => ({
     id: `clearance-${s}`, group: 'clearance', label: `${s} · Ø${CLEARANCE[s]}`,
-    values: { kind: 'simple', diameter: CLEARANCE[s], extent: 'through' },
+    values: { kind: 'simple', diameter: CLEARANCE[s], extent: 'through', thread: false },
   })),
   ...SIZES.map((s): HolePreset => ({
     id: `counterbore-${s}`, group: 'counterbore', label: `${s} · Ø${CLEARANCE[s]} / Ø${COUNTERBORE[s][0]} × ${COUNTERBORE[s][1]}`,
-    values: { kind: 'counterbore', diameter: CLEARANCE[s], extent: 'through', cbDiameter: COUNTERBORE[s][0], cbDepth: COUNTERBORE[s][1] },
+    values: { kind: 'counterbore', diameter: CLEARANCE[s], extent: 'through', cbDiameter: COUNTERBORE[s][0], cbDepth: COUNTERBORE[s][1], thread: false },
   })),
   ...SIZES.map((s): HolePreset => ({
     id: `countersink-${s}`, group: 'countersink', label: `${s} · Ø${CLEARANCE[s]} / Ø${COUNTERSINK[s]} 90°`,
-    values: { kind: 'countersink', diameter: CLEARANCE[s], extent: 'through', csDiameter: COUNTERSINK[s], csAngle: 90 },
+    values: { kind: 'countersink', diameter: CLEARANCE[s], extent: 'through', csDiameter: COUNTERSINK[s], csAngle: 90, thread: false },
   })),
   ...SIZES.flatMap((s): HolePreset[] => {
     const v = INSERT[s];
-    return v ? [{ id: `insert-${s}`, group: 'insert', label: `${s} · Ø${v[0]} × ${v[1]}`, values: { kind: 'simple', diameter: v[0], extent: 'distance', depth: v[1], tip: 'flat' } }] : [];
+    return v ? [{ id: `insert-${s}`, group: 'insert', label: `${s} · Ø${v[0]} × ${v[1]}`, values: { kind: 'simple', diameter: v[0], extent: 'distance', depth: v[1], tip: 'flat', thread: false } }] : [];
   }),
   ...SIZES.flatMap((s): HolePreset[] => {
     const d = TAP[s];
-    return d ? [{ id: `tap-${s}`, group: 'tap', label: `${s} · Ø${d}`, values: { kind: 'simple', diameter: d } }] : [];
+    return d ? [{ id: `tap-${s}`, group: 'tap', label: `${s} · Ø${d}`, values: { kind: 'simple', diameter: d, thread: false } }] : [];
   }),
+  // Roscas impresas: desde M4 (más chicas, mejor inserto o atornillar directo).
+  ...ISO_COARSE.filter(([d]) => d >= 4 && d <= 24).map(([d, p]): HolePreset => ({
+    id: `thread-M${d}`, group: 'thread', label: `M${d} × ${p}`,
+    values: { kind: 'simple', diameter: d, thread: true, threadPitch: p },
+  })),
 ];
 
 /** Valida las medidas de un agujero. null si están bien; si no, el motivo. */
 export function holeProblem(f: HoleFeature): string | null {
   if (!(f.diameter > 0)) return `El diámetro debe ser mayor que 0 (es ${f.diameter})`;
+  if (f.thread) {
+    if (!(f.threadPitch > 0)) return `El paso de la rosca debe ser mayor que 0 (es ${f.threadPitch})`;
+    if (!(f.threadClearance >= 0)) return 'La holgura de la rosca no puede ser negativa';
+    if (!(threadBore(f.diameter, f.threadPitch, f.threadClearance) > 0)) return 'El paso es demasiado grande para ese diámetro';
+  }
   if (f.extent === 'distance' && !(f.depth > 0)) return `La profundidad debe ser mayor que 0 (es ${f.depth})`;
   if (f.kind === 'counterbore') {
     if (!(f.cbDiameter > f.diameter)) return 'El diámetro del cajeado tiene que ser mayor que el del agujero';

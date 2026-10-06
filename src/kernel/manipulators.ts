@@ -73,7 +73,8 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
         const input = ctx.input;
         if (!input || feature.faces.length === 0) return null;
         const face = input.shape.faces[resolveFace(input, feature.faces[0])];
-        const c = face.center;
+        // En caras curvas, un punto sobre la superficie (el centro de masa puede caer en el eje).
+        const c = face.geomType === 'PLANE' ? face.center : face.pointOnSurface(0.5, 0.5);
         const n = unit(face.normalAt(c).toTuple());
         return {
           kind: 'linear', featureId: feature.id, param: 'thickness', label: 'Espesor',
@@ -102,6 +103,7 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
           value: feature.depth, min: 0.01,
         };
       }
+      case 'thread':
       case 'sketch':
       case 'pattern':
       case 'mirror':

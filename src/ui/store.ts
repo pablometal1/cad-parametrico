@@ -1,5 +1,5 @@
 // Estado de la aplicación: el documento (fuente de verdad), su historial y los resultados del recálculo.
-import { holeCenters } from '../document/holes';
+import { coarsePitch, holeCenters } from '../document/holes';
 import { findProfiles } from '../sketch/profiles';
 import { batch, createEffect, createMemo, createSignal, on } from 'solid-js';
 import solverWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
@@ -9,7 +9,7 @@ import { History, type RecordOptions } from '../document/history';
 import * as ops from '../document/ops';
 import { parseDocument } from '../document/serialize';
 import type {
-  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference } from '../document/types';
+  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -527,6 +527,20 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       return null;
     },
 
+    /** Rosca sobre la cara cilíndrica seleccionada, con el paso grueso ISO de su diámetro. */
+    async addThread(faces: number[]) {
+      if (faces.length !== 1) return setNotice('Seleccioná una cara cilíndrica: la pared de un agujero (rosca interna) o una barra (externa)');
+      const info = await withRefs(() => kernel.faceInfo(faces[0]));
+      if (!info) return;
+      if (!info.cylinder) return setNotice('La cara seleccionada no es cilíndrica');
+      const d = 2 * info.cylinder.radius;
+      // En un agujero, su diámetro es el menor: el nominal es más grande en ~1,08 pasos.
+      const pitch = coarsePitch(info.cylinder.internal ? d + 1.0825 * coarsePitch(d) : d);
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      addWithDialog(ops.makeThread(doc(), refs[0], pitch));
+    },
+
     /** Mueve una feature en el historial. Devuelve el motivo si no se puede. */
     moveFeature(id: FeatureId, toIndex: number): string | null {
       const reason = ops.moveBlocker(doc(), id, toIndex);
@@ -609,8 +623,17 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         if (sel.faces.length !== 1) return setNotice('Seleccioná una cara plana');
         const refs = await withRefs(() => kernel.faceRefs(sel.faces));
         if (!refs) return;
-        if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
         const target = ops.findFeature(doc(), p.featureId);
+        if (target?.type === 'thread') {
+          if (refs[0].type !== 'CYLINDRE') return setNotice('La cara elegida no es cilíndrica');
+          apply((d) => restore(ops.updateFeature<ThreadFeature>(d, p.featureId, { face: refs[0] })), opts);
+          batch(() => {
+            setPicking(null);
+            setNotice(null);
+          });
+          return;
+        }
+        if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
         if (target?.type === 'plane') {
           apply((d) => restore(ops.updateFeature<PlaneFeature>(d, p.featureId, { reference: { kind: 'face', face: refs[0] } })), opts);
         } else {

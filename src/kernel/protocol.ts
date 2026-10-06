@@ -29,6 +29,8 @@ export interface FaceInfo {
   center: [number, number, number];
   /** Normal en el centro de la cara (orientada hacia afuera del sólido). */
   normal: [number, number, number];
+  /** Solo caras cilíndricas: radio y si es un agujero (interna) o una barra. */
+  cylinder?: { radius: number; internal: boolean; length: number };
 }
 
 export interface SketchLines {

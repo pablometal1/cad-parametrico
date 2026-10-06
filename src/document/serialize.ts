@@ -136,6 +136,16 @@ function validateFeature(raw: unknown, path: string): Feature {
         csDiameter: num(o.csDiameter, `${path}.csDiameter`),
         csAngle: num(o.csAngle, `${path}.csAngle`),
         reversed: bool(o.reversed, `${path}.reversed`),
+        // Archivos de antes de la rosca: sin rosca.
+        thread: o.thread === undefined ? false : bool(o.thread, `${path}.thread`),
+        threadPitch: o.threadPitch === undefined ? 1.25 : num(o.threadPitch, `${path}.threadPitch`),
+        threadClearance: o.threadClearance === undefined ? 0.2 : num(o.threadClearance, `${path}.threadClearance`),
+      };
+    case 'thread':
+      return {
+        ...base, type: 'thread', face: faceRef(o.face, `${path}.face`),
+        pitch: num(o.pitch, `${path}.pitch`), clearance: num(o.clearance, `${path}.clearance`),
+        length: num(o.length, `${path}.length`), fromStart: bool(o.fromStart, `${path}.fromStart`),
       };
     case 'loft':
       return {

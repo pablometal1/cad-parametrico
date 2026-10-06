@@ -1,6 +1,7 @@
 // Agujero: un sólido de revolución por cada centro del sketch, restado del sólido.
 import { assembleWire, cast, getOC, makeFace, makeLine, type Edge } from 'replicad';
-import { holeCenters, holeProblem } from '../../document/holes';
+import { holeCenters, holeProblem, threadBore } from '../../document/holes';
+import { cutThread, INTERNAL_DEPTH, threadGroove } from './thread';
 import { toWorld, type Vec3 } from '../../document/planes';
 import type { HoleFeature } from '../../document/types';
 import { historyOf, NameBuilder, type NamedShape } from '../naming';
@@ -32,7 +33,12 @@ export function runHole(feature: HoleFeature, sketch: EvaluatedSketch, input: Na
   const out: Vec3 = feature.reversed ? [-n[0], -n[1], -n[2]] : n;
   const [min, max] = input.shape.boundingBox.bounds;
   const through = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 2 + 10;
-  const profile = holeProfile(feature, feature.extent === 'through' ? through : feature.depth);
+  // Con rosca se perfora al diámetro menor (más la holgura).
+  const bore = feature.thread ? threadBore(feature.diameter, feature.threadPitch, feature.threadClearance) : feature.diameter;
+  const profile = holeProfile({ ...feature, diameter: bore }, feature.extent === 'through' ? through : feature.depth);
+  // Hasta dónde llega el material en la dirección del agujero (para no roscar kilómetros de aire).
+  const corners: Vec3[] = [];
+  for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) corners.push([x, y, z]);
 
   let acc: NamedShape = input;
   try {
@@ -50,6 +56,18 @@ export function runHole(feature: HoleFeature, sketch: EvaluatedSketch, input: Na
       }
       if (acc !== input) acc.shape.delete();
       acc = next;
+      if (feature.thread) {
+        const C = toWorld(sketch.frame, c.pos[0], c.pos[1]);
+        const P = feature.threadPitch;
+        const top = -wallTop(feature, bore);
+        const materialDepth = Math.max(...corners.map((k) => -((k[0] - C[0]) * out[0] + (k[1] - C[1]) * out[1] + (k[2] - C[2]) * out[2])));
+        const bottom = feature.extent === 'through' ? -(materialDepth + P) : -feature.depth;
+        if (!(top - bottom > P)) throw new FeatureError('El tramo para la rosca es más corto que un hilo');
+        const groove = threadGroove(C, out, bore / 2 - 0.05, feature.diameter / 2 + feature.threadClearance / 2, P, bottom, top);
+        const threaded = cutThread(acc, groove, feature.id, `thread:${c.id}`);
+        acc.shape.delete();
+        acc = threaded;
+      }
     }
     return acc;
   } catch (err) {
@@ -57,6 +75,16 @@ export function runHole(feature: HoleFeature, sketch: EvaluatedSketch, input: Na
     throw err;
   }
 }
+
+/** Profundidad donde empieza la pared recta (debajo del cajeado o del avellanado). */
+function wallTop(f: HoleFeature, bore: number): number {
+  if (f.kind === 'counterbore') return f.cbDepth;
+  if (f.kind === 'countersink') return (f.csDiameter - bore) / 2 / Math.tan((f.csAngle * Math.PI) / 360);
+  return 0;
+}
+
+/** Profundidad radial del hilo interno (para mensajes y tests). */
+export const threadDepth = (pitch: number) => INTERNAL_DEPTH * pitch;
 
 /**
  * Perfil del agujero en coordenadas (r, z): r desde el eje, z hacia afuera del material

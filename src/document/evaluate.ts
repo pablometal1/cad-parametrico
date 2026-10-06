@@ -37,6 +37,11 @@ export function fieldLabel(path: string): string {
     cbDepth: 'la profundidad del cajeado',
     csDiameter: 'el diámetro del avellanado',
     csAngle: 'el ángulo del avellanado',
+    threadPitch: 'el paso de la rosca',
+    threadClearance: 'la holgura de la rosca',
+    pitch: 'el paso',
+    clearance: 'la holgura',
+    length: 'el largo',
   };
   if (path.startsWith('constraint:')) return `la cota ${path.slice(11)}`;
   return labels[path] ?? path;

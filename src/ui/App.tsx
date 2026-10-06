@@ -27,6 +27,12 @@ const PLANE_MENU: { plane: BasePlane; label: string }[] = [
 ];
 
 
+function pickText(kind: keyof typeof PICK_TEXT, type: string | undefined) {
+  if (type === 'thread') return 'Elegí la cara cilíndrica a roscar (pared de un agujero o una barra)';
+  if (type === 'plane') return 'Elegí una cara plana como referencia del plano';
+  return PICK_TEXT[kind];
+}
+
 const PICK_TEXT = {
   edges: 'Elegí las aristas (Shift + clic para varias)',
   faces: 'Elegí las caras a quitar (Shift + clic para varias)',
@@ -71,6 +77,7 @@ export function App() {
     else if (id === 'revolve') store.setNotice(store.addRevolve());
     else if (id === 'sweep') store.setNotice(store.addSweep());
     else if (id === 'loft') store.setNotice(store.addLoft());
+    else if (id === 'thread') void store.addThread(sel.faces);
     else if (id === 'hole') {
       const msg = store.addHole();
       // Sin centros pero con una cara elegida: se marcan ahí con la herramienta Punto.
@@ -608,7 +615,7 @@ export function App() {
           {(p) => (
             <div class="pick-banner">
               <span>
-                <b>{findFeature(store.doc(), p().featureId)?.name}:</b> {PICK_TEXT[p().kind]}
+                <b>{findFeature(store.doc(), p().featureId)?.name}:</b> {pickText(p().kind, findFeature(store.doc(), p().featureId)?.type)}
                 {' · '}{p().kind === 'edges' ? `${viewSel().edges.length} elegidas` : `${viewSel().faces.length} elegidas`}
               </span>
               <button class="primary" onClick={() => void store.finishPick(viewport?.getSelection() ?? { faces: [], edges: [] })}>Aplicar</button>
@@ -717,7 +724,7 @@ function sketchPlaneLabel(f: SketchFeature) {
 
 /** "Nueva extrusión", "Nuevo redondeo"… */
 function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
-  const feminine = type === 'extrude' || type === 'revolve' || type === 'loft';
+  const feminine = type === 'extrude' || type === 'revolve' || type === 'loft' || type === 'thread';
   return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
 }
 

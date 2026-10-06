@@ -1,4 +1,5 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
+import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
 import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
@@ -66,9 +67,10 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const face = faces[faceIndex];
     if (!face) throw new Error(`Cara ${faceIndex} fuera de rango (el sólido tiene ${faces.length})`);
     const center = face.center;
-    // En caras curvas el centro de masa no está sobre la superficie: normalAt lo proyecta,
-    // pero el vector no viene unitario.
-    const [nx, ny, nz] = face.normalAt(center).toTuple();
+    // En caras curvas el centro de masa no está sobre la superficie (en un cilindro completo cae
+    // sobre el eje y proyectarlo falla): la normal se toma en un punto de la propia superficie.
+    const onSurface = face.geomType === 'PLANE' ? center : face.pointOnSurface(0.5, 0.5);
+    const [nx, ny, nz] = face.normalAt(onSurface).toTuple();
     const len = Math.hypot(nx, ny, nz) || 1;
     return {
       index: faceIndex,
@@ -76,6 +78,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       area: measureArea(face),
       center: center.toTuple(),
       normal: [nx / len, ny / len, nz / len],
+      cylinder: cylinderInfo(face),
     };
   }
 
@@ -259,4 +262,14 @@ function sketchBounds(s: EvaluatedSketch): [number, number, number, number] {
 function unit(v: number[]): [number, number, number] {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+function cylinderInfo(face: Parameters<typeof cylinderOf>[0]): FaceInfo['cylinder'] {
+  if (face.geomType !== 'CYLINDRE') return undefined;
+  try {
+    const c = cylinderOf(face);
+    return { radius: c.radius, internal: c.internal, length: c.z1 - c.z0 };
+  } catch {
+    return undefined;
+  }
 }
