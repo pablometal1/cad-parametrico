@@ -2,6 +2,7 @@
 import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
+import { evaluateDocument } from '../document/evaluate';
 import { initOCCT } from './occt';
 import { shapeToMesh } from './mesh';
 import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
@@ -26,7 +27,8 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
 
   recompute(doc: CadDocument): RecomputeResult {
     const t0 = performance.now();
-    const { results, shape, sketches } = this.engine.run(doc);
+    const evaluated = evaluateDocument(doc);
+    const { results, shape, sketches } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
     const mesh = shape ? shapeToMesh(shape.shape, edgeKinds(shape)) : null;
     return {
@@ -39,6 +41,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         plane: { origin: s.frame.origin, xDir: s.frame.xDir, yDir: s.frame.yDir, normal: s.frame.normal },
         bounds: sketchBounds(s),
       })),
+      parameters: evaluated.parameters,
       totalMs: Math.round(performance.now() - t0),
     };
   }

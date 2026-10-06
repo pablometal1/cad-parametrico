@@ -6,6 +6,8 @@ import { dist, sub } from '../../sketch/geometry';
 import { removeItems, SketchIndex, type Vec2 } from '../../sketch/model';
 import { constraintFromSelection, DIMENSIONAL, displayValue, withValue } from '../../sketch/rules';
 import { solveSketch, type SolveResult } from '../../sketch/solver';
+import { evaluateText } from '../../document/evaluate';
+import { plainNumber } from '../../document/expressions';
 
 export type Tool = 'select' | 'line' | 'rectangle' | 'circle' | 'arc';
 
@@ -33,6 +35,8 @@ export interface DimensionPrompt {
   create?: Omit<SketchConstraint, 'id'>[];
   editId?: string;
   value: number;
+  /** Expresión actual de la cota (si tiene). */
+  text?: string;
   unit: 'mm' | '°';
 }
 
@@ -43,7 +47,21 @@ const AUTO_HV_DEG = 2;
 
 type NewConstraint = Parameters<SketchBuilder['constrain']>[0];
 
-export function createSketchSession(initial: SketchData) {
+export interface SessionOptions {
+  /** Expresiones de cotas, por id de restricción. */
+  exprs?: Record<string, string>;
+  /** Valores de los parámetros, para evaluar expresiones en las cotas. */
+  scope?: () => ReadonlyMap<string, number>;
+}
+
+/** Estado completo para deshacer: geometría y expresiones de cotas. */
+interface Snapshot {
+  data: SketchData;
+  exprs: Record<string, string>;
+}
+
+export function createSketchSession(initial: SketchData, options: SessionOptions = {}) {
+  const [exprs, setExprs] = createSignal<Record<string, string>>(options.exprs ?? {});
   const first = safeSolve(initial);
   const [data, setData] = createSignal<SketchData>(first.result?.ok ? first.result.data : initial);
   const [info, setInfo] = createSignal<SolveInfo>(toInfo(first.result));
@@ -55,8 +73,9 @@ export function createSketchSession(initial: SketchData) {
   const [prompt, setPrompt] = createSignal<DimensionPrompt | null>(null);
   const [dirty, setDirty] = createSignal(false);
 
-  const undoStack: SketchData[] = [];
-  const redoStack: SketchData[] = [];
+  const undoStack: Snapshot[] = [];
+  const redoStack: Snapshot[] = [];
+  const snap = (d: SketchData = data()): Snapshot => ({ data: d, exprs: exprs() });
   const [historySize, setHistorySize] = createSignal({ undo: 0, redo: 0 });
   const syncHistory = () => setHistorySize({ undo: undoStack.length, redo: redoStack.length });
 
@@ -75,7 +94,7 @@ export function createSketchSession(initial: SketchData) {
       }
     }
     batch(() => {
-      undoStack.push(data());
+      undoStack.push(snap());
       redoStack.length = 0;
       syncHistory();
       setData(result?.ok ? result.data : next);
@@ -229,7 +248,7 @@ export function createSketchSession(initial: SketchData) {
   function endDrag() {
     if (!dragBase) return;
     if (dragBase.moved) {
-      undoStack.push(dragBase.data);
+      undoStack.push(snap(dragBase.data));
       redoStack.length = 0;
       syncHistory();
       setDirty(true);
@@ -260,16 +279,37 @@ export function createSketchSession(initial: SketchData) {
   function editDimension(id: string) {
     const c = data().constraints.find((x) => x.id === id);
     if (!c || !('value' in c)) return;
-    setPrompt({ editId: id, value: round(displayValue(c, data())), unit: c.type === 'angle' ? '°' : 'mm' });
+    setPrompt({ editId: id, value: round(displayValue(c, data())), text: exprs()[id], unit: c.type === 'angle' ? '°' : 'mm' });
   }
 
-  function confirmPrompt(value: number) {
+  /** Confirma la cota escrita: un número, o una expresión con parámetros (`largo / 2`). */
+  function confirmPrompt(text: string) {
     const p = prompt();
     if (!p) return;
-    if (!(value > 0) && p.unit === 'mm') {
-      setMessage({ kind: 'error', text: 'La cota debe ser mayor que 0' });
+    let value: number;
+    let expr: string | undefined;
+    try {
+      const n = plainNumber(text);
+      if (n !== null) value = n;
+      else {
+        value = evaluateText(text, options.scope?.() ?? new Map());
+        expr = text.trim();
+      }
+    } catch (err) {
+      setMessage({ kind: 'error', text: (err as Error).message });
       return;
     }
+    if (!(value > 0) && p.unit === 'mm') {
+      setMessage({ kind: 'error', text: `La cota debe ser mayor que 0 (da ${value})` });
+      return;
+    }
+    const setExpr = (id: string) =>
+      setExprs((m) => {
+        const next = { ...m };
+        if (expr) next[id] = expr;
+        else delete next[id];
+        return next;
+      });
     let ok: boolean;
     if (p.editId) {
       const next = {
@@ -277,13 +317,23 @@ export function createSketchSession(initial: SketchData) {
         constraints: data().constraints.map((c) => (c.id === p.editId && 'value' in c ? (withValue(c, value, data()) as SketchConstraint) : c)),
       };
       ok = commit(next, { allowRedundant: true });
+      if (ok) setExpr(p.editId);
     } else {
       const b = new SketchBuilder(data());
-      for (const c of p.create ?? []) b.constrain(withValue(c as NewConstraint, value, data()));
+      const ids = (p.create ?? []).map((c) => b.constrain(withValue(c as NewConstraint, value, data())));
       ok = commit(b.data);
-      if (ok) setSelection([]);
+      if (ok) {
+        ids.forEach(setExpr);
+        setSelection([]);
+      }
     }
     if (ok) setPrompt(null);
+  }
+
+  /** Expresiones de cotas que siguen existiendo, con la ruta que usa el documento. */
+  function documentExprs(): Record<string, string> {
+    const alive = new Set(data().constraints.map((c) => c.id));
+    return Object.fromEntries(Object.entries(exprs()).filter(([id]) => alive.has(id)).map(([id, t]) => [`constraint:${id}`, t]));
   }
 
   function deleteSelection() {
@@ -309,21 +359,23 @@ export function createSketchSession(initial: SketchData) {
   function undo() {
     const prev = undoStack.pop();
     if (!prev) return;
-    redoStack.push(data());
+    redoStack.push(snap());
     restore(prev);
   }
 
   function redo() {
     const next = redoStack.pop();
     if (!next) return;
-    undoStack.push(data());
+    undoStack.push(snap());
     restore(next);
   }
 
-  function restore(d: SketchData) {
+  function restore(s: Snapshot) {
+    const d = s.data;
     const { result } = safeSolve(d);
     batch(() => {
       setData(d);
+      setExprs(s.exprs);
       setInfo(toInfo(result));
       setSelection([]);
       setPending(null);
@@ -337,7 +389,7 @@ export function createSketchSession(initial: SketchData) {
   }
 
   return {
-    data, info, tool, construction, selection, pending, message, prompt, dirty, historySize,
+    data, exprs, documentExprs, info, tool, construction, selection, pending, message, prompt, dirty, historySize,
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
     applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,

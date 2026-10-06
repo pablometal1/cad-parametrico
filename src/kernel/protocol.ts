@@ -103,6 +103,8 @@ export interface RecomputeResult {
   mesh: MeshPayload | null;
   /** Curvas de los sketches evaluados, en 3D (segmentos xyz consecutivos), para dibujarlas en el viewport. */
   sketches: SketchLines[];
+  /** Valor (o error) de cada parámetro de la tabla. */
+  parameters: { id: string; name: string; value?: number; error?: string }[];
   totalMs: number;
 }
 

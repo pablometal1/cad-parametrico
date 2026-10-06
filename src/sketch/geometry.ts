@@ -87,6 +87,17 @@ export function displayAngleDeg(index: SketchIndex, a: SketchEntityId, b: Sketch
   return Math.abs(away);
 }
 
+/**
+ * Como solverAngleDeg, pero tomando el sentido del valor guardado en lugar de la geometría actual
+ * (lo usa la evaluación de expresiones, que no resuelve el sketch).
+ */
+export function solverAngleFromStored(index: SketchIndex, a: SketchEntityId, b: SketchEntityId, stored: number, display: number): number {
+  const f = sharedVertexFlips(index, a, b);
+  const offset = f && f.flipA !== f.flipB ? 180 : 0;
+  const sign = wrapDeg(stored + offset) < 0 ? -1 : 1;
+  return wrapDeg(sign * display - offset);
+}
+
 /** Convierte el ángulo que escribe el usuario al valor con signo que usa el solver (l2l_angle_ll). */
 export function solverAngleDeg(index: SketchIndex, a: SketchEntityId, b: SketchEntityId, display: number): number {
   const theta = signedAngleDeg(index, a, b);

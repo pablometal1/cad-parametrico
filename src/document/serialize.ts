@@ -3,7 +3,9 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
+  type Parameter,
 } from './types';
+import { isValidName } from './expressions';
 
 export function serializeDocument(doc: CadDocument): string {
   return JSON.stringify(doc, null, 2);
@@ -34,6 +36,7 @@ export function validateDocument(raw: unknown): CadDocument {
   if (o.units !== 'mm') throw new DocumentFormatError('$.units', 'solo se admite "mm"');
   if (!Array.isArray(o.features)) throw new DocumentFormatError('$.features', 'debe ser una lista');
 
+  const parameters = validateParameters(o.parameters);
   const features = o.features.map((f, i) => validateFeature(f, `$.features[${i}]`));
   const ids = new Set<string>();
   features.forEach((f, i) => {
@@ -47,16 +50,20 @@ export function validateDocument(raw: unknown): CadDocument {
     if (rollback < 0 || rollback > features.length) throw new DocumentFormatError('$.rollback', 'fuera de rango');
     if (rollback === features.length) rollback = null;
   }
-  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: 'mm', features, rollback };
+  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: 'mm', parameters, features, rollback };
 }
 
 function validateFeature(raw: unknown, path: string): Feature {
   const o = obj(raw, path);
-  const base = {
+  const base: { id: string; name: string; suppressed: boolean; exprs?: Record<string, string> } = {
     id: str(o.id, `${path}.id`),
     name: str(o.name, `${path}.name`),
     suppressed: bool(o.suppressed, `${path}.suppressed`),
   };
+  if (o.exprs !== undefined) {
+    const e = obj(o.exprs, `${path}.exprs`);
+    base.exprs = Object.fromEntries(Object.entries(e).map(([k, v]) => [k, str(v, `${path}.exprs.${k}`)]));
+  }
   switch (o.type) {
     case 'sketch':
       return validateSketch(o, base, path);
@@ -188,6 +195,30 @@ function validateConstraint(raw: unknown, path: string): SketchConstraint {
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de restricción desconocido: ${String(o.type)}`);
   }
+}
+
+/** Parámetros con nombre (opcional en el archivo: falta = tabla vacía). */
+function validateParameters(raw: unknown): Parameter[] {
+  if (raw === undefined) return [];
+  const params = list(raw, '$.parameters', (x, p) => {
+    const o = obj(x, p);
+    const param: Parameter = { id: str(o.id, `${p}.id`), name: str(o.name, `${p}.name`), expression: str(o.expression, `${p}.expression`) };
+    if (!isValidName(param.name)) throw new DocumentFormatError(`${p}.name`, `nombre de parámetro inválido "${param.name}"`);
+    if (o.comment !== undefined) {
+      if (typeof o.comment !== 'string') throw new DocumentFormatError(`${p}.comment`, 'debe ser un texto');
+      param.comment = o.comment;
+    }
+    return param;
+  });
+  const names = new Set<string>();
+  const ids = new Set<string>();
+  params.forEach((prm, i) => {
+    if (names.has(prm.name)) throw new DocumentFormatError(`$.parameters[${i}].name`, `nombre repetido "${prm.name}"`);
+    if (ids.has(prm.id)) throw new DocumentFormatError(`$.parameters[${i}].id`, `ID duplicado "${prm.id}"`);
+    names.add(prm.name);
+    ids.add(prm.id);
+  });
+  return params;
 }
 
 function vec3(v: unknown, path: string): Vec3 {

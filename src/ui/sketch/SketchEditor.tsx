@@ -4,7 +4,6 @@ import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintTyp
 import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, sub, type ArcParams } from '../../sketch/geometry';
 import { SketchIndex, type Vec2 } from '../../sketch/model';
 import { CONSTRAINT_LABELS, dimensionText } from '../../sketch/rules';
-import { parseNumber } from '../fields';
 import type { Anchor, SketchSession, Tool } from './session';
 
 interface View {
@@ -168,7 +167,10 @@ export function SketchEditor(props: {
     for (const c of s.data().constraints) {
       try {
         if (c.type === 'distance' || c.type === 'radius' || c.type === 'angle') {
-          out.push(dimensionLabel(idx, c, toScreen, s.data()));
+          const label = dimensionLabel(idx, c, toScreen, s.data());
+          // Las cotas que vienen de una expresión se marcan con ƒ.
+          if (s.exprs()[c.id]) label.text = `ƒ ${label.text}`;
+          out.push(label);
           continue;
         }
         const glyph = GLYPH[c.type]!;
@@ -527,23 +529,16 @@ export function SketchEditor(props: {
                 {p().unit === '°' ? 'Ángulo' : 'Cota'}
                 <input
                   ref={(el) => { promptInput = el; queueMicrotask(() => { el.focus(); el.select(); }); }}
-                  value={String(p().value)}
+                  value={p().text ?? String(p().value)}
                   inputmode="decimal"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const v = parseNumber(e.currentTarget.value);
-                      if (v === null) s.setMessage({ kind: 'error', text: 'Valor inválido' });
-                      else s.confirmPrompt(v);
-                    }
+                    if (e.key === 'Enter') s.confirmPrompt(e.currentTarget.value);
                     if (e.key === 'Escape') s.setPrompt(null);
                   }}
                 />
                 <span class="unit">{p().unit}</span>
               </label>
-              <button onClick={() => {
-                const v = parseNumber(promptInput?.value ?? '');
-                if (v !== null) s.confirmPrompt(v);
-              }}>Aplicar</button>
+              <button onClick={() => s.confirmPrompt(promptInput?.value ?? '')}>Aplicar</button>
               <button onClick={() => s.setPrompt(null)}>Cancelar</button>
             </div>
           )}

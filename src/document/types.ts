@@ -125,6 +125,20 @@ interface FeatureBase {
   id: FeatureId;
   name: string;
   suppressed: boolean;
+  /**
+   * Expresiones de campos numéricos, por ruta: `distance`, `radius`, `angle`, `thickness`,
+   * `plane.offset` o `constraint:<id>` (cota de un sketch). El número guardado en el campo es
+   * el último valor evaluado; la expresión manda.
+   */
+  exprs?: Record<string, string>;
+}
+
+/** Parámetro con nombre de la tabla de parámetros (ej. `ancho = largo / 2`). */
+export interface Parameter {
+  id: string;
+  name: string;
+  expression: string;
+  comment?: string;
 }
 
 export interface SketchFeature extends FeatureBase, SketchData {
@@ -187,6 +201,8 @@ export interface CadDocument {
   format: typeof DOCUMENT_FORMAT;
   version: typeof DOCUMENT_VERSION;
   units: 'mm';
+  /** Tabla de parámetros con nombre, usables en las expresiones de las features. */
+  parameters: Parameter[];
   features: Feature[];
   /**
    * Marcador de retroceso: cantidad de features activas desde el principio.

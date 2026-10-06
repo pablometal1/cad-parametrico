@@ -107,3 +107,59 @@ export function SelectField<T extends string>(props: {
     </label>
   );
 }
+
+/**
+ * Campo numérico que acepta un número o una expresión con parámetros (`ancho / 2`).
+ * Con expresión, muestra el texto y al lado el valor calculado.
+ */
+export function ExprField(props: {
+  label: string;
+  unit?: string;
+  /** Valor evaluado actual. */
+  value: number | undefined;
+  /** Expresión actual (si el campo tiene una). */
+  expr?: string;
+  /** Aplica el texto; devuelve un mensaje de error o null. */
+  onCommit: (text: string) => string | null;
+}) {
+  const shown = () => props.expr ?? (props.value === undefined ? '' : formatNumber(props.value));
+  const [text, setText] = createSignal(shown());
+  const [error, setError] = createSignal<string | null>(null);
+  createEffect(() => {
+    setText(shown());
+    setError(null);
+  });
+
+  const commit = () => {
+    const t = text().trim();
+    if (t === shown()) return;
+    const err = props.onCommit(t);
+    setError(err);
+  };
+
+  return (
+    <label class="field" title={error() ?? (props.expr ? `Expresión: ${props.expr}` : 'Número o expresión con parámetros (ej. ancho / 2)')}>
+      <span class="field-label">{props.label}</span>
+      <span class="field-input">
+        <input
+          type="text"
+          inputmode="decimal"
+          classList={{ invalid: !!error(), expr: !!props.expr }}
+          value={text()}
+          onInput={(e) => setText(e.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') {
+              setText(shown());
+              setError(null);
+            }
+          }}
+        />
+        {props.unit && <span class="unit">{props.unit}</span>}
+      </span>
+      {props.expr && props.value !== undefined && !error() && <span class="field-value">= {formatNumber(props.value)}</span>}
+      {error() && <span class="field-error">{error()}</span>}
+    </label>
+  );
+}

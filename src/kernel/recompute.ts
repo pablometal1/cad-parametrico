@@ -53,7 +53,10 @@ export class RecomputeEngine {
     return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, doc: this.lastDoc };
   }
 
-  run(doc: CadDocument): RecomputeOutput {
+  /**
+   * @param exprErrors Features cuyas expresiones no se pudieron evaluar: quedan en error sin calcularse.
+   */
+  run(doc: CadDocument, exprErrors: ReadonlyMap<FeatureId, string> = new Map()): RecomputeOutput {
     const active = activeCount(doc);
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
@@ -76,6 +79,12 @@ export class RecomputeEngine {
 
       const ctx: Context = { input: current, sketches, doc, index };
       this.lastInputs.set(feature.id, current);
+      const exprError = exprErrors.get(feature.id);
+      if (exprError) {
+        // Error de expresión: la feature no se calcula; el sólido y la clave siguen como estaban.
+        results.push({ id: feature.id, status: 'error', error: exprError, timeMs: 0, cached: false });
+        return;
+      }
       // La clave incluye el estado de las dependencias (p. ej. un sketch borrado vs. suprimido).
       const key = hashString(currentKey + '\u0000' + featureFingerprint(feature) + '\u0000' + dependencyState(feature, ctx));
       let entry = this.cache.get(feature.id);
@@ -177,7 +186,8 @@ function resolveSketch(feature: ProfileFeature, ctx: Context): EvaluatedSketch {
 
 /** Parámetros que afectan la geometría (excluye nombre y supresión). */
 function featureFingerprint(feature: Feature): string {
-  const { name: _name, suppressed: _suppressed, ...geometric } = feature;
+  // Las expresiones no cuentan: lo que importa es el valor ya evaluado.
+  const { name: _name, suppressed: _suppressed, exprs: _exprs, ...geometric } = feature;
   return stableStringify(geometric);
 }
 

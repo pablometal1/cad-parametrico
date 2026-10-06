@@ -325,3 +325,56 @@ button.wide { width: 100%; margin-top: 6px; }
   display: flex; justify-content: flex-end; gap: 6px;
   padding: 8px 10px; border-top: 1px solid var(--border);
 }
+
+/* Archivo y deshacer */
+.file-name { color: var(--muted); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar button.icon-only { min-width: 28px; padding: 4px 6px; }
+.toolbar button.active { background: #4a3b2a; border-color: #8a6a40; }
+.kbd { float: right; margin-left: 16px; color: var(--muted); font-size: 11px; }
+
+/* Campos con expresiones */
+.field input.expr { color: #9fd0ff; font-style: italic; }
+.field-value, .field-error { grid-column: 2; font-size: 11px; margin-top: -2px; }
+.field-value { color: var(--muted); }
+.field-error { color: var(--error); }
+
+/* Tabla de parámetros */
+.param-panel {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 7;
+  width: min(640px, calc(100% - 140px));
+  background: var(--panel); border: 1px solid #46505c; border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column; max-height: calc(100% - 20px);
+}
+.param-title { display: flex; justify-content: space-between; align-items: center; }
+.param-body { padding: 8px 10px; overflow-y: auto; }
+.param-body code { color: #9fd0ff; }
+.param-table { width: 100%; border-collapse: collapse; }
+.param-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; padding: 2px 4px; }
+.param-table td { padding: 2px 4px; }
+.param-table td:nth-child(1) { width: 22%; }
+.param-table td:nth-child(2) { width: 30%; }
+.param-table td:nth-child(3) { width: 12%; }
+.param-table input.cell {
+  width: 100%; background: #16191d; color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit;
+}
+.param-table input.cell:focus { outline: none; border-color: #5d7fa6; }
+.param-table input.cell.invalid { border-color: var(--error); }
+.param-value { font-variant-numeric: tabular-nums; color: var(--text); }
+.param-value.error { color: var(--error); cursor: help; }
+
+/* Barra de herramientas en una sola línea (con desplazamiento si no entra). */
+.toolbar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.toolbar > * { flex: none; }
+.toolbar button { white-space: nowrap; }
+
+/* Avisos */
+.toast {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 8;
+  max-width: min(640px, calc(100% - 40px));
+  background: #3a3222; color: #ffe0a8; border: 1px solid #8a6a40; border-radius: 6px;
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.toast-close { margin-left: 8px; opacity: 0.6; }

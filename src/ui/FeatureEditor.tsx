@@ -4,7 +4,7 @@ import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
   RevolveFeature, ShellFeature, SketchFeature,
 } from '../document/types';
-import { NumberField, SelectField, TextField } from './fields';
+import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
 
 const PLANES = [
@@ -75,8 +75,7 @@ function SketchPanel(props: { store: CadStore; feature: SketchFeature; info?: st
       <h3>Sketch</h3>
       <SelectField label="Plano" value={planeValue()} options={planeOptions()}
         onChange={(v) => v !== 'face' && update({ plane: { kind: 'base', plane: v, offset: f().plane.offset } })} />
-      <NumberField label="Desplazamiento" unit="mm" value={f().plane.offset}
-        onCommit={(offset) => update({ plane: { ...f().plane, offset } })} />
+      <Num store={props.store} id={f().id} path="plane.offset" label="Desplazamiento" unit="mm" />
       <button class="wide" onClick={() => props.store.beginPick(f().id)} title="Elegir una cara plana del modelo como plano del sketch">
         ◧ {f().plane.kind === 'face' ? 'Cambiar cara de apoyo…' : 'Apoyar en una cara…'}
       </button>
@@ -109,7 +108,7 @@ function ExtrudePanel(props: { store: CadStore; feature: ExtrudeFeature }) {
       <h3>Extrusión</h3>
       <SketchSelect store={props.store} feature={f()} onChange={(sketch) => update({ sketch })} />
       <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
-      <NumberField label="Distancia" unit="mm" value={f().distance} onCommit={(distance) => update({ distance })} />
+      <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
       <SelectField label="Dirección" value={f().direction} options={DIRECTIONS} onChange={(direction) => update({ direction })} />
     </>
   );
@@ -136,7 +135,7 @@ function RevolvePanel(props: { store: CadStore; feature: RevolveFeature }) {
         const [kind, id] = v.split(':');
         update({ axis: kind === 'axis' ? { kind: 'sketchAxis', axis: id as 'u' | 'v' } : { kind: 'sketchLine', line: id } });
       }} />
-      <NumberField label="Ángulo" unit="°" value={f().angle} onCommit={(angle) => update({ angle })} />
+      <Num store={props.store} id={f().id} path="angle" label="Ángulo" unit="°" />
       <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
       <p class="hint">Tip: dibujá una línea de construcción en el sketch para usarla como eje.</p>
     </>
@@ -146,15 +145,10 @@ function RevolvePanel(props: { store: CadStore; feature: RevolveFeature }) {
 function EdgeFeaturePanel(props: { store: CadStore; feature: FilletFeature | ChamferFeature }) {
   const f = () => props.feature;
   const isFillet = () => f().type === 'fillet';
-  const size = () => (f().type === 'fillet' ? (f() as FilletFeature).radius : (f() as ChamferFeature).distance);
-  const setSize = (v: number) =>
-    isFillet()
-      ? props.store.updateFeature<FilletFeature>(f().id, { radius: v })
-      : props.store.updateFeature<ChamferFeature>(f().id, { distance: v });
   return (
     <>
       <h3>{isFillet() ? 'Redondeo' : 'Chaflán'}</h3>
-      <NumberField label={isFillet() ? 'Radio' : 'Distancia'} unit="mm" value={size()} onCommit={setSize} />
+      <Num store={props.store} id={f().id} path={isFillet() ? 'radius' : 'distance'} label={isFillet() ? 'Radio' : 'Distancia'} unit="mm" />
       <p class="hint">{f().edges.length} arista{f().edges.length === 1 ? '' : 's'}</p>
       <button class="wide" onClick={() => props.store.beginPick(f().id)}>⌁ Elegir aristas…</button>
     </>
@@ -166,12 +160,24 @@ function ShellPanel(props: { store: CadStore; feature: ShellFeature }) {
   return (
     <>
       <h3>Vaciado</h3>
-      <NumberField label="Espesor" unit="mm" value={f().thickness}
-        onCommit={(thickness) => props.store.updateFeature<ShellFeature>(f().id, { thickness })} />
+      <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
       <p class="hint">
         {f().faces.length === 0 ? 'Sin caras quitadas: queda hueco y cerrado.' : `${f().faces.length} cara${f().faces.length === 1 ? '' : 's'} quitada${f().faces.length === 1 ? '' : 's'}`}
       </p>
       <button class="wide" onClick={() => props.store.beginPick(f().id)}>◧ Elegir caras a quitar…</button>
     </>
+  );
+}
+
+/** Campo numérico de una feature, con soporte de expresiones y parámetros. */
+function Num(props: { store: CadStore; id: string; path: string; label: string; unit: string }) {
+  return (
+    <ExprField
+      label={props.label}
+      unit={props.unit}
+      value={props.store.fieldValue(props.id, props.path)}
+      expr={props.store.fieldExpression(props.id, props.path)}
+      onCommit={(text) => props.store.setFieldText(props.id, props.path, text)}
+    />
   );
 }

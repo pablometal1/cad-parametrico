@@ -9,6 +9,7 @@ import { createSketchSession } from './sketch/session';
 import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
 import { FEATURE_ICONS, Timeline } from './Timeline';
+import { ParameterTable } from './ParameterTable';
 
 const PLANE_MENU: { plane: BasePlane; label: string }[] = [
   { plane: 'XY', label: 'Plano XY (planta)' },
@@ -33,6 +34,53 @@ export function App() {
   const [edgeInfos, setEdgeInfos] = createSignal<EdgeInfo[]>([]);
   const [hovered, setHovered] = createSignal<PickItem | null>(null);
   const [planeMenu, setPlaneMenu] = createSignal(false);
+  const [fileMenu, setFileMenu] = createSignal(false);
+  const [paramsOpen, setParamsOpen] = createSignal(false);
+  let fileInput!: HTMLInputElement;
+
+  const openFile = async (file: File) => {
+    if (store.dirty() && !window.confirm('Hay cambios sin guardar. ¿Abrir otro proyecto igual?')) return;
+    const err = store.open(await file.text(), file.name);
+    store.setNotice(err ?? `Se abrió "${file.name}"`);
+    framed = false; // encuadrar el proyecto nuevo
+  };
+  const newProject = () => {
+    if (store.dirty() && !window.confirm('Hay cambios sin guardar. ¿Empezar un proyecto nuevo igual?')) return;
+    store.newDocument();
+  };
+
+  // Atajos globales (no mientras se escribe en un campo ni dentro del editor de sketch, que tiene los suyos).
+  const onGlobalKey = (e: KeyboardEvent) => {
+    if (store.editing()) return;
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') {
+      e.preventDefault();
+      store.save();
+    } else if (k === 'o') {
+      e.preventDefault();
+      fileInput.click();
+    } else if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      return;
+    } else if (k === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      store.undo();
+    } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+      e.preventDefault();
+      store.redo();
+    }
+  };
+  // Aviso al cerrar con cambios sin guardar en archivo (en desarrollo no, para no trabar las recargas).
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (!import.meta.env.DEV && store.dirty()) e.preventDefault();
+  };
+  window.addEventListener('keydown', onGlobalKey);
+  window.addEventListener('beforeunload', onBeforeUnload);
+  onCleanup(() => {
+    window.removeEventListener('keydown', onGlobalKey);
+    window.removeEventListener('beforeunload', onBeforeUnload);
+  });
   const [sketchLines, setSketchLines] = createSignal<RecomputeResult['sketches']>([]);
   let selectionRequest = 0;
 
@@ -86,8 +134,8 @@ export function App() {
         if (req !== manipulatorRequest) return;
         viewport?.setManipulator(m, m && {
           // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle…).
-          onDrag: (value) => store.updateFeature(m.featureId, { [m.param]: value }),
-          onCommit: (value) => store.updateFeature(m.featureId, { [m.param]: value }),
+          onDrag: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
+          onCommit: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
         });
       },
       () => req === manipulatorRequest && viewport?.setManipulator(null, null),
@@ -105,8 +153,17 @@ export function App() {
   const session = createMemo(() => {
     const e = store.editing();
     if (!e) return null;
-    const f = untrack(() => findFeature(store.doc(), e.featureId)) as SketchFeature | undefined;
-    return f ? { feature: f, session: createSketchSession({ entities: f.entities, constraints: f.constraints }) } : null;
+    const f = untrack(() => store.evaluated().doc.features.find((x) => x.id === e.featureId)) as SketchFeature | undefined;
+    if (!f) return null;
+    // Cotas con su valor evaluado; las expresiones se editan por id de restricción.
+    const exprs = Object.fromEntries(
+      Object.entries(f.exprs ?? {}).filter(([k]) => k.startsWith('constraint:')).map(([k, v]) => [k.slice(11), v]),
+    );
+    const session = createSketchSession(
+      { entities: f.entities, constraints: f.constraints },
+      { exprs, scope: () => store.evaluated().scope },
+    );
+    return { feature: f, session };
   });
 
   onMount(() => {
@@ -146,6 +203,43 @@ export function App() {
       <header class="toolbar">
         <span class="brand">CAD</span>
         <div class="menu-anchor">
+          <button onClick={() => setFileMenu(!fileMenu())} disabled={!!store.editing()}>Archivo ▾</button>
+          <Show when={fileMenu()}>
+            <div class="menu" onMouseLeave={() => setFileMenu(false)}>
+              <button onClick={() => { setFileMenu(false); newProject(); }}>Nuevo</button>
+              <button onClick={() => { setFileMenu(false); fileInput.click(); }}>Abrir… <span class="kbd">Ctrl+O</span></button>
+              <button onClick={() => { setFileMenu(false); store.save(); }}>Guardar <span class="kbd">Ctrl+S</span></button>
+              <button onClick={() => {
+                setFileMenu(false);
+                const name = window.prompt('Nombre del archivo', store.fileName());
+                if (name?.trim()) {
+                  store.setFileName(name.trim());
+                  store.save();
+                }
+              }}>Guardar como…</button>
+            </div>
+          </Show>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json,application/json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = '';
+              if (file) void openFile(file);
+            }}
+          />
+        </div>
+        <span class="file-name" title={store.dirty() ? 'Hay cambios sin guardar en el archivo' : 'Guardado'}>
+          {store.fileName()}{store.dirty() ? ' •' : ''}
+        </span>
+        <button class="icon-only" title="Deshacer (Ctrl+Z)" onClick={() => store.undo()}
+          disabled={!store.canUndo() || !!store.editing() || !!store.dialog() || !!store.picking()}>↶</button>
+        <button class="icon-only" title="Rehacer (Ctrl+Y)" onClick={() => store.redo()}
+          disabled={!store.canRedo() || !!store.editing() || !!store.dialog() || !!store.picking()}>↷</button>
+        <span class="sep" />
+        <div class="menu-anchor">
           <button class="primary" onClick={() => setPlaneMenu(!planeMenu())} disabled={busy()} title="Nuevo sketch">
             ✎ Sketch ▾
           </button>
@@ -174,10 +268,10 @@ export function App() {
         <button onClick={() => store.addEdgeFeature('chamfer', viewSel().edges)} disabled={busy()} title="Achaflanar las aristas seleccionadas">◸ Chaflán</button>
         <button onClick={() => store.addShell(viewSel().faces)} disabled={busy()} title="Vaciar quitando las caras seleccionadas">▢ Vaciado</button>
         <span class="sep" />
+        <button classList={{ active: paramsOpen() }} onClick={() => setParamsOpen(!paramsOpen())} disabled={!!store.editing()}
+          title="Tabla de parámetros con nombre (usables en cualquier campo numérico)">ƒx Parámetros</button>
+        <span class="sep" />
         <button onClick={() => viewport?.fitView()} disabled={!ready() || !!store.editing()} title="Encuadrar (F)">Encuadrar</button>
-        <Show when={store.notice()}>
-          <span class="notice" onClick={() => store.setNotice(null)} title="Clic para ocultar">{store.notice()}</span>
-        </Show>
       </header>
 
       <aside class="left">
@@ -216,6 +310,15 @@ export function App() {
             </div>
           )}
         </Show>
+        {/* Avisos como cartel flotante (no ocupan lugar en la barra). */}
+        <Show when={store.notice()}>
+          <div class="toast" onClick={() => store.setNotice(null)} title="Clic para ocultar">
+            {store.notice()} <span class="toast-close">✕</span>
+          </div>
+        </Show>
+        <Show when={paramsOpen() && !store.editing()}>
+          <ParameterTable store={store} onClose={() => setParamsOpen(false)} />
+        </Show>
         <Show when={store.picking()}>
           {(p) => (
             <div class="pick-banner">
@@ -234,7 +337,7 @@ export function App() {
               session={s.session}
               title={`${s.feature.name} · ${s.feature.plane.kind === 'base' ? `plano ${s.feature.plane.plane}` : 'sobre cara'}`}
               reference={() => sketchLines().find((l) => l.id === s.feature.id)?.reference}
-              onFinish={() => store.finishSketch(s.session.data())}
+              onFinish={() => store.finishSketch(s.session.data(), s.session.documentExprs())}
               onCancel={() => {
                 if (s.session.dirty() && !window.confirm('¿Descartar los cambios del sketch?')) return;
                 store.cancelSketch();

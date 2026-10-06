@@ -1,12 +1,13 @@
 // Operaciones puras sobre el documento. Nunca mutan: devuelven un documento nuevo.
+import { isValidName, parseExpression, referencedNames, renameInExpression } from './expressions';
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
-  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: 'mm', features: [], rollback: null };
+  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: 'mm', parameters: [], features: [], rollback: null };
 }
 
 /** Cantidad de features por encima del marcador de retroceso. */
@@ -196,4 +197,83 @@ export function makeChamfer(doc: CadDocument, edges: EdgeRef[], distance = 1): C
 
 export function makeShell(doc: CadDocument, faces: FaceRef[], thickness = 2): ShellFeature {
   return { ...base(doc, 'shell'), faces, thickness };
+}
+
+// ---------------------------------------------------------------- parámetros
+
+function newParamId(doc: CadDocument): string {
+  const used = new Set(doc.parameters.map((p) => p.id));
+  let n = doc.parameters.length + 1;
+  while (used.has(`p${n}`)) n++;
+  return `p${n}`;
+}
+
+/** Nombre libre: ancho, ancho2… */
+export function nextParameterName(doc: CadDocument, base = 'param'): string {
+  const used = new Set(doc.parameters.map((p) => p.name));
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base}${n}`)) n++;
+  return `${base}${n}`;
+}
+
+export function addParameter(doc: CadDocument, name: string, expression: string, comment?: string): CadDocument {
+  checkParameterName(doc, name);
+  const p: Parameter = { id: newParamId(doc), name, expression };
+  if (comment) p.comment = comment;
+  return { ...doc, parameters: [...doc.parameters, p] };
+}
+
+export function updateParameter(doc: CadDocument, id: string, patch: Partial<Pick<Parameter, 'expression' | 'comment'>>): CadDocument {
+  const i = doc.parameters.findIndex((p) => p.id === id);
+  if (i < 0) throw new Error(`No existe el parámetro ${id}`);
+  const current = doc.parameters[i];
+  const next = { ...current, ...patch };
+  if (JSON.stringify(next) === JSON.stringify(current)) return doc;
+  const parameters = doc.parameters.slice();
+  parameters[i] = next;
+  return { ...doc, parameters };
+}
+
+/** Renombra un parámetro y actualiza todas las expresiones que lo usan. */
+export function renameParameter(doc: CadDocument, id: string, name: string): CadDocument {
+  const p = doc.parameters.find((x) => x.id === id);
+  if (!p) throw new Error(`No existe el parámetro ${id}`);
+  if (p.name === name) return doc;
+  checkParameterName(doc, name, id);
+  const from = p.name;
+  const rename = (text: string) => renameInExpression(text, from, name);
+  return {
+    ...doc,
+    parameters: doc.parameters.map((x) => ({ ...x, name: x.id === id ? name : x.name, expression: rename(x.expression) })),
+    features: doc.features.map((f) =>
+      f.exprs ? ({ ...f, exprs: Object.fromEntries(Object.entries(f.exprs).map(([k, v]) => [k, rename(v)])) } as Feature) : f,
+    ),
+  };
+}
+
+export function deleteParameter(doc: CadDocument, id: string): CadDocument {
+  return { ...doc, parameters: doc.parameters.filter((p) => p.id !== id) };
+}
+
+/** Dónde se usa un parámetro (nombres de parámetros y de features). */
+export function parameterUsage(doc: CadDocument, name: string): string[] {
+  const uses = (text: string) => {
+    try {
+      return referencedNames(parseExpression(text)).has(name);
+    } catch {
+      return false;
+    }
+  };
+  return [
+    ...doc.parameters.filter((p) => p.name !== name && uses(p.expression)).map((p) => p.name),
+    ...doc.features.filter((f) => f.exprs && Object.values(f.exprs).some(uses)).map((f) => f.name),
+  ];
+}
+
+function checkParameterName(doc: CadDocument, name: string, exceptId?: string) {
+  if (!isValidName(name)) {
+    throw new Error(`"${name}" no es un nombre válido: usá letras, números y _ (sin empezar con número ni usar nombres de funciones)`);
+  }
+  if (doc.parameters.some((p) => p.name === name && p.id !== exceptId)) throw new Error(`Ya existe un parámetro "${name}"`);
 }

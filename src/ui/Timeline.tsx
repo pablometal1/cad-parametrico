@@ -1,6 +1,6 @@
 // Historial de features: estado de cada una, supresión, borrado y marcador de retroceso.
 import { For, Show } from 'solid-js';
-import { activeCount, dependents } from '../document/ops';
+import { activeCount } from '../document/ops';
 import type { Feature } from '../document/types';
 import type { FeatureStatus } from '../kernel/protocol';
 import type { CadStore } from './store';
@@ -26,12 +26,9 @@ export function Timeline(props: { store: CadStore }) {
   const active = () => activeCount(store.doc());
   const total = () => store.doc().features.length;
 
-  const confirmDelete = (f: Feature) => {
-    // Hasta la fase 5 no hay deshacer: pedimos confirmación, avisando qué deja de funcionar.
-    const deps = dependents(store.doc(), f.id);
-    const extra = deps.length ? `\n\nLo usa: ${deps.map((d) => d.name).join(', ')} (quedará con error).` : '';
-    if (window.confirm(`¿Borrar "${f.name}"? Todavía no hay deshacer.${extra}`)) store.deleteFeature(f.id);
-  };
+  // Con deshacer disponible, borrar no pide confirmación (avisa en la barra y se deshace con Ctrl+Z).
+  const confirmDelete = (f: Feature) => store.deleteFeature(f.id);
+
 
   const Marker = () => (
     <li class="marker" title="Marcador de historial: solo se calcula lo que está por encima">
