@@ -1,11 +1,11 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
 import { activeCount } from '../document/ops';
-import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature } from '../document/types';
+import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, ShellFeature } from '../document/types';
 import { describeError, FeatureError, hashString } from './occtUtils';
 import type { NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
-import { runEdgeFeature, runShell } from './features/dressup';
+import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
@@ -119,6 +119,47 @@ export class RecomputeEngine {
     return this.cache.size;
   }
 
+  /**
+   * Vaciado. Si la pieza ya pasó por otro vaciado, primero se intenta sobre la versión maciza
+   * (sin los vaciados previos), para no volver a ahuecar las paredes que ya existen.
+   */
+  private shell(feature: ShellFeature, ctx: Context): NamedShape {
+    const input = ctx.input;
+    const prior = input
+      ? ctx.doc.features
+          .slice(0, ctx.index)
+          .filter((f) => f.type === 'shell' && !f.suppressed && input.names.some((ns) => ns.some((n) => n.startsWith(`${f.id}:`))))
+      : [];
+    if (prior.length === 0) return runShell(feature, input);
+
+    const ids = new Set(prior.map((f) => f.id));
+    const sub = new RecomputeEngine();
+    try {
+      const solidDoc: CadDocument = {
+        ...ctx.doc,
+        rollback: null,
+        features: ctx.doc.features.slice(0, ctx.index).map((f) => (ids.has(f.id) ? { ...f, suppressed: true } : f)),
+      };
+      const out = sub.run(solidDoc);
+      const usable = out.shape && out.results.every((r) => r.status === 'ok' || r.status === 'suppressed');
+      if (usable) {
+        try {
+          return runShellOver(feature, input, out.shape!);
+        } catch (overErr) {
+          // Si tampoco sale el vaciado común, el error útil es el de este intento.
+          try {
+            return runShell(feature, input);
+          } catch {
+            throw overErr;
+          }
+        }
+      }
+      return runShell(feature, input);
+    } finally {
+      sub.dispose();
+    }
+  }
+
   private compute(feature: Feature, ctx: Context, key: string): CacheEntry {
     const t0 = performance.now();
     const ok = (output: NamedShape): CacheEntry => ({ key, output, owned: true, status: 'ok', timeMs: elapsed(t0) });
@@ -137,7 +178,7 @@ export class RecomputeEngine {
         case 'chamfer':
           return ok(runEdgeFeature(feature, ctx.input));
         case 'shell':
-          return ok(runShell(feature, ctx.input));
+          return ok(this.shell(feature, ctx));
         case 'pattern': {
           const { source, sketch } = resolveSource(feature, ctx);
           return ok(runPattern(feature, source, sketch, ctx.input));

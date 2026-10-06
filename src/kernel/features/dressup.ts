@@ -228,8 +228,12 @@ function thickSolid(sol: AnyShape, removed: AnyShape[], thickness: number, keep:
  * para abrirla. Resultado = sólido − hueco. Solo con caras quitadas planas.
  * La historia que devuelve imita a la del vaciado directo: `modified` lleva cada cara exterior
  * a su versión final y `generated` lleva cada cara a su pared interior.
+ * `target` es lo que se corta (por defecto el mismo sólido): con un vaciado previo, el hueco se
+ * calcula sobre la pieza maciza y se corta la pieza real.
  */
-function shellByCut(sol: AnyShape, removed: AnyShape[], thickness: number, keep: Deletable[]): { result: AnyShape; history: History } | null {
+function shellByCut(
+  sol: AnyShape, removed: AnyShape[], thickness: number, keep: Deletable[], target: AnyShape = sol,
+): { result: AnyShape; history: History } | null {
   const oc = getOC();
   if (removed.some((f) => (f as { geomType?: string }).geomType !== 'PLANE')) return null;
   const offset = new oc.BRepOffsetAPI_MakeOffsetShape();
@@ -281,11 +285,11 @@ function shellByCut(sol: AnyShape, removed: AnyShape[], thickness: number, keep:
   }
 
   const cr = new oc.Message_ProgressRange();
-  const cut = new oc.BRepAlgoAPI_Cut(sol.wrapped, tool.wrapped, cr);
+  const cut = new oc.BRepAlgoAPI_Cut(target.wrapped, tool.wrapped, cr);
   keep.push(cr, cut);
   if (!cut.IsDone() || cut.HasErrors()) return fail();
   const result = cast(cut.Shape());
-  if (result.solids.length !== 1 || !plausibleShell(result, sol)) {
+  if (result.solids.length !== target.solids.length || !plausibleShell(result, target)) {
     result.delete();
     return fail();
   }
@@ -307,6 +311,55 @@ function shellByCut(sol: AnyShape, removed: AnyShape[], thickness: number, keep:
   // El resultado queda vivo; los intermedios (hueco, prismas, herramienta) ya no hacen falta.
   temps.forEach((t) => t.delete());
   return { result, history };
+}
+
+/**
+ * Vaciado de una pieza que ya tiene un vaciado anterior. `solid` es la misma pieza calculada sin
+ * esos vaciados: el hueco nuevo se arma sobre ella (así no se vuelven a ahuecar las paredes que ya
+ * existen) y se resta de la pieza real. Ejemplo: caja vaciada + tubo unido a un costado; vaciar el
+ * tubo lo deja hueco y conectado con el interior de la caja.
+ */
+export function runShellOver(feature: ShellFeature, input: NamedShape | null, solid: NamedShape): NamedShape {
+  if (!input) throw new FeatureError('No hay un sólido para vaciar');
+  if (!(feature.thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${feature.thickness})`);
+  const skip = new Set(feature.faces.map((ref) => resolveFace(input, ref)));
+  const removedFull = [...new Set(feature.faces.map((ref) => resolveFace(solid, ref)))];
+  const fullFaces = solid.shape.faces;
+  const body = solid.shape.solids.find((b) => removedFull.every((i) => b.faces.some((f) => f.wrapped.IsSame(fullFaces[i].wrapped))));
+  if (!body) throw new FeatureError('Las caras a quitar tienen que ser de un mismo cuerpo');
+  const removed = removedFull.map((i) => fullFaces[i]);
+
+  const attempt = (t: number) => {
+    const keep: Deletable[] = [];
+    const r = shellByCut(body, removed, t, keep, input.shape);
+    return { r, release: () => keep.forEach((k) => k.delete()) };
+  };
+  const { r, release } = attempt(feature.thickness);
+  try {
+    if (!r) {
+      const max = largestThatWorks(feature.thickness, (t) => {
+        const a = attempt(t);
+        a.r?.result.delete();
+        a.release();
+        return !!a.r;
+      });
+      const t = fmtNum(feature.thickness);
+      throw new FeatureError(
+        max === null
+          ? `No se pudo vaciar con espesor ${t} mm quitando esas caras; probá con otras caras`
+          : `No se pudo vaciar con espesor ${t} mm: entra hasta ≈ ${fmtMax(max)} mm (tiene que ser menor que el radio de los redondeos y que las partes más finas de la pieza)`,
+      );
+    }
+    const nb = new NameBuilder(r.result);
+    nb.carry(input, r.history, { skip });
+    const removedSet = new Set(removedFull);
+    fullFaces.forEach((f, i) => {
+      if (!removedSet.has(i)) nb.generated(r.history, f.wrapped, `${feature.id}:inner:${solid.names[i][0]}`);
+    });
+    return nb.finish(feature.id);
+  } finally {
+    release();
+  }
 }
 
 /** ¿Se puede vaciar con ese espesor? (mismas comprobaciones que runShell, sin quedarse con el resultado) */
