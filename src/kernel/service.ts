@@ -1,4 +1,5 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
+import { checkPart } from './features/check';
 import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
@@ -209,6 +210,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         center,
         bboxMin: [min[0], min[1], min[2]],
         bboxMax: [max[0], max[1], max[2]],
+        check: checkPart(shape),
       };
     } finally {
       vol.delete();

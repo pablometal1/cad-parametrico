@@ -110,6 +110,23 @@ export interface MassProperties {
   center: V3;
   bboxMin: V3;
   bboxMax: V3;
+  check: PartCheck;
+}
+
+/** Comprobación para imprimir (todo en 0 / true = bien). */
+export interface PartCheck {
+  /** El B-rep pasa el control geométrico de OpenCascade. */
+  valid: boolean;
+  /** Aristas de la malla con un solo triángulo (agujeros). */
+  openEdges: number;
+  /** Aristas recorridas dos veces en el mismo sentido: normales de caras vecinas en desacuerdo. */
+  flippedEdges: number;
+  /** Cuerpos con volumen negativo (normales hacia adentro). */
+  invertedBodies: number;
+  /** Pares de cuerpos que se superponen. */
+  overlappingPairs: number;
+  /** false si había demasiados cuerpos para compararlos todos. */
+  checkedOverlap: boolean;
 }
 
 export interface EdgeInfo {

@@ -523,3 +523,9 @@ kbd {
 .section-row { display: flex; align-items: center; gap: 2px; }
 .section-row .field { flex: 1; min-width: 0; }
 .section-actions { display: flex; gap: 1px; margin-bottom: 6px; }
+
+/* Comprobación para imprimir */
+.check-ok { color: #8fd17f; font-weight: 600; cursor: default; }
+.check-problems { margin: 0; padding: 0; list-style: none; color: #ffb3a8; font-size: 12px; }
+.check-problems li { display: flex; gap: 4px; align-items: flex-start; margin-bottom: 3px; line-height: 1.3; }
+.check-problems .icon { flex: none; margin-top: 1px; color: var(--error); }
