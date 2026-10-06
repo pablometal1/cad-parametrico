@@ -18,6 +18,7 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   plane: 'plane',
   hole: 'hole',
   thread: 'thread',
+  import: 'import',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {

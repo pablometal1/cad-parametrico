@@ -3,10 +3,10 @@ import { Icon } from './icons';
 import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature, ImportFeature,
 } from '../document/types';
 import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
-import { ExprField, SelectField, TextField } from './fields';
+import { ExprField, NumberField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
 
 const PLANES = [
@@ -57,6 +57,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
                 <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
+              </Match>
+              <Match when={feature().type === 'import'}>
+                <ImportPanel store={store} feature={feature() as ImportFeature} />
               </Match>
               <Match when={feature().type === 'thread'}>
                 <ThreadPanel store={store} feature={feature() as ThreadFeature} />
@@ -289,6 +292,42 @@ function HolePanel(props: { store: CadStore; feature: HoleFeature }) {
 }
 
 const fmtMm = (v: number) => String(Math.round(v * 1000) / 1000);
+
+const IMPORT_OPS = [
+  { value: 'reference', label: 'Solo referencia (no se exporta)' },
+  { value: 'new', label: 'Cuerpo nuevo' },
+  { value: 'join', label: 'Unir' },
+  { value: 'cut', label: 'Cortar (encastre)' },
+] as const satisfies readonly { value: ImportFeature['operation']; label: string }[];
+
+function ImportPanel(props: { store: CadStore; feature: ImportFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<ImportFeature>) => props.store.updateFeature<ImportFeature>(f().id, patch);
+  const setAt = (key: 'position' | 'rotation', i: number, v: number) => {
+    const next = [...f()[key]] as [number, number, number];
+    next[i] = v;
+    update({ [key]: next });
+  };
+  const sizeKb = () => Math.round((f().data.length * 3) / 4 / 1024);
+  return (
+    <>
+      <h3>Importado</h3>
+      <p class="hint">{f().fileName} · {f().format.toUpperCase()} · {sizeKb()} KB (va dentro del documento)</p>
+      <SelectField label="Operación" value={f().operation} options={IMPORT_OPS} onChange={(operation) => update({ operation })} />
+      <NumberField label="X" unit="mm" value={f().position[0]} onCommit={(v) => setAt('position', 0, v)} />
+      <NumberField label="Y" unit="mm" value={f().position[1]} onCommit={(v) => setAt('position', 1, v)} />
+      <NumberField label="Z" unit="mm" value={f().position[2]} onCommit={(v) => setAt('position', 2, v)} />
+      <NumberField label="Giro X" unit="°" value={f().rotation[0]} onCommit={(v) => setAt('rotation', 0, v)} />
+      <NumberField label="Giro Y" unit="°" value={f().rotation[1]} onCommit={(v) => setAt('rotation', 1, v)} />
+      <NumberField label="Giro Z" unit="°" value={f().rotation[2]} onCommit={(v) => setAt('rotation', 2, v)} />
+      <Num store={props.store} id={f().id} path="scale" label="Escala" unit="×" />
+      <p class="hint">
+        Para un encastre: ubicá la pieza donde va y elegí Cortar; queda su forma restada de tu sólido. Si el STL viene en
+        pulgadas, escala 25,4. Un STL abierto (con agujeros) solo sirve como referencia.
+      </p>
+    </>
+  );
+}
 
 function ThreadPanel(props: { store: CadStore; feature: ThreadFeature }) {
   const f = () => props.feature;

@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -104,6 +104,7 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   plane: 'Plano',
   hole: 'Agujero',
   thread: 'Rosca',
+  import: 'Importado',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -331,6 +332,13 @@ export function makeHole(doc: CadDocument, sketch: FeatureId, overrides: Partial
 /** Rosca sobre una cara cilíndrica, con el paso grueso ISO más cercano a su diámetro. */
 export function makeThread(doc: CadDocument, face: FaceRef, pitch: number, overrides: Partial<Omit<ThreadFeature, 'type'>> = {}): ThreadFeature {
   return { ...base(doc, 'thread'), face, pitch, clearance: 0.2, length: 0, fromStart: false, ...overrides };
+}
+
+export function makeImport(doc: CadDocument, fileName: string, format: ImportFeature['format'], data: string): ImportFeature {
+  return {
+    ...base(doc, 'import'), fileName, format, data, operation: 'reference',
+    position: [0, 0, 0], rotation: [0, 0, 0], scale: 1,
+  };
 }
 
 export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId, overrides: Partial<Omit<SweepFeature, 'type'>> = {}): SweepFeature {

@@ -12,6 +12,7 @@ import { runMirror, runPattern } from './features/copy';
 import { runLoft, runSweep } from './features/sweep';
 import { runHole } from './features/hole';
 import { runThread } from './features/thread';
+import { runImport } from './features/import';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -25,6 +26,8 @@ interface CacheEntry {
   sketch?: EvaluatedSketch;
   /** Para planos de construcción: su sistema de coordenadas. */
   plane?: PlaneFrame;
+  /** Importación como referencia: el cuerpo que se muestra aparte (propiedad de la entrada). */
+  reference?: NamedShape;
   status: Extract<FeatureStatus, 'ok' | 'error'>;
   error?: string;
   info?: string;
@@ -39,6 +42,8 @@ export interface RecomputeOutput {
   sketches: Map<FeatureId, EvaluatedSketch>;
   /** Planos de construcción evaluados en este recálculo. */
   planes: Map<FeatureId, PlaneFrame>;
+  /** Piezas importadas como referencia (se muestran, no se exportan). */
+  references: { id: FeatureId; shape: NamedShape }[];
 }
 
 const ROOT_KEY = 'root';
@@ -75,6 +80,7 @@ export class RecomputeEngine {
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
     const planes = new Map<FeatureId, PlaneFrame>();
+    const references: RecomputeOutput['references'] = [];
     let current: NamedShape | null = null;
     let currentKey = ROOT_KEY;
     this.lastInputs = new Map();
@@ -113,6 +119,7 @@ export class RecomputeEngine {
       const e = entry!;
       if (e.sketch) sketches.set(feature.id, e.sketch);
       if (e.plane) planes.set(feature.id, e.plane);
+      if (e.reference) references.push({ id: feature.id, shape: e.reference });
       results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, timeMs: e.timeMs, cached });
       current = e.output;
       // Si la feature falló, el sólido sigue siendo el de la entrada y la clave también.
@@ -120,7 +127,7 @@ export class RecomputeEngine {
     });
 
     this.evictMissing(doc);
-    return { results, shape: current, sketches, planes };
+    return { results, shape: current, sketches, planes, references };
   }
 
   dispose() {
@@ -217,6 +224,12 @@ export class RecomputeEngine {
           ));
         case 'thread':
           return ok(runThread(feature, ctx.input));
+        case 'import': {
+          const r = runImport(feature, ctx.input);
+          return r.reference
+            ? { key, output: ctx.input, owned: false, reference: r.reference, status: 'ok', info: feature.fileName, timeMs: elapsed(t0) }
+            : { ...ok(r.output!), info: feature.fileName };
+        }
         case 'hole':
           return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
         case 'loft':
@@ -243,6 +256,8 @@ export class RecomputeEngine {
 
   private release(entry: CacheEntry) {
     if (entry.owned && entry.output) entry.output.shape.delete();
+    entry.reference?.shape.delete();
+    entry.reference = undefined;
     entry.output = null;
     entry.owned = false;
   }

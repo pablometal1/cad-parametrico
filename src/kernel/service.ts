@@ -44,7 +44,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   recompute(doc: CadDocument): RecomputeResult {
     const t0 = performance.now();
     const evaluated = evaluateDocument(doc);
-    const { results, shape, sketches, planes } = this.engine.run(evaluated.doc, evaluated.errors);
+    const { results, shape, sketches, planes, references } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
     const mesh = shape ? meshForDisplay(shape) : null;
     return {
@@ -59,6 +59,13 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       })),
       parameters: evaluated.parameters,
       planes: [...planes].map(([id, f]) => ({ id, frame: { origin: f.origin, xDir: f.xDir, yDir: f.yDir, normal: f.normal } })),
+      references: references.flatMap((r) => {
+        try {
+          return [{ id: r.id, mesh: shapeToMesh(r.shape.shape, undefined, displayMeshOptions(r.shape.shape, true)) }];
+        } catch {
+          return [];
+        }
+      }),
       totalMs: Math.round(performance.now() - t0),
     };
   }

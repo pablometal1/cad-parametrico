@@ -38,6 +38,7 @@ function transferables(result: unknown): ArrayBuffer[] {
     const r = result as RecomputeResult;
     return [
       ...(r.mesh ? meshTransferables(r.mesh) : []),
+      ...r.references.flatMap((x) => meshTransferables(x.mesh)),
       ...r.sketches.flatMap((s) => [s.segments, s.construction, s.reference].map((a) => a.buffer as ArrayBuffer)),
     ];
   }

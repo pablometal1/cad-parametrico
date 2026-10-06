@@ -142,6 +142,19 @@ function validateFeature(raw: unknown, path: string): Feature {
         threadPitch: o.threadPitch === undefined ? 1.25 : num(o.threadPitch, `${path}.threadPitch`),
         threadClearance: o.threadClearance === undefined ? 0.2 : num(o.threadClearance, `${path}.threadClearance`),
       };
+    case 'import': {
+      const v3 = (v: unknown, p: string) => {
+        const a = list(v, p, num);
+        if (a.length !== 3) throw new DocumentFormatError(p, 'debe tener 3 números');
+        return a as [number, number, number];
+      };
+      return {
+        ...base, type: 'import', fileName: str(o.fileName, `${path}.fileName`),
+        format: oneOf(o.format, ['stl', 'step'] as const, `${path}.format`), data: str(o.data, `${path}.data`),
+        operation: oneOf(o.operation, ['reference', 'new', 'join', 'cut'] as const, `${path}.operation`),
+        position: v3(o.position, `${path}.position`), rotation: v3(o.rotation, `${path}.rotation`), scale: num(o.scale, `${path}.scale`),
+      };
+    }
     case 'thread':
       return {
         ...base, type: 'thread', face: faceRef(o.face, `${path}.face`),

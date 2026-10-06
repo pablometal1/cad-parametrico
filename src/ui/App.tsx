@@ -57,6 +57,21 @@ export function App() {
   const [measurement, setMeasurement] = createSignal<Measurement | null>(null);
   const [helpOpen, setHelpOpen] = createSignal(false);
   let fileInput!: HTMLInputElement;
+  let importInput!: HTMLInputElement;
+
+  /** Lee un STL/STEP y lo agrega como pieza importada (el archivo queda dentro del documento). */
+  const importFile = async (file: File) => {
+    const ext = file.name.toLowerCase().split('.').pop();
+    const format = ext === 'stl' ? 'stl' : ext === 'step' || ext === 'stp' ? 'step' : null;
+    if (!format) return store.setNotice('Solo se pueden importar archivos .stl, .step o .stp');
+    const MAX_MB = 15;
+    if (file.size > MAX_MB * 1024 * 1024) return store.setNotice(`El archivo pesa más de ${MAX_MB} MB: simplificalo antes de importarlo`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    store.addImport(file.name, format, btoa(bin));
+    if (file.size > 2 * 1024 * 1024) store.setNotice('Archivo grande: la importación puede tardar unos segundos');
+  };
 
   const openFile = async (file: File) => {
     if (store.dirty() && !window.confirm('Hay cambios sin guardar. ¿Abrir otro proyecto igual?')) return;
@@ -194,7 +209,11 @@ export function App() {
     }
   };
 
-  const store = createCadStore(kernel, { onMesh: showMesh, onSketches: setSketchLines });
+  const store = createCadStore(kernel, {
+    onMesh: showMesh,
+    onSketches: setSketchLines,
+    onReferences: (refs) => viewport?.setReferences(refs.map((r) => r.mesh)),
+  });
   const draw = createDirectDraw(store, () => viewport);
 
   /**
@@ -434,11 +453,23 @@ export function App() {
               <button onClick={() => { setFileMenu(false); fileInput.click(); }}><Icon name="open" size={16} />Abrir… <span class="kbd">Ctrl+O</span></button>
               <button onClick={() => { setFileMenu(false); store.save(); }}><Icon name="save" size={16} />Guardar <span class="kbd">Ctrl+S</span></button>
               <button onClick={() => { setFileMenu(false); saveAs(); }}><Icon name="saveAs" size={16} />Guardar como…</button>
+              <button onClick={() => { setFileMenu(false); importInput.click(); }}><Icon name="import" size={16} />Importar STL / STEP…</button>
               <button disabled={!mass()} onClick={() => { setFileMenu(false); setExportOpen(true); }}>
                 <Icon name="export" size={16} />Exportar STL / 3MF / STEP… <span class="kbd">Ctrl+E</span>
               </button>
             </div>
           </Show>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".stl,.step,.stp"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = '';
+              if (file) void importFile(file);
+            }}
+          />
           <input
             ref={fileInput}
             type="file"

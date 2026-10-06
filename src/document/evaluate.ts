@@ -42,6 +42,7 @@ export function fieldLabel(path: string): string {
     pitch: 'el paso',
     clearance: 'la holgura',
     length: 'el largo',
+    scale: 'la escala',
   };
   if (path.startsWith('constraint:')) return `la cota ${path.slice(11)}`;
   return labels[path] ?? path;

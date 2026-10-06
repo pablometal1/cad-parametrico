@@ -104,6 +104,7 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
         };
       }
       case 'thread':
+      case 'import':
       case 'sketch':
       case 'pattern':
       case 'mirror':

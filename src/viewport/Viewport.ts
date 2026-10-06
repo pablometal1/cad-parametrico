@@ -82,6 +82,7 @@ export class Viewport {
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
   private readonly constructionGroup = new THREE.Group();
+  private readonly referenceGroup = new THREE.Group();
   private readonly modelGroup = new THREE.Group();
   private readonly sketchGroup = new THREE.Group();
   private readonly grid: THREE.GridHelper;
@@ -145,6 +146,7 @@ export class Viewport {
     this.scene.add(this.sketchGroup);
     this.scene.add(this.planeGroup);
     this.scene.add(this.constructionGroup);
+    this.scene.add(this.referenceGroup);
 
     this.manipulator = new ManipulatorWidget(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
@@ -445,6 +447,28 @@ export class Viewport {
       quad.renderOrder = border.renderOrder = 5;
       quad.userData.featureId = border.userData.featureId = p.id;
       this.constructionGroup.add(quad, border);
+    }
+    this.needsRender = true;
+  }
+
+  /** Piezas importadas como referencia: azuladas y translúcidas, sin selección. */
+  setReferences(meshes: MeshPayload[]) {
+    for (const child of [...this.referenceGroup.children]) {
+      const m = child as THREE.Mesh;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      this.referenceGroup.remove(m);
+    }
+    for (const data of meshes) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3));
+      g.setIndex(new THREE.BufferAttribute(data.indices, 1));
+      const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+        color: 0x6fa8dc, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, roughness: 0.6,
+      }));
+      m.renderOrder = 4;
+      this.referenceGroup.add(m);
     }
     this.needsRender = true;
   }

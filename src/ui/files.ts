@@ -39,12 +39,16 @@ export interface Draft {
   dirty: boolean;
 }
 
-/** Guarda el borrador (solo en este navegador). Falla en silencio si el almacenamiento no está disponible. */
-export function saveDraft(draft: Draft) {
+/**
+ * Guarda el borrador (solo en este navegador). Devuelve false si no se pudo (navegación privada,
+ * o el documento no entra: pasa con piezas importadas grandes).
+ */
+export function saveDraft(draft: Draft): boolean {
   try {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ fileName: draft.fileName, dirty: draft.dirty, doc: serializeDocument(draft.doc) }));
+    return true;
   } catch {
-    // Navegación privada, cuota llena, etc.: el borrador es una comodidad, no es crítico.
+    return false;
   }
 }
 

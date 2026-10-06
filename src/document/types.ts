@@ -325,9 +325,25 @@ export interface ThreadFeature extends FeatureBase {
   fromStart: boolean;
 }
 
+/**
+ * Pieza importada (STL o STEP), guardada dentro del documento en base64. Se escala, se gira
+ * (X, luego Y, luego Z, en grados, alrededor del origen) y se traslada. 'reference': solo se ve
+ * (translúcida), no cambia el sólido ni se exporta.
+ */
+export interface ImportFeature extends FeatureBase {
+  type: 'import';
+  fileName: string;
+  format: 'stl' | 'step';
+  data: string;
+  operation: BooleanOperation | 'reference';
+  position: Vec3;
+  rotation: Vec3;
+  scale: number;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature | ImportFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

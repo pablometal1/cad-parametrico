@@ -64,6 +64,8 @@ export interface Picking {
 
 export interface StoreCallbacks {
   onMesh: (mesh: MeshPayload | null) => void;
+  /** Piezas importadas como referencia (translúcidas). */
+  onReferences?: (refs: RecomputeResult['references']) => void;
   onSketches: (sketches: RecomputeResult['sketches']) => void;
 }
 
@@ -75,6 +77,7 @@ interface CommitOptions extends RecordOptions {
 }
 
 export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) {
+  let draftWarned = false;
   const draft = loadDraft();
   const [doc, setDoc] = createSignal<CadDocument>(draft?.doc ?? initialDocument());
   const [results, setResults] = createSignal<ReadonlyMap<FeatureId, FeatureResult>>(new Map());
@@ -112,7 +115,14 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   let draftTimer: ReturnType<typeof setTimeout> | undefined;
   createEffect(on([doc, fileName], () => {
     clearTimeout(draftTimer);
-    draftTimer = setTimeout(() => saveDraft({ doc: doc(), fileName: fileName(), dirty: dirty() }), 600);
+    draftTimer = setTimeout(() => {
+      const ok = saveDraft({ doc: doc(), fileName: fileName(), dirty: dirty() });
+      if (!ok && !draftWarned) {
+        draftWarned = true;
+        setNotice('El borrador automático ya no entra en el navegador (¿un archivo importado grande?): guardá con Ctrl+S para no perder cambios');
+      }
+      if (ok) draftWarned = false;
+    }, 600);
   }, { defer: true }));
 
   // Recálculo en cola: si llegan cambios mientras el worker trabaja, solo se envía el último documento.
@@ -146,6 +156,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
           });
           callbacks.onMesh(r.mesh);
           callbacks.onSketches(r.sketches);
+          callbacks.onReferences?.(r.references);
           setPlaneFrames(new Map(r.planes.map((p) => [p.id, p.frame])));
         } catch (err) {
           // Un error inesperado (no de una feature) puede dejar a OpenCascade en mal estado:
@@ -561,6 +572,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const refs = await withRefs(() => kernel.faceRefs(faces));
       if (!refs) return;
       addWithDialog(ops.makeThread(doc(), refs[0], pitch));
+    },
+
+    /** Pieza importada (STL/STEP en base64): entra como referencia; el panel permite ubicarla y operar. */
+    addImport(fileName: string, format: 'stl' | 'step', data: string) {
+      addWithDialog(ops.makeImport(doc(), fileName, format, data));
     },
 
     /** Mueve una feature en el historial. Devuelve el motivo si no se puede. */
