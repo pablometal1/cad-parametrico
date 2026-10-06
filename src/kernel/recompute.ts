@@ -1,6 +1,8 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
 import { activeCount } from '../document/ops';
 import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, ShellFeature } from '../document/types';
+import type { PlaneFrame } from '../document/planes';
+import { describePlane, evaluatePlane } from './features/plane';
 import { describeError, FeatureError, hashString } from './occtUtils';
 import type { NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
@@ -19,6 +21,8 @@ interface CacheEntry {
   owned: boolean;
   /** Para features de sketch: el sketch resuelto, que consumen las features posteriores. */
   sketch?: EvaluatedSketch;
+  /** Para planos de construcción: su sistema de coordenadas. */
+  plane?: PlaneFrame;
   status: Extract<FeatureStatus, 'ok' | 'error'>;
   error?: string;
   info?: string;
@@ -31,6 +35,8 @@ export interface RecomputeOutput {
   shape: NamedShape | null;
   /** Sketches evaluados en este recálculo. */
   sketches: Map<FeatureId, EvaluatedSketch>;
+  /** Planos de construcción evaluados en este recálculo. */
+  planes: Map<FeatureId, PlaneFrame>;
 }
 
 const ROOT_KEY = 'root';
@@ -38,6 +44,7 @@ const ROOT_KEY = 'root';
 interface Context {
   input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
+  planes: Map<FeatureId, PlaneFrame>;
   doc: CadDocument;
   index: number;
 }
@@ -47,12 +54,15 @@ export class RecomputeEngine {
   /** Sólido de entrada de cada feature evaluada en el último recálculo (propiedad de la cache). */
   private lastInputs = new Map<FeatureId, NamedShape | null>();
   private lastSketches = new Map<FeatureId, EvaluatedSketch>();
+  private lastPlanes = new Map<FeatureId, PlaneFrame>();
   private lastDoc: CadDocument | null = null;
 
   /** Contexto de la feature en el último recálculo, o null si no se evaluó (retrocedida/suprimida). */
-  contextOf(id: FeatureId): { input: NamedShape | null; sketches: Map<FeatureId, EvaluatedSketch>; doc: CadDocument } | null {
+  contextOf(id: FeatureId): {
+    input: NamedShape | null; sketches: Map<FeatureId, EvaluatedSketch>; planes: Map<FeatureId, PlaneFrame>; doc: CadDocument;
+  } | null {
     if (!this.lastDoc || !this.lastInputs.has(id)) return null;
-    return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, doc: this.lastDoc };
+    return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, planes: this.lastPlanes, doc: this.lastDoc };
   }
 
   /**
@@ -62,10 +72,12 @@ export class RecomputeEngine {
     const active = activeCount(doc);
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
+    const planes = new Map<FeatureId, PlaneFrame>();
     let current: NamedShape | null = null;
     let currentKey = ROOT_KEY;
     this.lastInputs = new Map();
     this.lastSketches = sketches;
+    this.lastPlanes = planes;
     this.lastDoc = doc;
 
     doc.features.forEach((feature, index) => {
@@ -79,7 +91,7 @@ export class RecomputeEngine {
         return;
       }
 
-      const ctx: Context = { input: current, sketches, doc, index };
+      const ctx: Context = { input: current, sketches, planes, doc, index };
       this.lastInputs.set(feature.id, current);
       const exprError = exprErrors.get(feature.id);
       if (exprError) {
@@ -98,6 +110,7 @@ export class RecomputeEngine {
       }
       const e = entry!;
       if (e.sketch) sketches.set(feature.id, e.sketch);
+      if (e.plane) planes.set(feature.id, e.plane);
       results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, timeMs: e.timeMs, cached });
       current = e.output;
       // Si la feature falló, el sólido sigue siendo el de la entrada y la clave también.
@@ -105,7 +118,7 @@ export class RecomputeEngine {
     });
 
     this.evictMissing(doc);
-    return { results, shape: current, sketches };
+    return { results, shape: current, sketches, planes };
   }
 
   dispose() {
@@ -167,9 +180,14 @@ export class RecomputeEngine {
     try {
       switch (feature.type) {
         case 'sketch': {
-          const sketch = evaluateSketch(feature, ctx.input);
+          const sketch = evaluateSketch(feature, ctx.input, ctx.planes);
           // Un sketch no modifica el sólido.
           return { key, output: ctx.input, owned: false, sketch, status: 'ok', info: describeSketch(sketch), timeMs: elapsed(t0) };
+        }
+        case 'plane': {
+          // Un plano no modifica el sólido.
+          const plane = evaluatePlane(feature, ctx.input, ctx.planes);
+          return { key, output: ctx.input, owned: false, plane, status: 'ok', info: describePlane(feature), timeMs: elapsed(t0) };
         }
         case 'extrude':
           return ok(runExtrude(feature, resolveSketch(feature, ctx), ctx.input));

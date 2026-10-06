@@ -141,6 +141,8 @@ export interface RecomputeResult {
   sketches: SketchLines[];
   /** Valor (o error) de cada parámetro de la tabla. */
   parameters: { id: string; name: string; value?: number; error?: string }[];
+  /** Planos de construcción evaluados (para dibujarlos y apoyar sketches). */
+  planes: { id: string; frame: { origin: V3; xDir: V3; yDir: V3; normal: V3 } }[];
   totalMs: number;
 }
 

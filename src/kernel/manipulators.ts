@@ -1,4 +1,5 @@
 // Ubicación de los manipuladores 3D de cada feature (asas para arrastrar parámetros).
+import type { PlaneFrame } from '../document/planes';
 import { dot, normalize, sub, toWorld, type Vec3 } from '../document/planes';
 import type { Feature, FeatureId } from '../document/types';
 import { revolveAxis } from './features/revolve';
@@ -9,6 +10,7 @@ import type { Manipulator } from './protocol';
 interface Ctx {
   input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
+  planes?: Map<FeatureId, PlaneFrame>;
 }
 
 export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
@@ -75,6 +77,16 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
         return {
           kind: 'linear', featureId: feature.id, param: 'thickness', label: 'Espesor',
           origin: c.toTuple(), dir: scale(n, -1), factor: 1, value: feature.thickness, min: 0.01,
+        };
+      }
+      case 'plane': {
+        const f = ctx.planes?.get(feature.id);
+        if (!f) return null;
+        // El asa sale del plano sin desplazar y mide la distancia sobre su normal.
+        return {
+          kind: 'linear', featureId: feature.id, param: 'distance', label: 'Distancia',
+          origin: [0, 1, 2].map((i) => f.origin[i] - f.normal[i] * feature.distance) as [number, number, number],
+          dir: f.normal, factor: 1, value: feature.distance, min: -1e6,
         };
       }
       case 'sketch':

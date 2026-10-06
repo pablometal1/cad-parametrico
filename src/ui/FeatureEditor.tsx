@@ -3,7 +3,7 @@ import { Icon } from './icons';
 import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature,
 } from '../document/types';
 import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
@@ -57,6 +57,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
                 <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
               </Match>
+              <Match when={feature().type === 'plane'}>
+                <PlanePanel store={store} feature={feature() as PlaneFeature} />
+              </Match>
               <Match when={feature().type === 'sweep'}>
                 <SweepPanel store={store} feature={feature() as SweepFeature} />
               </Match>
@@ -75,16 +78,21 @@ function SketchPanel(props: { store: CadStore; feature: SketchFeature; info?: st
   const f = () => props.feature;
   const update = (patch: Partial<SketchFeature>) => props.store.updateFeature<SketchFeature>(f().id, patch);
   const curves = () => f().entities.filter((e) => e.type !== 'point').length;
-  const planeValue = () => (f().plane.kind === 'base' ? (f().plane as { plane: BasePlane }).plane : 'face');
+  const planeValue = () => (f().plane.kind === 'face' ? 'face' : (f().plane as { plane: string }).plane);
   const planeOptions = () => [
     ...PLANES,
-    ...(f().plane.kind === 'face' ? [{ value: 'face' as const, label: 'Cara del sólido' }] : []),
+    ...constructionPlaneOptions(props.store, f().id),
+    ...(f().plane.kind === 'face' ? [{ value: 'face', label: 'Cara del sólido' }] : []),
   ];
   return (
     <>
       <h3>Sketch</h3>
       <SelectField label="Plano" value={planeValue()} options={planeOptions()}
-        onChange={(v) => v !== 'face' && update({ plane: { kind: 'base', plane: v, offset: f().plane.offset } })} />
+        onChange={(v) => {
+          if (v === 'face') return;
+          const offset = f().plane.offset;
+          update({ plane: v === 'XY' || v === 'XZ' || v === 'YZ' ? { kind: 'base', plane: v, offset } : { kind: 'plane', plane: v, offset } });
+        }} />
       <Num store={props.store} id={f().id} path="plane.offset" label="Desplazamiento" unit="mm" />
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)} title="Elegir una cara plana del modelo como plano del sketch">
         <Icon name="select" size={15} />{f().plane.kind === 'face' ? 'Cambiar cara de apoyo…' : 'Apoyar en una cara…'}
@@ -175,6 +183,55 @@ function ShellPanel(props: { store: CadStore; feature: ShellFeature }) {
         {f().faces.length === 0 ? 'Sin caras quitadas: queda hueco y cerrado.' : `${f().faces.length} cara${f().faces.length === 1 ? '' : 's'} quitada${f().faces.length === 1 ? '' : 's'}`}
       </p>
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir caras a quitar…</button>
+    </>
+  );
+}
+
+/** Planos de construcción anteriores a la feature `before`. */
+function constructionPlaneOptions(store: CadStore, before: FeatureId) {
+  const features = store.doc().features;
+  const i = features.findIndex((x) => x.id === before);
+  return features.slice(0, i).filter((x) => x.type === 'plane').map((x) => ({ value: x.id, label: x.name }));
+}
+
+const PLANE_AXES = [
+  { value: 'none', label: 'Sin giro' },
+  { value: 'X', label: 'Eje X' },
+  { value: 'Y', label: 'Eje Y' },
+  { value: 'Z', label: 'Eje Z' },
+] as const satisfies readonly { value: PlaneFeature['axis']; label: string }[];
+
+function PlanePanel(props: { store: CadStore; feature: PlaneFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<PlaneFeature>) => props.store.updateFeature<PlaneFeature>(f().id, patch);
+  const refValue = () => (f().reference.kind === 'face' ? 'face' : (f().reference as { plane: string }).plane);
+  const refOptions = () => [
+    ...PLANES,
+    ...constructionPlaneOptions(props.store, f().id),
+    ...(f().reference.kind === 'face' ? [{ value: 'face', label: 'Cara del sólido' }] : []),
+  ];
+  return (
+    <>
+      <h3>Plano de construcción</h3>
+      <SelectField label="Referencia" value={refValue()} options={refOptions()} onChange={(v) => {
+        if (v === 'face') return;
+        update({ reference: v === 'XY' || v === 'XZ' || v === 'YZ' ? { kind: 'base', plane: v } : { kind: 'plane', plane: v } });
+      }} />
+      <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}>
+        <Icon name="select" size={15} />{f().reference.kind === 'face' ? 'Cambiar cara de referencia…' : 'Usar una cara del modelo…'}
+      </button>
+      <SelectField label="Girar en" value={f().axis} options={PLANE_AXES} onChange={(axis) => update({ axis })} />
+      <Show when={f().axis !== 'none'}>
+        <Num store={props.store} id={f().id} path="angle" label="Ángulo" unit="°" />
+      </Show>
+      <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
+      <p class="hint">
+        Se gira alrededor de un eje paralelo a {f().axis === 'none' ? 'X, Y o Z' : f().axis} que pasa por el origen de la referencia,
+        y después se desplaza sobre la nueva normal. Distancia negativa: hacia el otro lado.
+      </p>
+      <button class="primary wide with-icon" onClick={() => props.store.newSketchOnPlane(f().id)}>
+        <Icon name="sketch" size={15} />Nuevo sketch en este plano
+      </button>
     </>
   );
 }

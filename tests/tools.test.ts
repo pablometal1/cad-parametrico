@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ICONS } from '../src/ui/iconPaths';
-import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, SHORTCUT_SECTIONS } from '../src/ui/tools';
+import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, PLANE_TOOL, SHORTCUT_SECTIONS } from '../src/ui/tools';
 
 describe('barra de herramientas y atajos', () => {
   it('cada herramienta tiene una tecla propia', () => {
@@ -16,8 +16,9 @@ describe('barra de herramientas y atajos', () => {
   it('las teclas de dibujo no pisan los atajos generales', () => {
     // F encuadra, K abre el menú de sketch, G alterna la grilla mientras se dibuja.
     for (const reserved of ['f', 'k', 'g']) expect(DRAW_KEYS[reserved]).toBeUndefined();
-    // Shift+X abre los parámetros.
+    // Shift+X abre los parámetros y Shift+N crea un plano de construcción.
     expect(FEATURE_KEYS.x).toBeUndefined();
+    expect(FEATURE_KEYS[PLANE_TOOL.key.slice(-1).toLowerCase()]).toBeUndefined();
   });
 
   it('la ayuda lista todos los atajos sin repetir', () => {

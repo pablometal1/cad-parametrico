@@ -8,8 +8,7 @@ import { History, type RecordOptions } from '../document/history';
 import * as ops from '../document/ops';
 import { parseDocument } from '../document/serialize';
 import type {
-  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature,
-} from '../document/types';
+  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -118,6 +117,9 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   let pending: CadDocument | null = null;
   let running = false;
 
+  /** Planos de construcción del último recálculo. */
+  const [planeFrames, setPlaneFrames] = createSignal<Map<FeatureId, RecomputeResult['planes'][number]['frame']>>(new Map());
+
   async function pump() {
     if (running || kernelState().state !== 'ready') return;
     running = true;
@@ -138,6 +140,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
           });
           callbacks.onMesh(r.mesh);
           callbacks.onSketches(r.sketches);
+          setPlaneFrames(new Map(r.planes.map((p) => [p.id, p.frame])));
         } catch (err) {
           setKernelState({ state: 'error', message: (err as Error).message });
           return;
@@ -251,6 +254,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
   return {
     doc,
+    planeFrames,
     evaluated,
     results,
     picking,
@@ -450,7 +454,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       // Solo secciones paralelas a la última (un perfil para barrido en otro plano no entra).
       const closed = sketchCandidates().filter((x) => x.regions === 1);
       const dir = (sk: SketchFeature): number[] =>
-        sk.plane.kind === 'base' ? { XY: [0, 0, 1], XZ: [0, 1, 0], YZ: [1, 0, 0] }[sk.plane.plane] : sk.plane.face.normal ?? [0, 0, 1];
+        sk.plane.kind === 'base'
+          ? { XY: [0, 0, 1], XZ: [0, 1, 0], YZ: [1, 0, 0] }[sk.plane.plane]
+          : sk.plane.kind === 'face'
+            ? sk.plane.face.normal ?? [0, 0, 1]
+            : planeFrames().get(sk.plane.plane)?.normal ?? [0, 0, 1];
       const ref = closed.at(-1) ? dir(closed.at(-1)!.sketch) : null;
       const parallel = (sk: SketchFeature) => {
         const n = dir(sk);
@@ -462,6 +470,42 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       }
       addWithDialog(ops.makeLoft(doc(), sections));
       return null;
+    },
+
+    /**
+     * Plano de construcción. Referencia: la cara plana seleccionada en el modelo, o el plano
+     * de la feature elegida en el historial (plano o sketch), o XY.
+     */
+    async addPlane(faces: number[]) {
+      let reference: PlaneReference = { kind: 'base', plane: 'XY' };
+      if (faces.length === 1) {
+        const refs = await withRefs(() => kernel.faceRefs(faces));
+        if (!refs) return;
+        if (refs[0].type !== 'PLANE') return setNotice('La cara seleccionada no es plana: elegí una cara plana o deseleccioná para partir de XY');
+        reference = { kind: 'face', face: refs[0] };
+      } else {
+        const sel = selectedFeature();
+        if (sel?.type === 'plane') reference = { kind: 'plane', plane: sel.id };
+        else if (sel?.type === 'sketch') {
+          const pl = sel.plane;
+          reference = pl.kind === 'base' ? { kind: 'base', plane: pl.plane } : pl.kind === 'plane' ? { kind: 'plane', plane: pl.plane } : { kind: 'face', face: pl.face };
+        }
+      }
+      addWithDialog(ops.makePlane(doc(), reference));
+    },
+
+    /** Abre un sketch nuevo apoyado en un plano de construcción (al final del historial). */
+    newSketchOnPlane(planeId: FeatureId) {
+      if (dialog()) {
+        setDialog(null);
+        history.breakCoalescing();
+      }
+      const f = ops.makeSketch(doc(), { plane: { kind: 'plane', plane: planeId, offset: 0 } });
+      apply((d) => ops.addFeature(d, f), { coalesce: `sketch:${f.id}`, sticky: true });
+      batch(() => {
+        setSelectedId(f.id);
+        setEditing({ featureId: f.id, isNew: true });
+      });
     },
 
     /** Mueve una feature en el historial. Devuelve el motivo si no se puede. */
@@ -522,6 +566,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const f = d.features[i];
       if (!f) return;
       const kind = f.type === 'fillet' || f.type === 'chamfer' ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      // Para un sketch o un plano: el modelo hasta antes de la feature (la cara tiene que existir antes).
       setPicking({ featureId, kind, before: d });
       apply((x) => ops.setRollback(x, i), { history: false });
     },
@@ -546,11 +591,16 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         const refs = await withRefs(() => kernel.faceRefs(sel.faces));
         if (!refs) return;
         if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
-        const sk = ops.findFeature(doc(), p.featureId) as SketchFeature;
-        apply(
-          (d) => restore(ops.updateFeature<SketchFeature>(d, p.featureId, { plane: { kind: 'face', face: refs[0], offset: sk.plane.offset } })),
-          opts,
-        );
+        const target = ops.findFeature(doc(), p.featureId);
+        if (target?.type === 'plane') {
+          apply((d) => restore(ops.updateFeature<PlaneFeature>(d, p.featureId, { reference: { kind: 'face', face: refs[0] } })), opts);
+        } else {
+          const sk = target as SketchFeature;
+          apply(
+            (d) => restore(ops.updateFeature<SketchFeature>(d, p.featureId, { plane: { kind: 'face', face: refs[0], offset: sk.plane.offset } })),
+            opts,
+          );
+        }
       }
       batch(() => {
         setPicking(null);

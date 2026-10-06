@@ -41,6 +41,7 @@ export const ICONS = {
   chamfer: '<path d="M4 20v-9l7-7h9"/><path class="d" d="M4 11V4h7"/>',
   sweep: '<path class="d" d="M4 19c4 0 5-5 8-9s5-6 8-6"/><ellipse cx="5" cy="16.5" rx="2" ry="3.2"/><ellipse cx="19" cy="5" rx="1.6" ry="2.6"/>',
   loft: '<rect x="3.5" y="15" width="17" height="5" rx="0.5"/><circle cx="12" cy="6" r="3"/><path d="M3.5 15 9 6.5M20.5 15 15 6.5"/>',
+  plane: '<path d="M3 15 9.5 8h11.5L14.5 15z"/><path class="d" d="M12 19v-7.5"/><path d="M10 14l2 2 2-2" />',
   reorder: '<path d="M8 4v16M4.5 7.5 8 4l3.5 3.5M16 20V4M12.5 16.5 16 20l3.5-3.5"/>',
   shell: '<path d="M3 5v13.5A1.5 1.5 0 0 0 4.5 20h15a1.5 1.5 0 0 0 1.5-1.5V5"/><path d="M7 5v11h10V5"/>',
   // Restricciones

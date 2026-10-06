@@ -10,7 +10,7 @@ import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
 import { Timeline } from './Timeline';
 import { FEATURE_ICONS, Icon, tip } from './icons';
-import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, type FeatureTool } from './tools';
+import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, PLANE_TOOL, type FeatureTool } from './tools';
 import { TooltipLayer } from './Tooltip';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ParameterTable } from './ParameterTable';
@@ -138,6 +138,9 @@ export function App() {
       } else if (k === 'x') {
         e.preventDefault();
         setParamsOpen(!paramsOpen());
+      } else if (k === PLANE_TOOL.key.slice(-1).toLowerCase()) {
+        e.preventDefault();
+        void store.addPlane(viewSel().faces);
       }
     } else if (DRAW_KEYS[k]) {
       e.preventDefault();
@@ -213,6 +216,18 @@ export function App() {
       return;
     }
     const selected = store.selectedFeature();
+    if (!base && selected?.type === 'plane') {
+      const frame = store.planeFrames().get(selected.id);
+      if (!frame) {
+        store.setNotice(`"${selected.name}" tiene un error: corregilo antes de dibujar en él`);
+        return;
+      }
+      draw.start({
+        plane: { kind: 'plane', plane: selected.id, offset: 0 }, frame, featureId: null,
+        data: { entities: [], constraints: [] }, label: selected.name, center: [0, 0], extent: size,
+      }, tool);
+      return;
+    }
     if (!base && selected?.type === 'sketch') {
       const lines = sketchLines().find((l) => l.id === selected.id);
       const evaluatedSketch = store.evaluated().doc.features.find((f) => f.id === selected.id) as SketchFeature;
@@ -232,6 +247,14 @@ export function App() {
       data: { entities: [], constraints: [] }, label: `plano ${plane}`, center: [0, 0], extent: size,
     }, tool);
   };
+
+  // Planos de construcción (los evaluados sin error), con el seleccionado resaltado.
+  createEffect(() => {
+    const frames = store.planeFrames();
+    const sel = store.selectedId();
+    const hidden = !!store.editing();
+    viewport?.setConstructionPlanes(hidden ? [] : [...frames].map(([id, frame]) => ({ id, frame, selected: id === sel })));
+  });
 
   // Sketches visibles en 3D: los que todavía no usa ninguna feature, más el seleccionado y el
   // de la extrusión/revolución seleccionada (vista previa del perfil y de su plano de trabajo).
@@ -413,6 +436,13 @@ export function App() {
                   <button onClick={() => { setPlaneMenu(false); store.setNotice(null); store.newSketch(p.plane); }}>{p.label}</button>
                 )}
               </For>
+              <For each={store.doc().features.filter((f) => f.type === 'plane' && store.planeFrames().has(f.id))}>
+                {(p) => (
+                  <button onClick={() => { setPlaneMenu(false); store.setNotice(null); store.newSketchOnPlane(p.id); }}>
+                    <Icon name="plane" size={16} />{p.name}
+                  </button>
+                )}
+              </For>
               <button
                 disabled={!singleFace()}
                 title={singleFace() ? '' : 'Primero seleccioná una cara plana en el modelo'}
@@ -423,6 +453,8 @@ export function App() {
             </div>
           </Show>
         </div>
+        <button class="tb" onClick={() => void store.addPlane(viewSel().faces)} disabled={busy()}
+          {...tip(PLANE_TOOL.label, PLANE_TOOL.key, PLANE_TOOL.desc)}><Icon name="plane" /></button>
         <div class="tb-group">
           <For each={DRAW_TOOLS}>
             {(t) => (
@@ -483,7 +515,7 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell'].includes(f().type)}>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane'].includes(f().type)}>
                   <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
                 </Show>
               </div>
@@ -564,7 +596,7 @@ export function App() {
           {(s) => (
             <SketchEditor
               session={s.session}
-              title={`${s.feature.name} · ${s.feature.plane.kind === 'base' ? `plano ${s.feature.plane.plane}` : 'sobre cara'}`}
+              title={`${s.feature.name} · ${sketchPlaneLabel(s.feature)}`}
               reference={() => sketchLines().find((l) => l.id === s.feature.id)?.reference}
               onFinish={() => store.finishSketch(s.session.data(), s.session.documentExprs())}
               onCancel={() => {
@@ -649,6 +681,14 @@ export function App() {
       </footer>
     </div>
   );
+}
+
+/** Dónde está apoyado un sketch, para el título del editor. */
+function sketchPlaneLabel(f: SketchFeature) {
+  const p = f.plane;
+  if (p.kind === 'base') return `plano ${p.plane}`;
+  if (p.kind === 'face') return 'sobre cara';
+  return 'sobre plano de construcción';
 }
 
 /** "Nueva extrusión", "Nuevo redondeo"… */

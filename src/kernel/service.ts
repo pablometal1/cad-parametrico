@@ -40,7 +40,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   recompute(doc: CadDocument): RecomputeResult {
     const t0 = performance.now();
     const evaluated = evaluateDocument(doc);
-    const { results, shape, sketches } = this.engine.run(evaluated.doc, evaluated.errors);
+    const { results, shape, sketches, planes } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
     const mesh = shape ? shapeToMesh(shape.shape, edgeKinds(shape)) : null;
     return {
@@ -54,6 +54,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         bounds: sketchBounds(s),
       })),
       parameters: evaluated.parameters,
+      planes: [...planes].map(([id, f]) => ({ id, frame: { origin: f.origin, xDir: f.xDir, yDir: f.yDir, normal: f.normal } })),
       totalMs: Math.round(performance.now() - t0),
     };
   }

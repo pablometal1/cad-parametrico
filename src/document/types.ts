@@ -34,7 +34,7 @@ export interface EdgeRef {
 
 // ---------------------------------------------------------------- Sketch
 
-/** Plano de un sketch: un plano base o una cara plana del sólido. */
+/** Plano de un sketch: un plano base, una cara plana del sólido o un plano de construcción. */
 export type SketchPlaneRef =
   | {
       kind: 'base';
@@ -46,7 +46,19 @@ export type SketchPlaneRef =
       kind: 'face';
       face: FaceRef;
       offset: number;
+    }
+  | {
+      kind: 'plane';
+      /** Feature de plano de construcción (tiene que estar antes en el historial). */
+      plane: FeatureId;
+      offset: number;
     };
+
+/** De qué parte un plano de construcción. */
+export type PlaneReference =
+  | { kind: 'base'; plane: BasePlane }
+  | { kind: 'plane'; plane: FeatureId }
+  | { kind: 'face'; face: FaceRef };
 
 export type SketchEntityId = string;
 
@@ -240,9 +252,22 @@ export interface LoftFeature extends FeatureBase {
   operation: BooleanOperation;
 }
 
+/**
+ * Plano de construcción (como en Fusion): parte de una referencia, se gira `angle` grados
+ * alrededor de un eje paralelo a X/Y/Z que pasa por el origen de la referencia, y se desplaza
+ * `distance` mm a lo largo de su nueva normal. No cambia el sólido; sirve de apoyo a sketches.
+ */
+export interface PlaneFeature extends FeatureBase {
+  type: 'plane';
+  reference: PlaneReference;
+  axis: 'none' | GlobalAxis;
+  angle: number;
+  distance: number;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

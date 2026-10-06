@@ -64,3 +64,36 @@ export function toWorld(frame: PlaneFrame, u: number, v: number): Vec3 {
 export function scale(v: Vec3, s: number): Vec3 {
   return [v[0] * s, v[1] * s, v[2] * s];
 }
+
+/** Gira un vector `deg` grados alrededor del eje unitario `k` (Rodrigues). */
+export function rotate(v: Vec3, k: Vec3, deg: number): Vec3 {
+  const t = (deg * Math.PI) / 180;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const kv = cross(k, v);
+  const kd = dot(k, v) * (1 - c);
+  return [0, 1, 2].map((i) => v[i] * c + kv[i] * s + k[i] * kd) as Vec3;
+}
+
+const AXIS_DIRS: Record<'X' | 'Y' | 'Z', Vec3> = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
+
+/**
+ * Plano de construcción a partir de una referencia: giro alrededor de un eje paralelo a X/Y/Z
+ * que pasa por el origen de la referencia, y después desplazamiento sobre la nueva normal.
+ */
+export function constructionFrame(ref: PlaneFrame, axis: 'none' | 'X' | 'Y' | 'Z', angle: number, distance: number): PlaneFrame {
+  let { xDir, yDir, normal } = ref;
+  if (axis !== 'none' && angle !== 0) {
+    const k = AXIS_DIRS[axis];
+    xDir = normalize(rotate(xDir, k, angle));
+    yDir = normalize(rotate(yDir, k, angle));
+    normal = normalize(rotate(normal, k, angle));
+  }
+  const origin = [0, 1, 2].map((i) => ref.origin[i] + normal[i] * distance) as Vec3;
+  return { origin, xDir, yDir, normal };
+}
+
+/** Desplaza un plano a lo largo de su normal. */
+export function offsetFrame(f: PlaneFrame, offset: number): PlaneFrame {
+  return offset ? { ...f, origin: [0, 1, 2].map((i) => f.origin[i] + f.normal[i] * offset) as Vec3 } : f;
+}

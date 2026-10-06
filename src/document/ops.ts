@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -101,6 +101,7 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   mirror: 'Simetría',
   sweep: 'Barrido',
   loft: 'Solevación',
+  plane: 'Plano',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -211,6 +212,9 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
   if (f.type === 'pattern' || f.type === 'mirror') req.add(f.source);
   const names: string[] = [];
   if (f.type === 'sketch' && f.plane.kind === 'face') names.push(f.plane.face.name);
+  if (f.type === 'sketch' && f.plane.kind === 'plane') req.add(f.plane.plane);
+  if (f.type === 'plane' && f.reference.kind === 'plane') req.add(f.reference.plane);
+  if (f.type === 'plane' && f.reference.kind === 'face') names.push(f.reference.face.name);
   if (f.type === 'fillet' || f.type === 'chamfer') names.push(...f.edges.map((e) => e.name));
   if (f.type === 'shell') names.push(...f.faces.map((x) => x.name));
   for (const n of names) for (const id of idsInRefName(n)) req.add(id);
@@ -302,6 +306,11 @@ export function makePattern(doc: CadDocument, source: FeatureId, overrides: Part
 
 export function makeMirror(doc: CadDocument, source: FeatureId, plane: BasePlane = 'YZ'): MirrorFeature {
   return { ...base(doc, 'mirror'), source, plane };
+}
+
+/** Plano de construcción: por defecto, XY desplazado 20 mm. */
+export function makePlane(doc: CadDocument, reference: PlaneReference = { kind: 'base', plane: 'XY' }, overrides: Partial<Omit<PlaneFeature, 'type'>> = {}): PlaneFeature {
+  return { ...base(doc, 'plane'), reference, axis: 'none', angle: 0, distance: 20, ...overrides };
 }
 
 export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId, overrides: Partial<Omit<SweepFeature, 'type'>> = {}): SweepFeature {

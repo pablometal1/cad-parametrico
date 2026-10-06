@@ -26,6 +26,13 @@ export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; ke
   { id: 'shell', label: 'Vaciado', icon: 'shell', key: 'Shift+V', desc: 'Vaciar el sólido quitando las caras seleccionadas' },
 ];
 
+/** Plano de construcción (va junto al menú de sketch, no entre las operaciones). */
+export const PLANE_TOOL = {
+  label: 'Plano de construcción',
+  key: 'Shift+N',
+  desc: 'Desde XY/XZ/YZ, otro plano o la cara plana seleccionada: girarlo en un eje y desplazarlo una distancia',
+} as const;
+
 /** Atajos de una tecla (sin Ctrl): tecla → herramienta. */
 export const DRAW_KEYS: Record<string, DrawTool> = Object.fromEntries(DRAW_TOOLS.map((t) => [t.key.toLowerCase(), t.id]));
 export const FEATURE_KEYS: Record<string, FeatureTool> = Object.fromEntries(FEATURE_TOOLS.map((t) => [t.key.slice(-1).toLowerCase(), t.id]));
@@ -47,6 +54,7 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
     title: 'Dibujar en 3D',
     rows: [
       ['K', 'Nuevo sketch (elegir plano)'],
+      [PLANE_TOOL.key, PLANE_TOOL.label],
       ...DRAW_TOOLS.map((t): [string, string] => [t.key, t.label]),
       ['G', 'Grilla sí/no (mientras se dibuja)'],
       ['Enter', 'Terminar de dibujar'],

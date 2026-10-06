@@ -3,7 +3,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
-  type Parameter,
+  type Parameter, type PlaneReference,
 } from './types';
 import { isValidName } from './expressions';
 
@@ -106,6 +106,23 @@ function validateFeature(raw: unknown, path: string): Feature {
         ...base, type: 'sweep', profile: str(o.profile, `${path}.profile`), path: str(o.path, `${path}.path`),
         operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
       };
+    case 'plane': {
+      const r = obj(o.reference, `${path}.reference`);
+      const reference: PlaneReference =
+        r.kind === 'base'
+          ? { kind: 'base', plane: oneOf(r.plane, ['XY', 'XZ', 'YZ'] as const, `${path}.reference.plane`) }
+          : r.kind === 'plane'
+            ? { kind: 'plane', plane: str(r.plane, `${path}.reference.plane`) }
+            : r.kind === 'face'
+              ? { kind: 'face', face: faceRef(r.face, `${path}.reference.face`) }
+              : (() => { throw new DocumentFormatError(`${path}.reference.kind`, 'debe ser base, plane o face'); })();
+      return {
+        ...base, type: 'plane', reference,
+        axis: oneOf(o.axis, ['none', 'X', 'Y', 'Z'] as const, `${path}.axis`),
+        angle: num(o.angle, `${path}.angle`),
+        distance: num(o.distance, `${path}.distance`),
+      };
+    }
     case 'loft':
       return {
         ...base, type: 'loft', sections: list(o.sections, `${path}.sections`, str),
@@ -143,8 +160,10 @@ function validateSketch(
     };
   } else if (po.kind === 'face') {
     plane = { kind: 'face', face: faceRef(po.face, `${path}.plane.face`), offset: num(po.offset, `${path}.plane.offset`) };
+  } else if (po.kind === 'plane') {
+    plane = { kind: 'plane', plane: str(po.plane, `${path}.plane.plane`), offset: num(po.offset, `${path}.plane.offset`) };
   } else {
-    throw new DocumentFormatError(`${path}.plane.kind`, 'debe ser "base" o "face"');
+    throw new DocumentFormatError(`${path}.plane.kind`, 'debe ser "base", "face" o "plane"');
   }
   if (!Array.isArray(o.entities)) throw new DocumentFormatError(`${path}.entities`, 'debe ser una lista');
   if (!Array.isArray(o.constraints)) throw new DocumentFormatError(`${path}.constraints`, 'debe ser una lista');

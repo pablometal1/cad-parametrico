@@ -77,6 +77,7 @@ export class Viewport {
   private readonly controls: OrbitControls;
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
+  private readonly constructionGroup = new THREE.Group();
   private readonly modelGroup = new THREE.Group();
   private readonly sketchGroup = new THREE.Group();
   private readonly grid: THREE.GridHelper;
@@ -139,6 +140,7 @@ export class Viewport {
     this.scene.add(this.modelGroup);
     this.scene.add(this.sketchGroup);
     this.scene.add(this.planeGroup);
+    this.scene.add(this.constructionGroup);
 
     this.manipulator = new ManipulatorWidget(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
@@ -403,6 +405,42 @@ export class Viewport {
   /** Radio de la esfera que envuelve el modelo (o 0 si no hay). */
   get modelRadius(): number {
     return this.mesh?.geometry.boundingSphere?.radius ?? 0;
+  }
+
+  /**
+   * Planos de construcción: rectángulos naranja translúcidos (más marcado el seleccionado),
+   * centrados en la proyección del centro del modelo sobre cada plano.
+   */
+  setConstructionPlanes(planes: { id: string; frame: { origin: number[]; xDir: number[]; yDir: number[]; normal: number[] }; selected: boolean }[]) {
+    for (const child of [...this.constructionGroup.children]) {
+      const m = child as THREE.Mesh | THREE.LineLoop;
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      this.constructionGroup.remove(m);
+    }
+    const sphere = this.mesh?.geometry.boundingSphere;
+    const c = sphere?.center ?? new THREE.Vector3();
+    const half = Math.max(15, (sphere?.radius ?? 0) * 0.75);
+    for (const p of planes) {
+      const { origin, xDir, yDir, normal } = p.frame;
+      // Centro: el del modelo proyectado sobre el plano.
+      const d = (c.x - origin[0]) * normal[0] + (c.y - origin[1]) * normal[1] + (c.z - origin[2]) * normal[2];
+      const center = new THREE.Vector3(c.x - normal[0] * d, c.y - normal[1] * d, c.z - normal[2] * d);
+      const P = (u: number, v: number) => center.clone().add(new THREE.Vector3(
+        xDir[0] * u + yDir[0] * v, xDir[1] * u + yDir[1] * v, xDir[2] * u + yDir[2] * v,
+      ));
+      const corners = [P(-half, -half), P(half, -half), P(half, half), P(-half, half)];
+      const g = new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]);
+      const quad = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        color: 0xf0a040, transparent: true, opacity: p.selected ? 0.22 : 0.09, side: THREE.DoubleSide, depthWrite: false,
+      }));
+      const border = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), new THREE.LineBasicMaterial({
+        color: 0xf0a040, transparent: true, opacity: p.selected ? 1 : 0.55,
+      }));
+      quad.renderOrder = border.renderOrder = 5;
+      this.constructionGroup.add(quad, border);
+    }
+    this.needsRender = true;
   }
 
   /** Planos translúcidos de los sketches indicados (vista previa del plano de trabajo). */

@@ -1,7 +1,7 @@
 // Feature de sketch en el kernel: resuelve las restricciones y construye las caras de sus perfiles.
 import { assembleWire, makeCircle, makeFace, makeLine, makeThreePointArc, type AnyShape, type Edge, type Face } from 'replicad';
-import { basePlaneFrame, faceFrame, scale, toPlane, toWorld, type PlaneFrame } from '../../document/planes';
-import type { SketchData, SketchFeature } from '../../document/types';
+import { basePlaneFrame, faceFrame, offsetFrame, scale, toPlane, toWorld, type PlaneFrame } from '../../document/planes';
+import type { FeatureId, SketchData, SketchFeature } from '../../document/types';
 import { arcParams, curveDistance } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
 import { findProfiles, ProfileError, type ProfileLoop, type ProfileRegion } from '../../sketch/profiles';
@@ -22,8 +22,10 @@ export interface EvaluatedSketch {
   reference: number[];
 }
 
-export function evaluateSketch(feature: SketchFeature, input: NamedShape | null): EvaluatedSketch {
-  const { frame, reference } = sketchFrame(feature, input);
+export function evaluateSketch(
+  feature: SketchFeature, input: NamedShape | null, planes: ReadonlyMap<FeatureId, PlaneFrame> = new Map(),
+): EvaluatedSketch {
+  const { frame, reference } = sketchFrame(feature, input, planes);
   let solved;
   try {
     solved = solveSketch(feature);
@@ -56,9 +58,16 @@ export function evaluateSketch(feature: SketchFeature, input: NamedShape | null)
 }
 
 /** Plano del sketch: base, o la cara plana referenciada del sólido de entrada. */
-function sketchFrame(feature: SketchFeature, input: NamedShape | null): { frame: PlaneFrame; reference: number[] } {
+function sketchFrame(
+  feature: SketchFeature, input: NamedShape | null, planes: ReadonlyMap<FeatureId, PlaneFrame>,
+): { frame: PlaneFrame; reference: number[] } {
   const plane = feature.plane;
   if (plane.kind === 'base') return { frame: basePlaneFrame(plane), reference: [] };
+  if (plane.kind === 'plane') {
+    const f = planes.get(plane.plane);
+    if (!f) throw new FeatureError('El plano de construcción del sketch no está disponible (borrado, suprimido, con error o más abajo en el historial)');
+    return { frame: offsetFrame(f, plane.offset), reference: [] };
+  }
   if (!input) throw new FeatureError('No hay un sólido donde apoyar el sketch');
   const face = input.shape.faces[resolveFace(input, plane.face)];
   if (face.geomType !== 'PLANE') throw new FeatureError('La cara de apoyo del sketch ya no es plana');

@@ -15,6 +15,7 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   mirror: 'mirror',
   sweep: 'sweep',
   loft: 'loft',
+  plane: 'plane',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {
