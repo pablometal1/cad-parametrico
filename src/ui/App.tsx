@@ -27,6 +27,9 @@ const DRAW_TOOLS: { id: DrawTool; label: string; icon: string; key: string }[] =
   { id: 'rectangle', label: 'Rectángulo', icon: '▭', key: 'R' },
   { id: 'circle', label: 'Círculo', icon: '◯', key: 'C' },
   { id: 'arc', label: 'Arco', icon: '◜', key: 'A' },
+  { id: 'centerRect', label: 'Rectángulo desde el centro', icon: '⊡', key: 'E' },
+  { id: 'polygon', label: 'Polígono regular', icon: '⬡', key: 'P' },
+  { id: 'slot', label: 'Ranura', icon: '⬭', key: 'S' },
 ];
 
 const PICK_TEXT = {
@@ -418,11 +421,16 @@ export function App() {
                 <For each={DRAW_TOOLS}>
                   {(t) => (
                     <button classList={{ active: draw.tool() === t.id }} title={`${t.label} (${t.key})`} onClick={() => draw.setTool(t.id)}>
-                      {t.icon} {t.label}
+                      {t.icon}
                     </button>
                   )}
                 </For>
               </div>
+              <Show when={draw.tool() === 'polygon'}>
+                <label class="sides" title="Cantidad de lados del polígono">
+                  <input type="number" min="3" max="64" value={draw.sides()} onChange={(e) => draw.setSides(Number(e.currentTarget.value))} /> lados
+                </label>
+              </Show>
               <Show when={a().plane.kind === 'base' && !draw.currentSketch()}>
                 <select title="Plano de dibujo" value={(a().plane as { plane: BasePlane }).plane}
                   onChange={(e) => void startDrawing(draw.tool(), e.currentTarget.value as BasePlane)}>

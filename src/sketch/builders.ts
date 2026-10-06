@@ -94,6 +94,86 @@ export class SketchBuilder {
     return [bottom, right, top, left];
   }
 
+  /**
+   * Rectángulo por centro y esquina: diagonales de construcción y el punto central sobre ambas.
+   * Así queda con 4 grados de libertad, igual que un rectángulo común, y el centro se puede
+   * enganchar al origen. Devuelve [abajo, derecha, arriba, izquierda, centro].
+   */
+  centerRectangle(center: PointInput, corner: Vec2, construction = false): SketchEntityId[] {
+    const c = typeof center === 'string' ? this.position(center) : center;
+    const dx = Math.abs(corner[0] - c[0]);
+    const dy = Math.abs(corner[1] - c[1]);
+    const lines = this.rectangle([c[0] - dx, c[1] - dy], [c[0] + dx, c[1] + dy], construction);
+    const corners = lines.map((l) => (this.entities.find((e) => e.id === l) as { p1: string }).p1);
+    const d1 = this.line(corners[0], corners[2], true);
+    const d2 = this.line(corners[1], corners[3], true);
+    const centerId = this.point(center);
+    this.constrain({ type: 'coincident', a: centerId, b: d1 });
+    this.constrain({ type: 'coincident', a: centerId, b: d2 });
+    return [...lines, centerId];
+  }
+
+  /**
+   * Polígono regular de `sides` lados inscripto en un círculo de construcción, con un vértice en
+   * `vertex`. Vértices sobre el círculo y lados iguales: queda regular con 4 grados de libertad
+   * (centro, tamaño y giro). Devuelve [lados…, círculo].
+   */
+  polygon(center: PointInput, vertex: Vec2, sides: number, construction = false): SketchEntityId[] {
+    const n = Math.max(3, Math.min(64, Math.round(sides)));
+    const c = typeof center === 'string' ? this.position(center) : center;
+    const r = dist(c, vertex);
+    const a0 = Math.atan2(vertex[1] - c[1], vertex[0] - c[0]);
+    const centerId = this.point(center);
+    const circle = this.circle(centerId, r, true);
+    const pts: SketchEntityId[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (2 * Math.PI * i) / n;
+      pts.push(this.point([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]));
+    }
+    const lines = pts.map((p, i) => this.line(p, pts[(i + 1) % n], construction));
+    for (const p of pts) this.constrain({ type: 'coincident', a: p, b: circle });
+    for (let i = 1; i < n; i++) this.constrain({ type: 'equal', a: lines[0], b: lines[i] });
+    return [...lines, circle];
+  }
+
+  /**
+   * Ranura (slot): dos semicírculos de radio `radius` centrados en `c1` y `c2`, unidos por líneas
+   * tangentes. Queda con 5 grados de libertad (los dos centros y el radio).
+   * Devuelve [línea inferior, arco en c2, línea superior, arco en c1].
+   */
+  slot(c1: PointInput, c2: PointInput, radius: number, construction = false): SketchEntityId[] {
+    const p1 = typeof c1 === 'string' ? this.position(c1) : c1;
+    const p2 = typeof c2 === 'string' ? this.position(c2) : c2;
+    const len = dist(p1, p2);
+    if (len < 1e-9) throw new Error('Los centros de la ranura no pueden coincidir');
+    const d: Vec2 = [(p2[0] - p1[0]) / len, (p2[1] - p1[1]) / len];
+    const nrm: Vec2 = [-d[1], d[0]];
+    const off = (p: Vec2, s: number): Vec2 => [p[0] + nrm[0] * radius * s, p[1] + nrm[1] * radius * s];
+    const id1 = this.point(c1);
+    const id2 = this.point(c2);
+    const A = this.point(off(p1, 1));
+    const B = this.point(off(p2, 1));
+    const C = this.point(off(p2, -1));
+    const D = this.point(off(p1, -1));
+    const positions = new Map<string, Vec2>([[id1, p1], [id2, p2]]);
+    const bottom = this.line(D, C, construction);
+    const arc2 = this.arc(id2, C, B, construction, positions);
+    const top = this.line(B, A, construction);
+    const arc1 = this.arc(id1, A, D, construction, positions);
+    // La tangencia línea-arco con el extremo compartido es degenerada para el solver (se reporta
+    // redundante). Equivalente regular: en cada centro, un diámetro de construcción perpendicular a
+    // la línea central, y radios iguales; los lados quedan paralelos y tangentes por geometría.
+    const center = this.line(id1, id2, true);
+    const d1 = this.line(A, D, true);
+    const d2 = this.line(B, C, true);
+    this.constrain({ type: 'perpendicular', a: d1, b: center });
+    this.constrain({ type: 'coincident', a: id1, b: d1 });
+    this.constrain({ type: 'perpendicular', a: d2, b: center });
+    this.constrain({ type: 'coincident', a: id2, b: d2 });
+    this.constrain({ type: 'equal', a: arc1, b: arc2 });
+    return [bottom, arc2, top, arc1];
+  }
+
   constrain(c: ConstraintInput): string {
     const id = this.alloc('k');
     this.constraints.push({ ...c, id } as SketchConstraint);

@@ -404,3 +404,6 @@ button.wide { width: 100%; margin-top: 6px; }
 .radio-row { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; cursor: pointer; }
 .radio-row input { margin-top: 3px; }
 .part-info select { background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; font: inherit; padding: 1px 3px; max-width: 100%; }
+
+.sides { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.sides input { width: 46px; background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }

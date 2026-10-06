@@ -9,7 +9,7 @@ import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'line' | 'rectangle' | 'circle' | 'arc';
+export type Tool = 'select' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
 
 /** Posición del cursor, opcionalmente enganchada a un punto existente. */
 export interface Anchor {
@@ -21,7 +21,10 @@ export type Pending =
   | { tool: 'line'; start: Anchor; chainStart: SketchEntityId | null }
   | { tool: 'rectangle'; corner: Anchor }
   | { tool: 'circle'; center: Anchor }
-  | { tool: 'arc'; center: Anchor; start?: Anchor };
+  | { tool: 'arc'; center: Anchor; start?: Anchor }
+  | { tool: 'centerRect'; center: Anchor }
+  | { tool: 'polygon'; center: Anchor }
+  | { tool: 'slot'; c1: Anchor; c2?: Anchor };
 
 export interface SolveInfo {
   ok: boolean;
@@ -67,6 +70,8 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   const [info, setInfo] = createSignal<SolveInfo>(toInfo(first.result));
   const [tool, setToolSignal] = createSignal<Tool>('select');
   const [construction, setConstruction] = createSignal(false);
+  /** Lados del polígono regular. */
+  const [polygonSides, setPolygonSides] = createSignal(6);
   const [selection, setSelection] = createSignal<string[]>([]);
   const [pending, setPending] = createSignal<Pending | null>(null);
   const [message, setMessage] = createSignal<Message>(first.error ? { kind: 'error', text: first.error } : null);
@@ -197,6 +202,47 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
           [at.pointId ?? '', at.pos],
         ]);
         b.arc(p.center.pointId ?? p.center.pos, p.start.pointId ?? p.start.pos, at.pointId ?? at.pos, construction(), positions);
+        if (commit(b.data)) setPending(null);
+        return;
+      }
+      case 'centerRect': {
+        if (!p || p.tool !== 'centerRect') {
+          setPending({ tool: 'centerRect', center: at });
+          return;
+        }
+        const [w, h] = sub(at.pos, p.center.pos).map(Math.abs);
+        if (w < 1e-6 || h < 1e-6) return;
+        const b = new SketchBuilder(data());
+        b.centerRectangle(p.center.pointId ?? p.center.pos, at.pos, construction());
+        if (commit(b.data)) setPending(null);
+        return;
+      }
+      case 'polygon': {
+        if (!p || p.tool !== 'polygon') {
+          setPending({ tool: 'polygon', center: at });
+          return;
+        }
+        if (dist(p.center.pos, at.pos) < 1e-6) return;
+        const b = new SketchBuilder(data());
+        b.polygon(p.center.pointId ?? p.center.pos, at.pos, polygonSides(), construction());
+        if (commit(b.data)) setPending(null);
+        return;
+      }
+      case 'slot': {
+        if (!p || p.tool !== 'slot') {
+          setPending({ tool: 'slot', c1: at });
+          return;
+        }
+        if (!p.c2) {
+          if (dist(p.c1.pos, at.pos) < 1e-6) return;
+          setPending({ ...p, c2: at });
+          return;
+        }
+        // Tercer clic: el ancho (distancia del cursor a la línea entre centros).
+        const r = slotRadius(p.c1.pos, p.c2.pos, at.pos);
+        if (r < 1e-6) return;
+        const b = new SketchBuilder(data());
+        b.slot(p.c1.pointId ?? p.c1.pos, p.c2.pointId ?? p.c2.pos, r, construction());
         if (commit(b.data)) setPending(null);
         return;
       }
@@ -390,6 +436,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
 
   return {
     data, exprs, documentExprs, info, tool, construction, selection, pending, message, prompt, dirty, historySize,
+    polygonSides, setPolygonSides,
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
     applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,
@@ -403,6 +450,9 @@ const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
   rectangle: 'Rectángulo: clic en dos esquinas opuestas.',
   circle: 'Círculo: clic en el centro y luego en un punto del borde.',
   arc: 'Arco: clic en el centro, el inicio y el final (sentido antihorario).',
+  centerRect: 'Rectángulo desde el centro: clic en el centro y luego en una esquina.',
+  polygon: 'Polígono regular: clic en el centro y luego en un vértice.',
+  slot: 'Ranura: clic en los dos centros y luego para el ancho.',
 };
 
 function safeSolve(d: SketchData, drag?: Parameters<typeof solveSketch>[1]): { result?: SolveResult; error?: string } {
@@ -435,4 +485,12 @@ function cornerPoints(d: SketchData, lines: string[]) {
 
 function round(v: number) {
   return Math.round(v * 1000) / 1000;
+}
+
+/** Radio de una ranura: distancia del punto a la recta que une los centros. */
+export function slotRadius(c1: Vec2, c2: Vec2, p: Vec2): number {
+  const d = sub(c2, c1);
+  const L = Math.hypot(d[0], d[1]);
+  if (L < 1e-12) return 0;
+  return Math.abs(d[0] * (p[1] - c1[1]) - d[1] * (p[0] - c1[0])) / L;
 }

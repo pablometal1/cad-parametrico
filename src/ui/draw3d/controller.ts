@@ -47,6 +47,7 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     featureId = t.featureId;
     session = createSketchSession(t.data, { scope: () => store.evaluated().scope });
     session.setTool(initialTool);
+    session.setPolygonSides(sides());
     setToolSignal(initialTool);
     setMessage(null);
     const vp = viewport();
@@ -124,7 +125,7 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     if (!vp || !session || !target) return;
     const t = target;
     const pending = session.pending();
-    const segs = previewSegments2D(pending, cursor);
+    const segs = previewSegments2D(pending, cursor, session.polygonSides());
     const text = previewLabel(pending, cursor);
     vp.setDrawOverlay({
       segments: toWorldSegments(t.frame, segs),
@@ -156,7 +157,9 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
       if (featureId && target) featureId = store.commitDirectDraw(featureId, target.plane, session.data());
       refresh();
     } else if (!e.ctrlKey && !e.metaKey) {
-      const tools: Record<string, DrawTool> = { l: 'line', r: 'rectangle', c: 'circle', a: 'arc' };
+      const tools: Record<string, DrawTool> = {
+        l: 'line', r: 'rectangle', c: 'circle', a: 'arc', e: 'centerRect', p: 'polygon', s: 'slot',
+      };
       if (tools[k]) {
         e.preventDefault();
         setTool(tools[k]);
@@ -166,9 +169,17 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     }
   }
 
+  const [sides, setSidesSignal] = createSignal(6);
+
   return {
     active,
     tool,
+    sides,
+    setSides(n: number) {
+      const v = Math.max(3, Math.min(64, Math.round(n) || 6));
+      setSidesSignal(v);
+      session?.setPolygonSides(v);
+    },
     gridSnap,
     setGridSnap,
     message,

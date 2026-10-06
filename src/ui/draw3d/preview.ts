@@ -2,10 +2,10 @@
 import { toWorld, type PlaneFrame, type Vec3 } from '../../document/planes';
 import { dist } from '../../sketch/geometry';
 import type { Vec2 } from '../../sketch/model';
-import type { Pending } from '../sketch/session';
+import { slotRadius, type Pending } from '../sketch/session';
 
 /** Segmentos 2D (pares de puntos) de lo que se está dibujando, hasta el cursor. */
-export function previewSegments2D(pending: Pending | null, cursor: Vec2 | null): Vec2[] {
+export function previewSegments2D(pending: Pending | null, cursor: Vec2 | null, sides = 6): Vec2[] {
   if (!pending || !cursor) return [];
   switch (pending.tool) {
     case 'line':
@@ -17,6 +17,26 @@ export function previewSegments2D(pending: Pending | null, cursor: Vec2 | null):
     }
     case 'circle':
       return polyline(circlePoints(pending.center.pos, dist(pending.center.pos, cursor), 0, Math.PI * 2));
+    case 'centerRect': {
+      const [cx, cy] = pending.center.pos;
+      const dx = Math.abs(cursor[0] - cx);
+      const dy = Math.abs(cursor[1] - cy);
+      const k: Vec2[] = [[cx - dx, cy - dy], [cx + dx, cy - dy], [cx + dx, cy + dy], [cx - dx, cy + dy]];
+      return [k[0], k[1], k[1], k[2], k[2], k[3], k[3], k[0], k[0], k[2], k[1], k[3]];
+    }
+    case 'polygon': {
+      const c = pending.center.pos;
+      const r = dist(c, cursor);
+      const a0 = Math.atan2(cursor[1] - c[1], cursor[0] - c[0]);
+      const n = sides;
+      const pts: Vec2[] = [];
+      for (let i = 0; i <= n; i++) pts.push([c[0] + r * Math.cos(a0 + (2 * Math.PI * i) / n), c[1] + r * Math.sin(a0 + (2 * Math.PI * i) / n)]);
+      return polyline(pts);
+    }
+    case 'slot': {
+      if (!pending.c2) return [pending.c1.pos, cursor];
+      return slotOutline(pending.c1.pos, pending.c2.pos, slotRadius(pending.c1.pos, pending.c2.pos, cursor));
+    }
     case 'arc': {
       const c = pending.center.pos;
       if (!pending.start) return [c, cursor];
@@ -39,7 +59,14 @@ export function previewLabel(pending: Pending | null, cursor: Vec2 | null): stri
     case 'rectangle':
       return `${f(Math.abs(cursor[0] - pending.corner.pos[0]))} × ${f(Math.abs(cursor[1] - pending.corner.pos[1]))} mm`;
     case 'circle':
+    case 'polygon':
       return `R ${f(dist(pending.center.pos, cursor))} mm`;
+    case 'centerRect':
+      return `${f(2 * Math.abs(cursor[0] - pending.center.pos[0]))} × ${f(2 * Math.abs(cursor[1] - pending.center.pos[1]))} mm`;
+    case 'slot':
+      return pending.c2
+        ? `ancho ${f(2 * slotRadius(pending.c1.pos, pending.c2.pos, cursor))} mm`
+        : `${f(dist(pending.c1.pos, cursor))} mm`;
     case 'arc': {
       if (!pending.start) return `R ${f(dist(pending.center.pos, cursor))} mm`;
       const c = pending.center.pos;
@@ -89,4 +116,18 @@ function polyline(pts: Vec2[]): Vec2[] {
   const out: Vec2[] = [];
   for (let i = 0; i + 1 < pts.length; i++) out.push(pts[i], pts[i + 1]);
   return out;
+}
+
+/** Contorno de una ranura (dos semicírculos y dos lados). */
+export function slotOutline(c1: Vec2, c2: Vec2, r: number): Vec2[] {
+  const L = dist(c1, c2);
+  if (L < 1e-9 || r < 1e-9) return [c1, c2];
+  const a = Math.atan2(c2[1] - c1[1], c2[0] - c1[0]);
+  const half = Math.PI / 2;
+  const pts = [
+    ...circlePoints(c2, r, a - half, a + half),
+    ...circlePoints(c1, r, a + half, a + 3 * half),
+  ];
+  pts.push(pts[0]);
+  return polyline(pts);
 }

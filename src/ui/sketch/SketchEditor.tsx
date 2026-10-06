@@ -4,6 +4,7 @@ import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintTyp
 import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, sub, type ArcParams } from '../../sketch/geometry';
 import { SketchIndex, type Vec2 } from '../../sketch/model';
 import { CONSTRAINT_LABELS, dimensionText } from '../../sketch/rules';
+import { previewSegments2D } from '../draw3d/preview';
 import type { Anchor, SketchSession, Tool } from './session';
 
 interface View {
@@ -24,6 +25,9 @@ const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
   { id: 'rectangle', label: 'Rectángulo', key: 'R', icon: '▭' },
   { id: 'circle', label: 'Círculo', key: 'C', icon: '◯' },
   { id: 'arc', label: 'Arco', key: 'A', icon: '◜' },
+  { id: 'centerRect', label: 'Rect. centro', key: 'E', icon: '⊡' },
+  { id: 'polygon', label: 'Polígono', key: 'P', icon: '⬡' },
+  { id: 'slot', label: 'Ranura', key: 'S', icon: '⬭' },
 ];
 
 const CONSTRAINT_BUTTONS: { type: SketchConstraintType; icon: string }[] = [
@@ -308,6 +312,9 @@ export function SketchEditor(props: {
     else if (k === 'r') s.setTool('rectangle');
     else if (k === 'c') s.setTool('circle');
     else if (k === 'a') s.setTool('arc');
+    else if (k === 'e') s.setTool('centerRect');
+    else if (k === 'p') s.setTool('polygon');
+    else if (k === 's') s.setTool('slot');
     else if (k === 'f') fit();
     else if (k === 'g') s.toggleConstruction();
   }
@@ -390,6 +397,17 @@ export function SketchEditor(props: {
         while (a1 <= a0) a1 += Math.PI * 2;
         return <path d={arcPath({ center: p.center.pos, radius: r, startAngle: a0, endAngle: a1 }, toScreen, view().scale)} {...style} />;
       }
+      default: {
+        // Rectángulo desde el centro, polígono y ranura: misma vista previa que el dibujo en 3D.
+        const segs = previewSegments2D(p, cur.pos, s.polygonSides());
+        let d = '';
+        for (let i = 0; i + 1 < segs.length; i += 2) {
+          const a = toScreen(segs[i]);
+          const b = toScreen(segs[i + 1]);
+          d += `M${a[0]} ${a[1]}L${b[0]} ${b[1]}`;
+        }
+        return <path d={d} {...style} />;
+      }
     }
   });
 
@@ -423,6 +441,12 @@ export function SketchEditor(props: {
               </button>
             )}
           </For>
+          <Show when={s.tool() === 'polygon'}>
+            <label class="sides" title="Cantidad de lados del polígono">
+              <input type="number" min="3" max="64" value={s.polygonSides()}
+                onChange={(e) => s.setPolygonSides(Math.max(3, Math.min(64, Number(e.currentTarget.value) || 6)))} /> lados
+            </label>
+          </Show>
           <button classList={{ active: s.construction() }} title="Dibujar geometría de construcción" onClick={() => s.setConstruction(!s.construction())}>
             <span class="tool-icon">┄</span>Construcción
           </button>
