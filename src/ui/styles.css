@@ -407,3 +407,11 @@ button.wide { width: 100%; margin-top: 6px; }
 
 .sides { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
 .sides input { width: 46px; background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+
+/* Medición */
+.measure-label {
+  position: absolute; z-index: 4; pointer-events: none;
+  background: rgba(26, 40, 24, 0.92); color: #c8f2bd; border: 1px solid #5f9a52;
+  border-radius: 4px; padding: 1px 6px; font-size: 12px; white-space: nowrap;
+}
+.measure-info { border-color: #5f9a52; }

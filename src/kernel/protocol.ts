@@ -89,6 +89,18 @@ export interface ExportResult {
   bodies: number;
 }
 
+/** Medición entre dos elementos seleccionados (caras o aristas). */
+export interface Measurement {
+  /** Distancia mínima (mm) y los puntos más cercanos de cada elemento. */
+  distance: number;
+  p1: V3;
+  p2: V3;
+  /** Ángulo (grados, 0..90) entre caras planas y/o aristas rectas. */
+  angle?: number;
+  /** Si son caras planas paralelas: distancia entre sus planos. */
+  planeDistance?: number;
+}
+
 export interface MassProperties {
   /** mm³ */
   volume: number;
@@ -144,6 +156,8 @@ export interface KernelApi {
   edgeRefs(indices: number[]): EdgeRef[];
   /** Exporta el sólido mostrado. */
   exportModel(format: ExportFormat, quality: ExportQuality): ExportResult;
+  /** Mide entre dos elementos del sólido mostrado (índices de caras y aristas, dos en total). */
+  measure(faces: number[], edges: number[]): Measurement;
   /** Volumen, área, caja envolvente y centro de masa del sólido mostrado. */
   massProperties(): MassProperties;
   /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */

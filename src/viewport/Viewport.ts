@@ -59,6 +59,11 @@ export class Viewport {
   private readonly viewCube: ViewCube;
   private readonly manipulator: ManipulatorWidget;
   private readonly drawPlane: DrawPlane;
+  /** Medición: línea punteada entre los puntos más cercanos y etiqueta con la distancia. */
+  private measureLine: THREE.Line | null = null;
+  private measureAt: THREE.Vector3 | null = null;
+  private readonly measureLabel: HTMLDivElement;
+  private readonly measureMat = new THREE.LineDashedMaterial({ color: 0x9fe08a, dashSize: 1.5, gapSize: 1, depthTest: false });
   private drawHandlers: DrawHandlers | null = null;
   private readonly planeGroup = new THREE.Group();
   /** Animación de cámara hacia una vista estándar. */
@@ -129,6 +134,10 @@ export class Viewport {
     this.scene.add(this.manipulator.group);
     this.drawPlane = new DrawPlane(container);
     this.scene.add(this.drawPlane.group);
+    this.measureLabel = document.createElement('div');
+    this.measureLabel.className = 'measure-label';
+    this.measureLabel.style.display = 'none';
+    container.appendChild(this.measureLabel);
 
     this.viewCube = new ViewCube((v) => this.setStandardView(v));
     container.appendChild(this.viewCube.element);
@@ -348,6 +357,37 @@ export class Viewport {
     this.needsRender = true;
   }
 
+  /** Muestra (o quita con null) la medición entre dos puntos. */
+  setMeasure(m: { p1: readonly number[]; p2: readonly number[]; text: string } | null) {
+    if (this.measureLine) {
+      this.measureLine.geometry.dispose();
+      this.scene.remove(this.measureLine);
+      this.measureLine = null;
+    }
+    this.measureAt = null;
+    this.measureLabel.style.display = 'none';
+    if (m) {
+      const a = new THREE.Vector3(m.p1[0], m.p1[1], m.p1[2]);
+      const b = new THREE.Vector3(m.p2[0], m.p2[1], m.p2[2]);
+      this.measureLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), this.measureMat);
+      this.measureLine.computeLineDistances();
+      this.measureLine.renderOrder = 25;
+      this.scene.add(this.measureLine);
+      this.measureAt = a.clone().add(b).multiplyScalar(0.5);
+      this.measureLabel.textContent = m.text;
+    }
+    this.needsRender = true;
+  }
+
+  private updateMeasureLabel() {
+    if (!this.measureAt) return;
+    const p = this.measureAt.clone().project(this.camera);
+    const { w, h } = this.size();
+    this.measureLabel.style.display = p.z > 1 ? 'none' : '';
+    this.measureLabel.style.left = `${((p.x + 1) / 2) * w + 10}px`;
+    this.measureLabel.style.top = `${((1 - p.y) / 2) * h - 10}px`;
+  }
+
   /** Posición en pantalla (px dentro del viewport) de un punto 3D. */
   project(p: readonly number[]): [number, number] {
     const v = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
@@ -426,6 +466,7 @@ export class Viewport {
     this.needsRender = false;
     this.manipulator.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.drawPlane.update(this.camera, (p) => this.worldPerPixel(p), this.size());
+    this.updateMeasureLabel();
     this.renderer.render(this.scene, this.camera);
     this.viewCube.sync(this.camera, this.controls.target);
   };

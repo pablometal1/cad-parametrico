@@ -113,3 +113,39 @@ describe('masa y filamento', () => {
     expect(filamentMeters(20000)).toBeCloseTo(8.315, 2);
   });
 });
+
+describe('medición', () => {
+  const faceAt = (z: number | null, x: number | null = null) =>
+    (k as unknown as { current: { shape: { faces: { center: { x: number; y: number; z: number } }[] } } }).current.shape.faces.findIndex((f) =>
+      (z === null || Math.abs(f.center.z - z) < 1e-6) && (x === null || Math.abs(f.center.x - x) < 1e-6));
+
+  it('caras opuestas, vecinas y aristas de una caja 40×30×20', () => {
+    k.recompute(build({ profile: rect(40, 30), distance: 20 }));
+    const top = faceAt(20);
+    const bottom = faceAt(0);
+    const side = faceAt(10, 20);
+    const opposite = k.measure([top, bottom], []);
+    expect(opposite.distance).toBeCloseTo(20, 6);
+    expect(opposite.angle).toBeCloseTo(0, 6);
+    expect(opposite.planeDistance).toBeCloseTo(20, 6);
+
+    const adjacent = k.measure([top, side], []);
+    expect(adjacent.distance).toBeCloseTo(0, 6);
+    expect(adjacent.angle).toBeCloseTo(90, 6);
+    expect(adjacent.planeDistance).toBeUndefined();
+
+    // Dos aristas verticales opuestas en diagonal: distancia = diagonal de la base (50).
+    const edges = (k as unknown as { current: { shape: { edges: { pointAt(t: number): { toTuple(): number[] } }[] } } }).current.shape.edges;
+    const vertical = edges.map((e, i) => ({ i, a: e.pointAt(0).toTuple(), b: e.pointAt(1).toTuple() }))
+      .filter((e) => Math.abs(e.a[0] - e.b[0]) < 1e-9 && Math.abs(e.a[1] - e.b[1]) < 1e-9);
+    const e1 = vertical.find((e) => e.a[0] > 0 && e.a[1] > 0)!;
+    const e2 = vertical.find((e) => e.a[0] < 0 && e.a[1] < 0)!;
+    const diag = k.measure([], [e1.i, e2.i]);
+    expect(diag.distance).toBeCloseTo(50, 6);
+    expect(diag.angle).toBeCloseTo(0, 6);
+
+    // Arista vertical contra la cara superior: ángulo 90° entre recta y plano.
+    expect(k.measure([top], [e1.i]).angle).toBeCloseTo(90, 6);
+    expect(() => k.measure([top], [])).toThrow(/dos elementos/);
+  });
+});

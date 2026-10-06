@@ -9,7 +9,8 @@ import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, 
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
 import type {
-  EdgeInfo, ExportFormat, ExportQuality, ExportResult, FaceInfo, KernelApi, Manipulator, MassProperties, RecomputeResult, SurfaceType,
+  EdgeInfo, ExportFormat, ExportQuality, ExportResult, FaceInfo, KernelApi, Manipulator, MassProperties, Measurement, RecomputeResult,
+  SurfaceType,
 } from './protocol';
 import { getOC } from 'replicad';
 import { checkWatertight, to3MF, toBinarySTL, weldMesh } from './export/meshExport';
@@ -133,6 +134,61 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     };
   }
 
+  measure(faceIdx: number[], edgeIdx: number[]): Measurement {
+    const shape = this.requireShape().shape;
+    const faces = shape.faces;
+    const edges = shape.edges;
+    const items = [
+      ...faceIdx.map((i) => ({ kind: 'face' as const, s: faces[i] })),
+      ...edgeIdx.map((i) => ({ kind: 'edge' as const, s: edges[i] })),
+    ];
+    if (items.length !== 2 || items.some((x) => !x.s)) throw new Error('Para medir elegí exactamente dos elementos (caras o aristas)');
+    const oc = getOC();
+    const range = new oc.Message_ProgressRange();
+    const ext = new oc.BRepExtrema_DistShapeShape(items[0].s.wrapped, items[1].s.wrapped, undefined, undefined, range);
+    try {
+      if (!ext.IsDone() || ext.NbSolution() < 1) throw new Error('No se pudo medir la distancia');
+      const a = ext.PointOnShape1(1);
+      const b = ext.PointOnShape2(1);
+      const result: Measurement = { distance: ext.Value(), p1: [a.X(), a.Y(), a.Z()], p2: [b.X(), b.Y(), b.Z()] };
+      a.delete();
+      b.delete();
+      // Direcciones: normal de cara plana o dirección de arista recta.
+      const dirOf = (x: (typeof items)[number]): { v: [number, number, number]; plane: boolean } | null => {
+        if (x.kind === 'face') {
+          const f = x.s as (typeof faces)[number];
+          if (f.geomType !== 'PLANE') return null;
+          return { v: unit(f.normalAt(f.center).toTuple()), plane: true };
+        }
+        const e = x.s as (typeof edges)[number];
+        if (e.geomType !== 'LINE') return null;
+        const p0 = e.pointAt(0).toTuple();
+        const p1 = e.pointAt(1).toTuple();
+        return { v: unit([p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]]), plane: false };
+      };
+      const d1 = dirOf(items[0]);
+      const d2 = dirOf(items[1]);
+      if (d1 && d2) {
+        const dot = Math.abs(d1.v[0] * d2.v[0] + d1.v[1] * d2.v[1] + d1.v[2] * d2.v[2]);
+        let deg = (Math.acos(Math.min(1, dot)) * 180) / Math.PI;
+        // Recta contra plano: el ángulo es el complemento del ángulo con la normal.
+        if (d1.plane !== d2.plane) deg = 90 - deg;
+        result.angle = Math.abs(deg) < 1e-9 ? 0 : deg;
+        if (d1.plane && d2.plane && dot > 1 - 1e-9) {
+          const f1 = items[0].s as (typeof faces)[number];
+          const f2 = items[1].s as (typeof faces)[number];
+          const c1 = f1.center.toTuple();
+          const c2 = f2.center.toTuple();
+          result.planeDistance = Math.abs((c2[0] - c1[0]) * d1.v[0] + (c2[1] - c1[1]) * d1.v[1] + (c2[2] - c1[2]) * d1.v[2]);
+        }
+      }
+      return result;
+    } finally {
+      ext.delete();
+      range.delete();
+    }
+  }
+
   massProperties(): MassProperties {
     const shape = this.requireShape().shape;
     const oc = getOC();
@@ -195,4 +251,9 @@ function sketchBounds(s: EvaluatedSketch): [number, number, number, number] {
   if (!Number.isFinite(u0)) return [-25, -25, 25, 25];
   const m = Math.max(5, 0.15 * Math.max(u1 - u0, v1 - v0));
   return [u0 - m, v0 - m, u1 + m, v1 + m];
+}
+
+function unit(v: number[]): [number, number, number] {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
 }

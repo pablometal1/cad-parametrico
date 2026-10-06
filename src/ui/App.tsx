@@ -12,7 +12,7 @@ import { FEATURE_ICONS, Timeline } from './Timeline';
 import { ParameterTable } from './ParameterTable';
 import { ExportDialog } from './ExportDialog';
 import { PartInfo } from './PartInfo';
-import type { MassProperties } from '../kernel/protocol';
+import type { MassProperties, Measurement } from '../kernel/protocol';
 import { createDirectDraw, type DrawTool } from './draw3d/controller';
 import { basePlaneFrame, faceFrame } from '../document/planes';
 
@@ -53,6 +53,7 @@ export function App() {
   const [paramsOpen, setParamsOpen] = createSignal(false);
   const [exportOpen, setExportOpen] = createSignal(false);
   const [mass, setMass] = createSignal<MassProperties | null>(null);
+  const [measurement, setMeasurement] = createSignal<Measurement | null>(null);
   let fileInput!: HTMLInputElement;
 
   const openFile = async (file: File) => {
@@ -263,14 +264,27 @@ export function App() {
             Promise.all(sel.faces.map((f) => kernel.faceInfo(f))),
             Promise.all(sel.edges.map((e) => kernel.edgeInfo(e))),
           ]);
+          // Con dos elementos seleccionados se mide entre ellos.
+          let m: Measurement | null = null;
+          if (sel.faces.length + sel.edges.length === 2) {
+            try {
+              m = await kernel.measure(sel.faces, sel.edges);
+            } catch {
+              m = null;
+            }
+          }
           if (req === selectionRequest) {
             setFaceInfos(faces);
             setEdgeInfos(edges);
+            setMeasurement(m);
+            viewport?.setMeasure(m && m.distance > 1e-9 ? { p1: m.p1, p2: m.p2, text: `${fmtNum(m.distance)} mm` } : null);
           }
         } catch {
           if (req === selectionRequest) {
             setFaceInfos([]);
             setEdgeInfos([]);
+            setMeasurement(null);
+            viewport?.setMeasure(null);
           }
         }
       },
@@ -519,6 +533,19 @@ export function App() {
               </dl>
             )}
           </For>
+          <Show when={measurement()}>
+            {(m) => (
+              <dl class="face-info measure-info">
+                <dt>📏 Distancia</dt><dd>{fmtNum(m().distance)} mm</dd>
+                <Show when={m().planeDistance !== undefined}>
+                  <dt>Entre planos</dt><dd>{fmtNum(m().planeDistance!)} mm</dd>
+                </Show>
+                <Show when={m().angle !== undefined}>
+                  <dt>Ángulo</dt><dd>{fmtNum(m().angle!)}°</dd>
+                </Show>
+              </dl>
+            )}
+          </Show>
           <For each={edgeInfos()}>
             {(e) => (
               <dl class="face-info">
@@ -559,6 +586,10 @@ export function App() {
 function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
   const feminine = type === 'extrude' || type === 'revolve';
   return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
+}
+
+function fmtNum(v: number) {
+  return String(Math.round(v * 1000) / 1000);
 }
 
 function fmtVec(v: [number, number, number]) {
