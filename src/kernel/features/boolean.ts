@@ -1,5 +1,5 @@
 // Combinación del cuerpo de una feature (herramienta) con el sólido previo, propagando nombres.
-import { cast, getOC, makeCompound } from 'replicad';
+import { cast, getOC, makeCompound, type Face } from 'replicad';
 import type { BooleanOperation } from '../../document/types';
 import { historyOf, NameBuilder, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
@@ -60,4 +60,20 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
     range.delete();
     tool.shape.delete();
   }
+}
+
+/**
+ * Barre las caras de un sketch. Si las regiones se superponen, barre cada una por separado y
+ * une los cuerpos (así un círculo que cruza un rectángulo suma su área en lugar de dar error).
+ */
+export function sweepRegions(faces: Face[], overlapping: boolean, sweep: (group: Face[]) => NamedShape, featureId: string): NamedShape {
+  if (!overlapping || faces.length < 2) return sweep(faces);
+  const parts = faces.map((f) => sweep([f]));
+  let acc = parts[0];
+  for (const p of parts.slice(1)) {
+    const next = combine('join', acc, p, featureId);
+    acc.shape.delete();
+    acc = next;
+  }
+  return acc;
 }

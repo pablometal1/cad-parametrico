@@ -15,6 +15,8 @@ export interface EvaluatedSketch {
   data: SketchData;
   regions: ProfileRegion[];
   openChains: number;
+  /** Regiones superpuestas: los cuerpos de cada región se unen. */
+  overlapping: boolean;
   dof: number;
   /** Contorno de la cara de apoyo en coordenadas del sketch (pares u,v por segmento). */
   reference: number[];
@@ -48,6 +50,7 @@ export function evaluateSketch(feature: SketchFeature, input: NamedShape | null)
     data: solved.data,
     regions: analysis.regions,
     openChains: analysis.openChains,
+    overlapping: analysis.overlapping,
     dof: solved.dof,
   };
 }

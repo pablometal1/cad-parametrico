@@ -28,6 +28,8 @@ export interface ProfileAnalysis {
   regions: ProfileRegion[];
   /** Cadenas abiertas (se ignoran para extruir). */
   openChains: number;
+  /** Hay regiones que se superponen: el cuerpo es la unión de sus extrusiones. */
+  overlapping: boolean;
 }
 
 /** Tolerancia para considerar que dos extremos coinciden (mm). */
@@ -85,7 +87,8 @@ export function findProfiles(data: SketchData): ProfileAnalysis {
     loops.push(walkLoop(index, start, adjacency, node, ends));
   }
 
-  return { regions: nestLoops(loops), openChains };
+  const regions = nestLoops(loops);
+  return { regions, openChains, overlapping: regionsOverlap(regions) };
 }
 
 function curveLength(index: SketchIndex, c: SketchCurve): number {
@@ -179,7 +182,9 @@ function nestLoops(loops: ProfileLoop[]): ProfileRegion[] {
   const containers = loops.map((l, i) =>
     loops
       .map((other, j) => ({ other, j }))
-      .filter(({ other, j }) => j !== i && Math.abs(other.area) > Math.abs(l.area) && pointInPolygon(l.polygon[0], other.polygon))
+      // Es agujero solo si queda entero adentro: si los contornos se cruzan, ambos son exteriores
+      // (sus extrusiones se unen).
+      .filter(({ other, j }) => j !== i && Math.abs(other.area) > Math.abs(l.area) && insideEntirely(l.polygon, other.polygon))
       .map(({ j }) => j),
   );
   const depth = containers.map((c) => c.length);
@@ -200,4 +205,51 @@ function nestLoops(loops: ProfileLoop[]): ProfileRegion[] {
     if (depth[i] % 2 === 1) regionOf.get(parent[i])!.holes.push(l.area <= 0 ? l : reverseLoop(l));
   });
   return regions;
+}
+
+function insideEntirely(inner: Vec2[], outer: Vec2[]): boolean {
+  return inner.every((p) => pointInPolygon(p, outer)) && !polygonsCross(inner, outer);
+}
+
+/** ¿Algún par de regiones exteriores se cruza o se contiene parcialmente? */
+function regionsOverlap(regions: ProfileRegion[]): boolean {
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i].outer.polygon;
+      const b = regions[j].outer.polygon;
+      if (polygonsCross(a, b) || pointInPolygon(a[0], b) || pointInPolygon(b[0], a)) return true;
+    }
+  }
+  return false;
+}
+
+/** ¿Se cortan o se tocan los bordes de dos polígonos? */
+function polygonsCross(a: Vec2[], b: Vec2[]): boolean {
+  for (let i = 0; i < a.length; i++) {
+    const p1 = a[i];
+    const p2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsCross(p1, p2, b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return false;
+}
+
+function segmentsCross(p: Vec2, p2: Vec2, q: Vec2, q2: Vec2): boolean {
+  const o = (a: Vec2, b: Vec2, c: Vec2) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const d1 = o(q, q2, p);
+  const d2 = o(q, q2, p2);
+  const d3 = o(p, p2, q);
+  const d4 = o(p, p2, q2);
+  // Inclusivo: también cuenta cruces justo en un vértice y bordes que se tocan
+  // (dos regiones que comparten un lado se unen).
+  const eps = 1e-12;
+  if (Math.abs(d1) < eps && Math.abs(d2) < eps) {
+    // Colineales: se tocan si sus proyecciones se superponen.
+    const ax = Math.abs(p2[0] - p[0]) > Math.abs(p2[1] - p[1]) ? 0 : 1;
+    const [a0, a1] = [Math.min(p[ax], p2[ax]), Math.max(p[ax], p2[ax])];
+    const [b0, b1] = [Math.min(q[ax], q2[ax]), Math.max(q[ax], q2[ax])];
+    return a0 <= b1 + eps && b0 <= a1 + eps;
+  }
+  return d1 * d2 <= eps * eps && d3 * d4 <= eps * eps;
 }
