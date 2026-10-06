@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { addFeature, deleteFeature, makeExtrude, makeSketch, setRollback, setSuppressed, updateFeature } from '../src/document/ops';
-import type { CadDocument, ExtrudeFeature, SketchFeature } from '../src/document/types';
+import type { CadDocument, ExtrudeFeature, PlaneFeature, SketchFeature } from '../src/document/types';
 import { initOCCT } from '../src/kernel/occt';
 import { RecomputeEngine } from '../src/kernel/recompute';
 import { volume } from '../src/kernel/features/measure';
@@ -299,7 +299,8 @@ describe('cache de recálculo', () => {
 
     const cutId = extrudeIds(doc)[1];
     const r = run(updateFeature<ExtrudeFeature>(doc, cutId, { distance: 10 }));
-    expect(r.results.map((x) => x.cached)).toEqual([true, true, true, false, false, false]);
+    // El sketch del tercer perfil (plano base) no depende del sólido: no se vuelve a resolver.
+    expect(r.results.map((x) => x.cached)).toEqual([true, true, true, false, true, false]);
     expect(r.volume).toBeCloseTo(24000 - PI * 25 * 5 + 500, 3);
   });
 
@@ -317,7 +318,8 @@ describe('cache de recálculo', () => {
     expect(sup.extStatuses).toEqual(['suppressed', 'error']); // el corte se queda sin base
     const back = run(doc);
     expect(back.extStatuses).toEqual(['ok', 'ok']);
-    expect(back.ext.map((x) => x.cached)).toEqual([true, false]);
+    // La cache guarda varias versiones: la del corte de antes de suprimir sigue ahí.
+    expect(back.ext.map((x) => x.cached)).toEqual([true, true]);
   });
 
   it('borrar una feature libera su entrada de cache', () => {
@@ -331,6 +333,9 @@ describe('cache de recálculo', () => {
     const r = run(deleteFeature(doc, extrudeIds(doc)[1]));
     expect(engine.cacheSize).toBe(3);
     expect(r.volume).toBeCloseTo(24000, 6);
+    // Deshacer el borrado no recalcula: sus versiones se guardan un tiempo.
+    const back = run(doc);
+    expect(back.results.every((x) => x.cached)).toBe(true);
   });
 
   it('retroceder y avanzar reutiliza la cache', () => {
@@ -342,5 +347,68 @@ describe('cache de recálculo', () => {
     run(doc);
     run(setRollback(doc, 2));
     expect(run(doc).results.every((r) => r.cached)).toBe(true);
+  });
+});
+
+describe('cache: versiones y sketches independientes del sólido (sin resultados viejos)', () => {
+  it('deshacer y rehacer no recalculan nada y dan la misma pieza', () => {
+    engine = new RecomputeEngine();
+    const doc = build(
+      { profile: rect(40, 30), distance: 20, operation: 'new' },
+      { profile: circle(5), distance: 40, operation: 'cut', direction: 'symmetric' },
+    );
+    const a = run(doc);
+    const edited = updateFeature<ExtrudeFeature>(doc, extrudeIds(doc)[0], { distance: 30 });
+    const b = run(edited);
+    const undo = run(doc);
+    expect(undo.results.every((r) => r.cached)).toBe(true);
+    expect(undo.volume).toBeCloseTo(a.volume, 9);
+    const redo = run(edited);
+    expect(redo.results.every((r) => r.cached)).toBe(true);
+    expect(redo.volume).toBeCloseTo(b.volume, 9);
+  });
+
+  it('un sketch reutilizado deja pasar el sólido nuevo, no el de cuando se calculó', () => {
+    engine = new RecomputeEngine();
+    // Caja 40×30×20 y un tetón de 10×10×5 apoyado en z = 20 (sketch en plano base desplazado).
+    const doc = build(
+      { profile: rect(40, 30), distance: 20, operation: 'new' },
+      { profile: rect(10, 10), offset: 20, distance: 5, operation: 'join' },
+    );
+    expect(run(doc).volume).toBeCloseTo(24000 + 500, 6);
+    // La caja crece a 25 de alto: el sketch del tetón se reutiliza, pero la unión usa la caja nueva.
+    const taller = run(updateFeature<ExtrudeFeature>(doc, extrudeIds(doc)[0], { distance: 25 }));
+    expect(taller.results[2].cached).toBe(true);
+    expect(taller.results[3].cached).toBe(false);
+    // El tetón (z 20..25) queda dentro de la caja nueva: 30.000. Con la caja vieja daría 24.500.
+    expect(taller.volume).toBeCloseTo(30000, 6);
+  });
+
+  it('cambiar un sketch obliga a recalcular la extrusión que lo usa', () => {
+    engine = new RecomputeEngine();
+    const doc = build({ profile: rect(40, 30), distance: 20, operation: 'new' });
+    run(doc);
+    const sk = doc.features[0] as SketchFeature;
+    const wider = run(updateFeature<SketchFeature>(doc, sk.id, profileData(rect(50, 30))));
+    expect(wider.results.map((r) => r.cached)).toEqual([false, false]);
+    expect(wider.volume).toBeCloseTo(30000, 6);
+  });
+
+  it('un sketch sobre un plano de construcción se actualiza si el plano se mueve', async () => {
+    const { makePlane } = await import('../src/document/ops');
+    engine = new RecomputeEngine();
+    let doc = build({ profile: rect(40, 30), distance: 20, operation: 'new' });
+    const plane = makePlane(doc, { kind: 'base', plane: 'XY' }, { distance: 20 });
+    doc = addFeature(doc, plane);
+    const b = new SketchBuilder({ entities: [], constraints: [] });
+    b.rectangle([-5, -5], [5, 5]);
+    const sk = makeSketch(doc, { plane: { kind: 'plane', plane: plane.id, offset: 0 }, ...b.data });
+    doc = addFeature(doc, sk);
+    doc = addFeature(doc, makeExtrude(doc, sk.id, { distance: 5, operation: 'join' }));
+    expect(run(doc).volume).toBeCloseTo(24000 + 500, 6);
+    // El plano sube a 30: el tetón queda flotando (otro cuerpo) y el sketch se recalcula.
+    const moved = run(updateFeature<PlaneFeature>(doc, plane.id, { distance: 30 }));
+    expect(moved.results.slice(2).map((r) => r.cached)).toEqual([false, false, false]);
+    expect(moved.shape!.boundingBox.bounds[1][2]).toBeCloseTo(35, 6);
   });
 });

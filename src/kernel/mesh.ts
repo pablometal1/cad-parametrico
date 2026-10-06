@@ -61,6 +61,15 @@ export function shapeToMesh(shape: AnyShape, edgeKinds?: Uint8Array, opts: MeshO
 }
 
 /** Buffers a transferir con postMessage. */
+/** Copia de una malla (la que se envía; la guardada queda intacta aunque se transfieran los buffers). */
+export function copyMesh(m: MeshPayload): MeshPayload {
+  return {
+    positions: m.positions.slice(), normals: m.normals.slice(), indices: m.indices.slice(), faceRanges: m.faceRanges.slice(),
+    edgePositions: m.edgePositions.slice(), edgeRanges: m.edgeRanges.slice(), edgeKinds: m.edgeKinds.slice(),
+    bbox: { min: [...m.bbox.min], max: [...m.bbox.max] },
+  };
+}
+
 export function meshTransferables(m: MeshPayload): ArrayBuffer[] {
   return [m.positions, m.normals, m.indices, m.faceRanges, m.edgePositions, m.edgeRanges, m.edgeKinds]
     .map((a) => a.buffer as ArrayBuffer);

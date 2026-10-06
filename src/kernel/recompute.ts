@@ -47,6 +47,27 @@ export interface RecomputeOutput {
 }
 
 const ROOT_KEY = 'root';
+/** Versiones que se guardan por feature. */
+const CACHE_VERSIONS = 3;
+/** Features borradas cuyas versiones se conservan (para deshacer el borrado sin recalcular). */
+const REMOVED_KEPT = 20;
+
+/**
+ * Base de la clave de una feature que no depende del sólido: sketches sobre planos base o de
+ * construcción, y planos que parten de otro plano (sin cara ni arista del modelo). null si depende.
+ */
+function solidIndependentBase(feature: Feature, planeKeys: Map<FeatureId, string>): string | null {
+  if (feature.type === 'sketch') {
+    if (feature.plane.kind === 'base') return 'base';
+    if (feature.plane.kind === 'plane') return planeKeys.get(feature.plane.plane) ?? 'sin-plano';
+    return null;
+  }
+  if (feature.type === 'plane' && feature.axis !== 'edge') {
+    if (feature.reference.kind === 'base') return 'base';
+    if (feature.reference.kind === 'plane') return planeKeys.get(feature.reference.plane) ?? 'sin-plano';
+  }
+  return null;
+}
 
 interface Context {
   input: NamedShape | null;
@@ -57,7 +78,13 @@ interface Context {
 }
 
 export class RecomputeEngine {
-  private cache = new Map<FeatureId, CacheEntry>();
+  /**
+   * Últimas versiones calculadas de cada feature (la más reciente primero). Guardar más de una
+   * hace que deshacer/rehacer, o volver un valor atrás, no recalcule nada.
+   */
+  private cache = new Map<FeatureId, CacheEntry[]>();
+  /** Versiones de features borradas hace poco: deshacer el borrado no recalcula. */
+  private removed = new Map<FeatureId, CacheEntry[]>();
   /** Sólido de entrada de cada feature evaluada en el último recálculo (propiedad de la cache). */
   private lastInputs = new Map<FeatureId, NamedShape | null>();
   private lastSketches = new Map<FeatureId, EvaluatedSketch>();
@@ -81,6 +108,8 @@ export class RecomputeEngine {
     const sketches = new Map<FeatureId, EvaluatedSketch>();
     const planes = new Map<FeatureId, PlaneFrame>();
     const references: RecomputeOutput['references'] = [];
+    /** Clave de cada plano de construcción calculado (para sketches/planos que dependen de él). */
+    const planeKeys = new Map<FeatureId, string>();
     let current: NamedShape | null = null;
     let currentKey = ROOT_KEY;
     this.lastInputs = new Map();
@@ -108,22 +137,39 @@ export class RecomputeEngine {
         return;
       }
       // La clave incluye el estado de las dependencias (p. ej. un sketch borrado vs. suprimido).
-      const key = hashString(currentKey + '\u0000' + featureFingerprint(feature) + '\u0000' + dependencyState(feature, ctx));
-      let entry = this.cache.get(feature.id);
-      const cached = entry?.key === key;
-      if (!cached) {
-        if (entry) this.release(entry);
-        entry = this.compute(feature, ctx, key);
-        this.cache.set(feature.id, entry);
+      // Sketches y planos que no se apoyan en el sólido no dependen de lo que pasó antes con él:
+      // cambiar una extrusión no obliga a volver a resolver los sketches que vienen después.
+      const base = solidIndependentBase(feature, planeKeys) ?? currentKey;
+      const key = hashString(base + '\u0000' + featureFingerprint(feature) + '\u0000' + dependencyState(feature, ctx));
+      let versions = this.cache.get(feature.id);
+      if (!versions) {
+        // ¿Volvió una feature borrada (deshacer)? Se recuperan sus versiones.
+        versions = this.removed.get(feature.id) ?? [];
+        this.removed.delete(feature.id);
       }
-      const e = entry!;
+      let e = versions.find((v) => v.key === key);
+      const cached = !!e;
+      if (e) {
+        versions.splice(versions.indexOf(e), 1);
+      } else {
+        e = this.compute(feature, ctx, key);
+      }
+      versions.unshift(e);
+      for (const old of versions.splice(CACHE_VERSIONS)) this.release(old);
+      this.cache.set(feature.id, versions);
       if (e.sketch) sketches.set(feature.id, e.sketch);
-      if (e.plane) planes.set(feature.id, e.plane);
+      if (e.plane) {
+        planes.set(feature.id, e.plane);
+        planeKeys.set(feature.id, key);
+      }
       if (e.reference) references.push({ id: feature.id, shape: e.reference });
       results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, timeMs: e.timeMs, cached });
-      current = e.output;
-      // Si la feature falló, el sólido sigue siendo el de la entrada y la clave también.
-      currentKey = e.status === 'ok' ? key : currentKey;
+      // Las features que no cambian el sólido (sketch, plano, referencia, error) lo dejan pasar tal
+      // como llegó: su `output` guardado puede ser de otro recálculo.
+      current = e.owned ? e.output : current;
+      // La cadena de claves incluye todo lo anterior (también sketches): una extrusión se entera si
+      // cambió su sketch. Si la feature falló, la clave sigue igual.
+      currentKey = e.status === 'ok' ? hashString(currentKey + '\u0000' + key) : currentKey;
     });
 
     this.evictMissing(doc);
@@ -131,7 +177,8 @@ export class RecomputeEngine {
   }
 
   dispose() {
-    for (const entry of this.cache.values()) this.release(entry);
+    for (const versions of [...this.cache.values(), ...this.removed.values()]) versions.forEach((v) => this.release(v));
+    this.removed.clear();
     this.cache.clear();
     this.lastInputs.clear();
     this.lastDoc = null;
@@ -246,11 +293,17 @@ export class RecomputeEngine {
 
   private evictMissing(doc: CadDocument) {
     const ids = new Set(doc.features.map((f) => f.id));
-    for (const [id, entry] of this.cache) {
+    for (const [id, versions] of this.cache) {
       if (!ids.has(id)) {
-        this.release(entry);
         this.cache.delete(id);
+        this.removed.set(id, versions);
       }
+    }
+    // Se guardan las últimas REMOVED_KEPT borradas; las más viejas se liberan.
+    for (const [id, versions] of this.removed) {
+      if (this.removed.size <= REMOVED_KEPT) break;
+      versions.forEach((v) => this.release(v));
+      this.removed.delete(id);
     }
   }
 

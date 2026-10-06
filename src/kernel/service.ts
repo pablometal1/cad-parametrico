@@ -7,7 +7,7 @@ import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
 import { evaluateDocument } from '../document/evaluate';
 import { initOCCT } from './occt';
-import { displayMeshOptions, shapeToMesh } from './mesh';
+import { copyMesh, displayMeshOptions, shapeToMesh } from './mesh';
 import { describeError } from './occtUtils';
 import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
@@ -32,6 +32,9 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   private readonly engine = new RecomputeEngine();
   /** Sólido final del último recálculo, con nombres (propiedad del motor). */
   private current: NamedShape | null = null;
+  /** Resultados por sólido (el motor reutiliza el mismo objeto mientras no cambie). */
+  private meshes = new WeakMap<NamedShape, MeshPayload>();
+  private mass = new WeakMap<NamedShape, MassProperties>();
 
   constructor(private readonly wasmUrl?: string, private readonly solverWasmUrl?: string) {}
 
@@ -46,7 +49,8 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const evaluated = evaluateDocument(doc);
     const { results, shape, sketches, planes, references } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
-    const mesh = shape ? meshForDisplay(shape) : null;
+    // El motor devuelve el mismo objeto si el sólido no cambió (o al deshacer): no se vuelve a mallar.
+    const mesh = shape ? copyMesh(memo(this.meshes, shape, () => meshForDisplay(shape))) : null;
     return {
       features: results,
       mesh,
@@ -61,7 +65,8 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       planes: [...planes].map(([id, f]) => ({ id, frame: { origin: f.origin, xDir: f.xDir, yDir: f.yDir, normal: f.normal } })),
       references: references.flatMap((r) => {
         try {
-          return [{ id: r.id, mesh: shapeToMesh(r.shape.shape, undefined, displayMeshOptions(r.shape.shape, true)) }];
+          const m = memo(this.meshes, r.shape, () => shapeToMesh(r.shape.shape, undefined, displayMeshOptions(r.shape.shape, true)));
+          return [{ id: r.id, mesh: copyMesh(m) }];
         } catch {
           return [];
         }
@@ -204,7 +209,11 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   }
 
   massProperties(): MassProperties {
-    const shape = this.requireShape().shape;
+    const named = this.requireShape();
+    return memo(this.mass, named, () => this.computeMassProperties(named.shape));
+  }
+
+  private computeMassProperties(shape: NamedShape['shape']): MassProperties {
     const oc = getOC();
     const vol = new oc.GProp_GProps();
     const surf = new oc.GProp_GProps();
@@ -304,4 +313,13 @@ function meshForDisplay(shape: NamedShape): MeshPayload {
       throw new Error(`No se pudo generar la malla para mostrar la pieza (${describeError(err)})`);
     }
   }
+}
+
+function memo<K extends object, V>(map: WeakMap<K, V>, key: K, make: () => V): V {
+  let v = map.get(key);
+  if (v === undefined) {
+    v = make();
+    map.set(key, v);
+  }
+  return v;
 }
