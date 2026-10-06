@@ -8,7 +8,18 @@ import { shapeToMesh } from './mesh';
 import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
-import type { EdgeInfo, FaceInfo, KernelApi, Manipulator, RecomputeResult, SurfaceType } from './protocol';
+import type {
+  EdgeInfo, ExportFormat, ExportQuality, ExportResult, FaceInfo, KernelApi, Manipulator, MassProperties, RecomputeResult, SurfaceType,
+} from './protocol';
+import { getOC } from 'replicad';
+import { checkWatertight, to3MF, toBinarySTL, weldMesh } from './export/meshExport';
+
+/** Tolerancias de teselado para exportar (desvío lineal en mm, angular en radianes). */
+const EXPORT_QUALITY: Record<ExportQuality, { tolerance: number; angularTolerance: number }> = {
+  low: { tolerance: 0.1, angularTolerance: 0.5 },
+  medium: { tolerance: 0.02, angularTolerance: 0.2 },
+  high: { tolerance: 0.005, angularTolerance: 0.1 },
+};
 import type { EvaluatedSketch } from './features/sketch';
 import { manipulatorFor } from './manipulators';
 
@@ -91,6 +102,61 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       throw new Error(`${n} ${what}: no se puede redondear ni achaflanar. Elegí bordes con esquina viva.`);
     }
     return indices.map((i) => edgeRefOf(shape, i));
+  }
+
+  async exportModel(format: ExportFormat, quality: ExportQuality): Promise<ExportResult> {
+    const shape = this.requireShape().shape;
+    const solids = shape.solids;
+    if (solids.length === 0) throw new Error('No hay sólidos para exportar');
+    if (format === 'step') {
+      const blob = shape.blobSTEP();
+      return { data: new Uint8Array(await blob.arrayBuffer()), mime: 'model/step', extension: 'step', bodies: solids.length };
+    }
+    const opts = EXPORT_QUALITY[quality];
+    const meshes = solids.map((s) => {
+      const m = s.mesh(opts);
+      return weldMesh(m.vertices, m.triangles);
+    });
+    const triangles = meshes.reduce((n, m) => n + m.triangles.length / 3, 0);
+    const openEdges = meshes.reduce((n, m) => {
+      const c = checkWatertight(m);
+      return n + c.boundaryEdges + c.nonManifoldEdges;
+    }, 0);
+    const data = format === 'stl' ? toBinarySTL(meshes) : to3MF(meshes, meshes.map((_, i) => `Cuerpo ${i + 1}`));
+    return {
+      data,
+      mime: format === 'stl' ? 'model/stl' : 'model/3mf',
+      extension: format,
+      triangles,
+      openEdges,
+      bodies: solids.length,
+    };
+  }
+
+  massProperties(): MassProperties {
+    const shape = this.requireShape().shape;
+    const oc = getOC();
+    const vol = new oc.GProp_GProps();
+    const surf = new oc.GProp_GProps();
+    try {
+      oc.BRepGProp.VolumeProperties(shape.wrapped, vol, false, false, false);
+      oc.BRepGProp.SurfaceProperties(shape.wrapped, surf, false, false);
+      const c = vol.CentreOfMass();
+      const center: [number, number, number] = [c.X(), c.Y(), c.Z()];
+      c.delete();
+      const [min, max] = shape.boundingBox.bounds;
+      return {
+        volume: vol.Mass(),
+        area: surf.Mass(),
+        bodies: shape.solids.length,
+        center,
+        bboxMin: [min[0], min[1], min[2]],
+        bboxMax: [max[0], max[1], max[2]],
+      };
+    } finally {
+      vol.delete();
+      surf.delete();
+    }
   }
 
   manipulator(featureId: string): Manipulator | null {

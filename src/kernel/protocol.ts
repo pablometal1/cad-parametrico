@@ -76,6 +76,30 @@ export type Manipulator =
       axisLength: number;
     };
 
+export type ExportFormat = 'stl' | '3mf' | 'step';
+export type ExportQuality = 'low' | 'medium' | 'high';
+
+export interface ExportResult {
+  data: Uint8Array;
+  mime: string;
+  extension: string;
+  /** Solo mallas: cantidad de triángulos y aristas abiertas (0 = malla cerrada, apta para imprimir). */
+  triangles?: number;
+  openEdges?: number;
+  bodies: number;
+}
+
+export interface MassProperties {
+  /** mm³ */
+  volume: number;
+  /** mm² */
+  area: number;
+  bodies: number;
+  center: V3;
+  bboxMin: V3;
+  bboxMax: V3;
+}
+
 export interface EdgeInfo {
   index: number;
   curveType: string;
@@ -118,6 +142,10 @@ export interface KernelApi {
   faceRefs(indices: number[]): FaceRef[];
   /** Referencias topológicas de aristas del sólido mostrado. */
   edgeRefs(indices: number[]): EdgeRef[];
+  /** Exporta el sólido mostrado. */
+  exportModel(format: ExportFormat, quality: ExportQuality): ExportResult;
+  /** Volumen, área, caja envolvente y centro de masa del sólido mostrado. */
+  massProperties(): MassProperties;
   /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */
   manipulator(featureId: string): Manipulator | null;
 }

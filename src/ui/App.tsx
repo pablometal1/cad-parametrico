@@ -10,6 +10,9 @@ import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
 import { FEATURE_ICONS, Timeline } from './Timeline';
 import { ParameterTable } from './ParameterTable';
+import { ExportDialog } from './ExportDialog';
+import { PartInfo } from './PartInfo';
+import type { MassProperties } from '../kernel/protocol';
 import { createDirectDraw, type DrawTool } from './draw3d/controller';
 import { basePlaneFrame, faceFrame } from '../document/planes';
 
@@ -45,6 +48,8 @@ export function App() {
   const [planeMenu, setPlaneMenu] = createSignal(false);
   const [fileMenu, setFileMenu] = createSignal(false);
   const [paramsOpen, setParamsOpen] = createSignal(false);
+  const [exportOpen, setExportOpen] = createSignal(false);
+  const [mass, setMass] = createSignal<MassProperties | null>(null);
   let fileInput!: HTMLInputElement;
 
   const openFile = async (file: File) => {
@@ -70,6 +75,9 @@ export function App() {
     } else if (k === 'o') {
       e.preventDefault();
       fileInput.click();
+    } else if (k === 'e') {
+      e.preventDefault();
+      if (mass()) setExportOpen(true);
     } else if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       return;
     } else if (k === 'z' && !e.shiftKey) {
@@ -181,6 +189,18 @@ export function App() {
     viewport?.setSketchPlanes(sketchLines(), store.editing() ? new Set() : planes);
   });
 
+  // Propiedades de la pieza (volumen, masa…) tras cada recálculo.
+  let massRequest = 0;
+  createEffect(() => {
+    store.results();
+    if (!ready()) return;
+    const req = ++massRequest;
+    kernel.massProperties().then(
+      (m) => req === massRequest && setMass(m),
+      () => req === massRequest && setMass(null),
+    );
+  });
+
   // Manipulador 3D de la feature seleccionada: se pide al kernel después de cada recálculo.
   let manipulatorRequest = 0;
   createEffect(() => {
@@ -280,6 +300,9 @@ export function App() {
                   store.save();
                 }
               }}>Guardar como…</button>
+              <button disabled={!mass()} onClick={() => { setFileMenu(false); setExportOpen(true); }}>
+                Exportar STL / 3MF / STEP… <span class="kbd">Ctrl+E</span>
+              </button>
             </div>
           </Show>
           <input
@@ -422,6 +445,9 @@ export function App() {
             </div>
           )}
         </Show>
+        <Show when={exportOpen()}>
+          <ExportDialog kernel={kernel} fileName={store.fileName()} onClose={() => setExportOpen(false)} onDone={(m) => store.setNotice(m)} />
+        </Show>
         <Show when={paramsOpen() && !store.editing()}>
           <ParameterTable store={store} onClose={() => setParamsOpen(false)} />
         </Show>
@@ -458,6 +484,9 @@ export function App() {
         <Show when={!store.dialog()} fallback={<p class="muted">Editando en el cuadro de la herramienta (en el área 3D).</p>}>
           <FeatureEditor store={store} />
         </Show>
+
+        <h2 class="section-gap">Pieza</h2>
+        <PartInfo props={mass()} />
 
         <h2 class="section-gap">Selección</h2>
         <Show

@@ -31,6 +31,9 @@ function isMesh(x: unknown): x is MeshPayload {
 /** Buffers que se pueden transferir sin copia (mallas y curvas de sketch). */
 function transferables(result: unknown): ArrayBuffer[] {
   if (isMesh(result)) return meshTransferables(result);
+  if (typeof result === 'object' && result !== null && 'data' in result && (result as { data: unknown }).data instanceof Uint8Array) {
+    return [(result as { data: Uint8Array }).data.buffer as ArrayBuffer];
+  }
   if (typeof result === 'object' && result !== null && 'features' in result) {
     const r = result as RecomputeResult;
     return [
