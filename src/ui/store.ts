@@ -413,6 +413,19 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       return null;
     },
 
+    /**
+     * Patrón o simetría de la extrusión/revolución seleccionada en el historial (o de la última).
+     * Devuelve un mensaje si no hay ninguna.
+     */
+    addCopy(kind: 'pattern' | 'mirror'): string | null {
+      const sel = selectedFeature();
+      const active = doc().features.slice(0, ops.activeCount(doc()));
+      const source = ops.isCopyable(sel ?? undefined) ? sel : [...active].reverse().find((f) => ops.isCopyable(f));
+      if (!source) return 'Primero creá una extrusión o revolución (o elegila en el historial) para repetirla';
+      addWithDialog(kind === 'pattern' ? ops.makePattern(doc(), source.id) : ops.makeMirror(doc(), source.id));
+      return null;
+    },
+
     /** Redondeo o chaflán de las aristas elegidas en el viewport (índices del sólido mostrado). */
     async addEdgeFeature(type: 'fillet' | 'chamfer', edges: number[]) {
       if (edges.length === 0) return setNotice('Seleccioná una o más aristas en el modelo (Shift + clic para varias)');

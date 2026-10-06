@@ -2,7 +2,7 @@
 import { Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis,
 } from '../document/types';
 import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
@@ -52,6 +52,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'shell'}>
                 <ShellPanel store={store} feature={feature() as ShellFeature} />
+              </Match>
+              <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
+                <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
               </Match>
             </Switch>
           </div>
@@ -179,5 +182,61 @@ function Num(props: { store: CadStore; id: string; path: string; label: string; 
       expr={props.store.fieldExpression(props.id, props.path)}
       onCommit={(text) => props.store.setFieldText(props.id, props.path, text)}
     />
+  );
+}
+
+const AXES = [
+  { value: 'X', label: 'Eje X' },
+  { value: 'Y', label: 'Eje Y' },
+  { value: 'Z', label: 'Eje Z' },
+] as const satisfies readonly { value: GlobalAxis; label: string }[];
+
+const MIRROR_PLANES = [
+  { value: 'YZ', label: 'Plano YZ (refleja X)' },
+  { value: 'XZ', label: 'Plano XZ (refleja Y)' },
+  { value: 'XY', label: 'Plano XY (refleja Z)' },
+] as const satisfies readonly { value: BasePlane; label: string }[];
+
+/** Patrón (lineal/circular) y simetría: feature de origen y parámetros de la copia. */
+function CopyPanel(props: { store: CadStore; feature: PatternFeature | MirrorFeature }) {
+  const f = () => props.feature;
+  const sources = () => {
+    const features = props.store.doc().features;
+    const i = features.findIndex((x) => x.id === f().id);
+    const opts = features.slice(0, i).filter((x) => x.type === 'extrude' || x.type === 'revolve').map((x) => ({ value: x.id, label: x.name }));
+    if (!opts.some((o) => o.value === f().source)) opts.unshift({ value: f().source, label: '(no disponible)' });
+    return opts;
+  };
+  const pattern = () => (f().type === 'pattern' ? (f() as PatternFeature) : null);
+  return (
+    <>
+      <h3>{f().type === 'pattern' ? 'Patrón' : 'Simetría'}</h3>
+      <SelectField label="Repetir" value={f().source} options={sources()}
+        onChange={(source) => props.store.updateFeature<PatternFeature>(f().id, { source })} />
+      <Show when={pattern()} fallback={
+        <SelectField label="Plano" value={(f() as MirrorFeature).plane} options={MIRROR_PLANES}
+          onChange={(plane) => props.store.updateFeature<MirrorFeature>(f().id, { plane })} />
+      }>
+        {(p) => (
+          <>
+            <SelectField label="Tipo" value={p().kind}
+              options={[{ value: 'linear', label: 'Lineal' }, { value: 'circular', label: 'Circular' }] as const}
+              onChange={(kind) => props.store.updateFeature<PatternFeature>(f().id, { kind })} />
+            <SelectField label={p().kind === 'linear' ? 'Dirección' : 'Eje'} value={p().axis} options={AXES}
+              onChange={(axis) => props.store.updateFeature<PatternFeature>(f().id, { axis })} />
+            <Num store={props.store} id={f().id} path="count" label="Cantidad" unit="" />
+            <Show when={p().kind === 'linear'} fallback={<Num store={props.store} id={f().id} path="angle" label="Ángulo total" unit="°" />}>
+              <Num store={props.store} id={f().id} path="spacing" label="Separación" unit="mm" />
+            </Show>
+            <p class="hint">
+              {p().kind === 'linear'
+                ? 'Separación negativa: en el sentido contrario del eje.'
+                : 'Alrededor del eje por el origen. 360° reparte las copias en la vuelta completa.'}
+            </p>
+          </>
+        )}
+      </Show>
+      <p class="hint">Se combina igual que la feature original (unir, cortar o cuerpo nuevo).</p>
+    </>
   );
 }

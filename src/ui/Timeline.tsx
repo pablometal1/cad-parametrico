@@ -19,6 +19,8 @@ export const FEATURE_ICONS: Record<Feature['type'], string> = {
   fillet: '◜',
   chamfer: '◸',
   shell: '▢',
+  pattern: '⁂',
+  mirror: '⇋',
 };
 
 export function Timeline(props: { store: CadStore }) {

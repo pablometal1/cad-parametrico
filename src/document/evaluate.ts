@@ -28,6 +28,8 @@ export function fieldLabel(path: string): string {
     radius: 'el radio',
     angle: 'el ángulo',
     thickness: 'el espesor',
+    count: 'la cantidad',
+    spacing: 'la separación',
     'plane.offset': 'el desplazamiento',
   };
   if (path.startsWith('constraint:')) return `la cota ${path.slice(11)}`;

@@ -85,6 +85,20 @@ function validateFeature(raw: unknown, path: string): Feature {
       return { ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`) };
     case 'chamfer':
       return { ...base, type: 'chamfer', edges: list(o.edges, `${path}.edges`, edgeRef), distance: num(o.distance, `${path}.distance`) };
+    case 'pattern':
+      return {
+        ...base, type: 'pattern', source: str(o.source, `${path}.source`),
+        kind: oneOf(o.kind, ['linear', 'circular'] as const, `${path}.kind`),
+        axis: oneOf(o.axis, ['X', 'Y', 'Z'] as const, `${path}.axis`),
+        count: num(o.count, `${path}.count`),
+        spacing: num(o.spacing, `${path}.spacing`),
+        angle: num(o.angle, `${path}.angle`),
+      };
+    case 'mirror':
+      return {
+        ...base, type: 'mirror', source: str(o.source, `${path}.source`),
+        plane: oneOf(o.plane, ['XY', 'XZ', 'YZ'] as const, `${path}.plane`),
+      };
     case 'shell':
       return { ...base, type: 'shell', faces: list(o.faces, `${path}.faces`, faceRef), thickness: num(o.thickness, `${path}.thickness`) };
     case 'extrude': {

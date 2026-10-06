@@ -13,12 +13,17 @@ export { volume } from './measure';
  * No modifica `input`; devuelve un sólido nuevo propiedad del llamador.
  */
 export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
-  const oc = getOC();
-  const d = feature.distance;
-  if (!(d > 0)) throw new FeatureError(`La distancia debe ser mayor que 0 (es ${d})`);
   if (feature.operation !== 'new' && !input) {
     throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
   }
+  return combine(feature.operation, input, buildExtrudeTool(feature, sketch), feature.id);
+}
+
+/** Cuerpo de la extrusión (el prisma), antes de combinarlo con el sólido previo. */
+export function buildExtrudeTool(feature: ExtrudeFeature, sketch: EvaluatedSketch): NamedShape {
+  const oc = getOC();
+  const d = feature.distance;
+  if (!(d > 0)) throw new FeatureError(`La distancia debe ser mayor que 0 (es ${d})`);
   if (sketch.regions.length === 0) {
     throw new FeatureError(
       sketch.openChains > 0 ? 'El sketch no tiene perfiles cerrados (hay contornos abiertos)' : 'El sketch no tiene perfiles cerrados',
@@ -48,5 +53,5 @@ export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, inp
     vec.delete();
     profile.delete();
   }
-  return combine(feature.operation, input, tool, feature.id);
+  return tool;
 }

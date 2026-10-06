@@ -361,6 +361,11 @@ export function App() {
         <button onClick={() => store.setNotice(store.addExtrude())} disabled={busy()} title="Extruir el sketch seleccionado o el último sin usar">▤ Extrusión</button>
         <button onClick={() => store.setNotice(store.addRevolve())} disabled={busy()} title="Revolucionar el sketch seleccionado o el último sin usar">◔ Revolución</button>
         <span class="sep" />
+        <button onClick={() => store.setNotice(store.addCopy('pattern'))} disabled={busy()}
+          title="Repetir la extrusión/revolución seleccionada (lineal o circular)">⁂ Patrón</button>
+        <button onClick={() => store.setNotice(store.addCopy('mirror'))} disabled={busy()}
+          title="Reflejar la extrusión/revolución seleccionada respecto de un plano">⇋ Simetría</button>
+        <span class="sep" />
         <button onClick={() => store.addEdgeFeature('fillet', viewSel().edges)} disabled={busy()} title="Redondear las aristas seleccionadas">◜ Redondeo</button>
         <button onClick={() => store.addEdgeFeature('chamfer', viewSel().edges)} disabled={busy()} title="Achaflanar las aristas seleccionadas">◸ Chaflán</button>
         <button onClick={() => store.addShell(viewSel().faces)} disabled={busy()} title="Vaciar quitando las caras seleccionadas">▢ Vaciado</button>
@@ -398,7 +403,9 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell'].includes(f().type)}>
+                  <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
+                </Show>
               </div>
               <div class="tool-dialog-actions">
                 <button onClick={() => store.cancelDialog()}>Cancelar</button>

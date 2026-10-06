@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -97,6 +97,8 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   fillet: 'Redondeo',
   chamfer: 'Chaflán',
   shell: 'Vaciado',
+  pattern: 'Patrón',
+  mirror: 'Simetría',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -152,7 +154,9 @@ export function isProfileFeature(f: Feature): f is ProfileFeature {
  * Las referencias a caras/aristas son por nombre y no se listan acá.
  */
 export function dependents(doc: CadDocument, id: FeatureId): Feature[] {
-  return doc.features.filter((f) => isProfileFeature(f) && f.sketch === id);
+  return doc.features.filter(
+    (f) => (isProfileFeature(f) && f.sketch === id) || ((f.type === 'pattern' || f.type === 'mirror') && f.source === id),
+  );
 }
 
 /** Sketches activos que todavía no usa ninguna feature activa. */
@@ -197,6 +201,19 @@ export function makeChamfer(doc: CadDocument, edges: EdgeRef[], distance = 1): C
 
 export function makeShell(doc: CadDocument, faces: FaceRef[], thickness = 2): ShellFeature {
   return { ...base(doc, 'shell'), faces, thickness };
+}
+
+export function makePattern(doc: CadDocument, source: FeatureId, overrides: Partial<Omit<PatternFeature, 'type' | 'source'>> = {}): PatternFeature {
+  return { ...base(doc, 'pattern'), source, kind: 'linear', axis: 'X', count: 3, spacing: 20, angle: 360, ...overrides };
+}
+
+export function makeMirror(doc: CadDocument, source: FeatureId, plane: BasePlane = 'YZ'): MirrorFeature {
+  return { ...base(doc, 'mirror'), source, plane };
+}
+
+/** ¿Se puede repetir/reflejar esta feature? (por ahora, extrusiones y revoluciones). */
+export function isCopyable(f: Feature | undefined): f is ProfileFeature {
+  return !!f && isProfileFeature(f);
 }
 
 // ---------------------------------------------------------------- parámetros

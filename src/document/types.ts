@@ -192,7 +192,37 @@ export interface ShellFeature extends FeatureBase {
   thickness: number;
 }
 
-export type Feature = SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature;
+export type GlobalAxis = 'X' | 'Y' | 'Z';
+
+/**
+ * Patrón: repite el cuerpo de una extrusión o revolución anterior y lo combina con la misma
+ * operación. Lineal: `count` copias separadas `spacing` mm a lo largo de un eje global.
+ * Circular: `count` copias alrededor de un eje global (por el origen) repartidas en `angle` grados.
+ */
+export interface PatternFeature extends FeatureBase {
+  type: 'pattern';
+  source: FeatureId;
+  kind: 'linear' | 'circular';
+  axis: GlobalAxis;
+  count: number;
+  /** Lineal: distancia entre copias (mm, puede ser negativa para el otro sentido). */
+  spacing: number;
+  /** Circular: ángulo total (360 = vuelta completa, copias equiespaciadas). */
+  angle: number;
+}
+
+/** Simetría: refleja el cuerpo de una extrusión o revolución respecto de un plano base. */
+export interface MirrorFeature extends FeatureBase {
+  type: 'mirror';
+  source: FeatureId;
+  plane: BasePlane;
+}
+
+export type Feature =
+  | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
+  | PatternFeature | MirrorFeature;
+/** Features que repiten o reflejan otra. */
+export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */
 export type ProfileFeature = ExtrudeFeature | RevolveFeature;
 export type FeatureType = Feature['type'];

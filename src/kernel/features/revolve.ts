@@ -9,12 +9,17 @@ import { combine } from './boolean';
 import { buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
 
 export function runRevolve(feature: RevolveFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
+  if (feature.operation !== 'new' && !input) {
+    throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
+  }
+  return combine(feature.operation, input, buildRevolveTool(feature, sketch), feature.id);
+}
+
+/** Cuerpo de la revolución, antes de combinarlo con el sólido previo. */
+export function buildRevolveTool(feature: RevolveFeature, sketch: EvaluatedSketch): NamedShape {
   const oc = getOC();
   if (!(feature.angle > 0 && feature.angle <= 360)) {
     throw new FeatureError(`El ángulo debe estar entre 0 y 360° (es ${feature.angle})`);
-  }
-  if (feature.operation !== 'new' && !input) {
-    throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
   }
   if (sketch.regions.length === 0) throw new FeatureError('El sketch no tiene perfiles cerrados');
 
@@ -50,7 +55,7 @@ export function runRevolve(feature: RevolveFeature, sketch: EvaluatedSketch, inp
     pnt.delete();
     profile.delete();
   }
-  return combine(feature.operation, input, tool, feature.id);
+  return tool;
 }
 
 /** Punto y dirección del eje en 3D. */

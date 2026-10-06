@@ -1,11 +1,12 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
 import { activeCount } from '../document/ops';
-import type { CadDocument, Feature, FeatureId, ProfileFeature } from '../document/types';
+import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature } from '../document/types';
 import { describeError, FeatureError, hashString } from './occtUtils';
 import type { NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
 import { runEdgeFeature, runShell } from './features/dressup';
+import { runMirror, runPattern } from './features/copy';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -137,6 +138,14 @@ export class RecomputeEngine {
           return ok(runEdgeFeature(feature, ctx.input));
         case 'shell':
           return ok(runShell(feature, ctx.input));
+        case 'pattern': {
+          const { source, sketch } = resolveSource(feature, ctx);
+          return ok(runPattern(feature, source, sketch, ctx.input));
+        }
+        case 'mirror': {
+          const { source, sketch } = resolveSource(feature, ctx);
+          return ok(runMirror(feature, source, sketch, ctx.input));
+        }
       }
     } catch (err) {
       return { key, output: ctx.input, owned: false, status: 'error', error: describeError(err), timeMs: elapsed(t0) };
@@ -161,13 +170,33 @@ export class RecomputeEngine {
 }
 
 function dependencyState(feature: Feature, ctx: Context): string {
-  if (feature.type !== 'extrude' && feature.type !== 'revolve') return '';
   try {
-    resolveSketch(feature, ctx);
-    return 'ok';
+    if (feature.type === 'extrude' || feature.type === 'revolve') {
+      resolveSketch(feature, ctx);
+      return 'ok';
+    }
+    if (feature.type === 'pattern' || feature.type === 'mirror') {
+      // Incluye los parámetros de la feature de origen: si cambian, la copia se recalcula.
+      const { source } = resolveSource(feature, ctx);
+      return 'ok' + featureFingerprint(source);
+    }
+    return '';
   } catch (err) {
     return (err as Error).message;
   }
+}
+
+/** Feature de origen de un patrón o simetría (y su sketch), con errores claros si no sirve. */
+function resolveSource(feature: CopyFeature, ctx: Context): { source: ProfileFeature; sketch: EvaluatedSketch } {
+  const i = ctx.doc.features.findIndex((f) => f.id === feature.source);
+  if (i < 0) throw new FeatureError('La feature de origen fue borrada');
+  const source = ctx.doc.features[i];
+  if (i > ctx.index) throw new FeatureError(`"${source.name}" está después en el historial`);
+  if (source.type !== 'extrude' && source.type !== 'revolve') {
+    throw new FeatureError(`Solo se pueden repetir o reflejar extrusiones y revoluciones ("${source.name}" no lo es)`);
+  }
+  if (source.suppressed) throw new FeatureError(`"${source.name}" está suprimida`);
+  return { source, sketch: resolveSketch(source, ctx) };
 }
 
 /** Busca el sketch que usa una feature y explica por qué no está disponible si falta. */
