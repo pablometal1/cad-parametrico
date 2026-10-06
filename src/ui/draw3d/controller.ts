@@ -69,7 +69,11 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     session = null;
     target = null;
     cursor = null;
-    if (active()) store.setDrawing(false);
+    if (active()) {
+      store.setDrawing(false);
+      // Terminado el dibujo, el sketch no queda elegido (Extrusión igual lo toma: es el último sin usar).
+      store.selectFeature(null);
+    }
     setActive(null);
   }
 

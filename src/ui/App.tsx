@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js';
-import { findFeature, isProfileFeature, TYPE_LABELS, unusedSketches } from '../document/ops';
+import { activeCount, findFeature, isProfileFeature, TYPE_LABELS, unusedSketches } from '../document/ops';
 import type { BasePlane, SketchFeature } from '../document/types';
 import { createKernelClient } from '../kernel/client';
 import type { EdgeInfo, FaceInfo, MeshPayload, RecomputeResult } from '../kernel/protocol';
@@ -248,12 +248,29 @@ export function App() {
     }, tool);
   };
 
-  // Planos de construcción (los evaluados sin error), con el seleccionado resaltado.
+  // Planos de construcción: como los sketches, se ven mientras no los usa nada (o si están
+  // elegidos o en edición). El elegido se resalta.
   createEffect(() => {
     const frames = store.planeFrames();
     const sel = store.selectedId();
-    const hidden = !!store.editing();
-    viewport?.setConstructionPlanes(hidden ? [] : [...frames].map(([id, frame]) => ({ id, frame, selected: id === sel })));
+    const editingPlane = store.dialog()?.featureId;
+    const d = store.doc();
+    const active = d.features.slice(0, activeCount(d)).filter((f) => !f.suppressed);
+    const used = new Set(active.flatMap((f) =>
+      f.type === 'sketch' && f.plane.kind === 'plane' ? [f.plane.plane] : f.type === 'plane' && f.reference.kind === 'plane' ? [f.reference.plane] : []));
+    const list = store.editing()
+      ? []
+      : [...frames].filter(([id]) => !used.has(id) || id === sel || id === editingPlane).map(([id, frame]) => ({ id, frame, selected: id === sel }));
+    viewport?.setConstructionPlanes(list);
+  });
+
+  // Al cerrar una herramienta, terminar un sketch o dejar de dibujar se limpia la selección 3D
+  // (las aristas de un redondeo, la cara de un vaciado…).
+  let wasBusy = false;
+  createEffect(() => {
+    const busyNow = !!store.dialog() || !!store.editing() || store.drawing();
+    if (wasBusy && !busyNow && !store.picking()) viewport?.setSelection({ faces: [], edges: [] });
+    wasBusy = busyNow;
   });
 
   // Sketches visibles en 3D: los que todavía no usa ninguna feature, más el seleccionado y el

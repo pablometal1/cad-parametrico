@@ -348,7 +348,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
     /** Acepta los cambios del panel flotante. */
     acceptDialog() {
-      setDialog(null);
+      // Al terminar una herramienta no queda nada elegido (sin asas ni resaltados en 3D).
+      batch(() => {
+        setDialog(null);
+        setSelectedId(null);
+      });
       history.breakCoalescing();
     },
 
@@ -357,8 +361,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const d = dialog();
       if (!d) return;
       setDialog(null);
+      setSelectedId(null);
       if (d.isNew) {
-        if (selectedId() === d.featureId) setSelectedId(null);
         revertLastStep();
       } else if (history.depth > d.depth) {
         revertLastStep();
@@ -404,6 +408,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       );
       history.breakCoalescing();
       setEditing(null);
+      setSelectedId(null);
     },
 
     cancelSketch() {

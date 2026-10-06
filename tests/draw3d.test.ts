@@ -54,12 +54,15 @@ function fakeViewport() {
 function fakeStore() {
   const commits: { featureId: string | null; data: SketchData }[] = [];
   let drawing = false;
+  let selected: string | null = null;
   return {
     commits,
     isDrawing: () => drawing,
+    selected: () => selected,
     store: {
       evaluated: () => ({ scope: new Map<string, number>() }),
       setDrawing: (v: boolean) => { drawing = v; },
+      selectFeature: (id: string | null) => { selected = id; },
       commitDirectDraw: (featureId: string | null, _plane: unknown, data: SketchData) => {
         commits.push({ featureId, data });
         return featureId ?? 'sk1';
@@ -103,6 +106,8 @@ describe('controlador del dibujo directo', () => {
     d.stop();
     expect(fs.isDrawing()).toBe(false);
     expect(calls.mode).toBeNull();
+    // Al terminar no queda nada elegido (sin plano ni sketch resaltados en 3D).
+    expect(fs.selected()).toBeNull();
   });
 
   it('las líneas encadenadas se enganchan al punto inicial y cierran el contorno', () => {
