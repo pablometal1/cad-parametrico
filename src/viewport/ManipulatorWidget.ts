@@ -255,7 +255,8 @@ export class ManipulatorWidget {
 }
 
 function roundTo(v: number, step: number) {
-  return Math.round(v / step) * step;
+  // toPrecision limpia el ruido de coma flotante (3 × 0.1 = 0.30000000000000004 → 0.3).
+  return Number((Math.round(v / step) * step).toPrecision(12));
 }
 
 function formatValue(v: number) {

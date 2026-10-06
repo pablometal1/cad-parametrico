@@ -21,7 +21,7 @@ export interface NamedShape {
   names: FaceNames;
 }
 
-type OcShape = Face['wrapped'] | Edge['wrapped'] | AnyShape['wrapped'];
+export type OcShape = Face['wrapped'] | Edge['wrapped'] | AnyShape['wrapped'];
 
 /** Índice de caras (o aristas) de un sólido para buscar por identidad topológica (IsSame). */
 export class ShapeTable<T extends Face | Edge> {

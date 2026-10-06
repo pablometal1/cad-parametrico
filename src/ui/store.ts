@@ -549,7 +549,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const exprs = { ...(f.exprs ?? {}) };
       if (expr) exprs[path] = expr;
       else delete exprs[path];
-      const next = { ...setFieldValue(f, path, value), exprs: Object.keys(exprs).length ? exprs : undefined };
+      const clean = Number(value.toPrecision(12)); // sin ruido de coma flotante en el documento
+      const next = { ...setFieldValue(f, path, clean), exprs: Object.keys(exprs).length ? exprs : undefined };
       const { id: _id, type: _type, ...patch } = next;
       apply((d) => ops.updateFeature(d, id, patch));
       return null;
@@ -562,7 +563,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const exprs = { ...(f.exprs ?? {}) };
       const hadExpr = path in exprs;
       delete exprs[path];
-      const next = { ...setFieldValue(f, path, value), exprs: Object.keys(exprs).length ? exprs : undefined };
+      const clean = Number(value.toPrecision(12)); // sin ruido de coma flotante en el documento
+      const next = { ...setFieldValue(f, path, clean), exprs: Object.keys(exprs).length ? exprs : undefined };
       const { id: _id, type: _type, ...patch } = next;
       apply((d) => ops.updateFeature(d, id, patch), { coalesce: `drag:${id}:${path}` });
       if (hadExpr) setNotice(`Se reemplazó la expresión de ${f.name} por el valor arrastrado (Ctrl+Z para volver)`);
