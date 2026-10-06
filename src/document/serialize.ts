@@ -101,6 +101,17 @@ function validateFeature(raw: unknown, path: string): Feature {
       };
     case 'shell':
       return { ...base, type: 'shell', faces: list(o.faces, `${path}.faces`, faceRef), thickness: num(o.thickness, `${path}.thickness`) };
+    case 'sweep':
+      return {
+        ...base, type: 'sweep', profile: str(o.profile, `${path}.profile`), path: str(o.path, `${path}.path`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+      };
+    case 'loft':
+      return {
+        ...base, type: 'loft', sections: list(o.sections, `${path}.sections`, str),
+        ruled: bool(o.ruled, `${path}.ruled`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+      };
     case 'extrude': {
       const f: ExtrudeFeature = {
         ...base,

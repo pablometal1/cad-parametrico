@@ -1,4 +1,5 @@
 // Estado de la aplicación: el documento (fuente de verdad), su historial y los resultados del recálculo.
+import { findProfiles } from '../sketch/profiles';
 import { batch, createEffect, createMemo, createSignal, on } from 'solid-js';
 import solverWasmUrl from '@salusoft89/planegcs/dist/planegcs_dist/planegcs.wasm?url';
 import { evaluateDocument, evaluateText, getFieldValue, setFieldValue } from '../document/evaluate';
@@ -182,6 +183,24 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     history.discardRedo();
     bumpHistory();
     if (prev) setDocument(prev);
+  }
+
+  /** Sketches sin usar (más el seleccionado), en orden del historial, con su análisis de perfiles. */
+  function sketchCandidates() {
+    const sel = selectedFeature();
+    const unused = ops.unusedSketches(doc());
+    const list = sel?.type === 'sketch' && !unused.some((s) => s.id === sel.id) ? [...unused, sel] : unused;
+    const order = new Map(doc().features.map((f, i) => [f.id, i]));
+    return list
+      .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+      .map((s) => {
+        try {
+          const p = findProfiles(s);
+          return { sketch: s, regions: p.regions.length, open: p.openChains };
+        } catch {
+          return { sketch: s, regions: 0, open: 0 };
+        }
+      });
   }
 
   /** Toma la última feature de perfil posible: el sketch seleccionado o el último sin usar. */
@@ -410,6 +429,46 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const sketch = sketchForProfile();
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
       addWithDialog(ops.makeRevolve(doc(), sketch));
+      return null;
+    },
+
+    /** Barrido: el último sketch sin usar con contorno cerrado recorre el último con una cadena abierta. */
+    addSweep(): string | null {
+      const c = sketchCandidates();
+      const path = [...c].reverse().find((x) => x.regions === 0 && x.open > 0)
+        ?? [...c].reverse().find((x) => x.regions === 1 && x.sketch.entities.filter((e) => e.type !== 'point').length === 1);
+      const profile = [...c].reverse().find((x) => x.regions > 0 && x.sketch.id !== path?.sketch.id);
+      if (!profile || !path) {
+        return 'Para un barrido hacen falta dos sketches sin usar: uno con el perfil cerrado y otro con la trayectoria (líneas y arcos unidos)';
+      }
+      addWithDialog(ops.makeSweep(doc(), profile.sketch.id, path.sketch.id));
+      return null;
+    },
+
+    /** Solevación entre los sketches sin usar que tienen un solo contorno cerrado, en orden. */
+    addLoft(): string | null {
+      // Solo secciones paralelas a la última (un perfil para barrido en otro plano no entra).
+      const closed = sketchCandidates().filter((x) => x.regions === 1);
+      const dir = (sk: SketchFeature): number[] =>
+        sk.plane.kind === 'base' ? { XY: [0, 0, 1], XZ: [0, 1, 0], YZ: [1, 0, 0] }[sk.plane.plane] : sk.plane.face.normal ?? [0, 0, 1];
+      const ref = closed.at(-1) ? dir(closed.at(-1)!.sketch) : null;
+      const parallel = (sk: SketchFeature) => {
+        const n = dir(sk);
+        return !!ref && Math.abs(Math.abs(n[0] * ref[0] + n[1] * ref[1] + n[2] * ref[2]) - 1) < 1e-6;
+      };
+      const sections = closed.filter((x) => parallel(x.sketch)).map((x) => x.sketch.id);
+      if (sections.length < 2) {
+        return 'Para una solevación hacen falta al menos dos sketches sin usar, cada uno con un contorno cerrado (por ejemplo en planos desplazados)';
+      }
+      addWithDialog(ops.makeLoft(doc(), sections));
+      return null;
+    },
+
+    /** Mueve una feature en el historial. Devuelve el motivo si no se puede. */
+    moveFeature(id: FeatureId, toIndex: number): string | null {
+      const reason = ops.moveBlocker(doc(), id, toIndex);
+      if (reason) return reason;
+      apply((d) => ops.moveFeature(d, id, toIndex));
       return null;
     },
 

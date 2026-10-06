@@ -1,7 +1,7 @@
 // Historial de features: estado de cada una, supresión, borrado y marcador de retroceso.
-import { For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import { FEATURE_ICONS, Icon, tip } from './icons';
-import { activeCount } from '../document/ops';
+import { activeCount, moveBlocker } from '../document/ops';
 import type { Feature } from '../document/types';
 import type { FeatureStatus } from '../kernel/protocol';
 import type { CadStore } from './store';
@@ -21,6 +21,38 @@ export function Timeline(props: { store: CadStore }) {
   // Con deshacer disponible, borrar no pide confirmación (avisa en la barra y se deshace con Ctrl+Z).
   const confirmDelete = (f: Feature) => store.deleteFeature(f.id);
 
+  // Arrastrar para reordenar: `slot` es la posición de inserción (0 = antes de la primera).
+  const [drag, setDrag] = createSignal<{ id: string; slot: number | null; error: string | null } | null>(null);
+  const targetIndex = (id: string, slot: number) => {
+    const from = store.doc().features.findIndex((f) => f.id === id);
+    return slot > from ? slot - 1 : slot;
+  };
+  const move = (id: string, toIndex: number) => {
+    const err = store.moveFeature(id, toIndex);
+    store.setNotice(err);
+  };
+  const onDragOver = (e: DragEvent, index: number) => {
+    const d = drag();
+    if (!d) return;
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const slot = e.clientY < r.top + r.height / 2 ? index : index + 1;
+    if (slot === d.slot) return;
+    const to = targetIndex(d.id, slot);
+    setDrag({ ...d, slot, error: moveBlocker(store.doc(), d.id, to) });
+    if (e.dataTransfer) e.dataTransfer.dropEffect = drag()!.error ? 'none' : 'move';
+  };
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    const d = drag();
+    setDrag(null);
+    if (!d || d.slot === null) return;
+    if (d.error) return store.setNotice(d.error);
+    const to = targetIndex(d.id, d.slot);
+    const from = store.doc().features.findIndex((f) => f.id === d.id);
+    if (to !== from) move(d.id, to);
+  };
+
 
   const Marker = () => (
     <li class="marker" title="Marcador de historial: solo se calcula lo que está por encima">
@@ -38,6 +70,9 @@ export function Timeline(props: { store: CadStore }) {
   return (
     <div class="timeline">
       <h2>Historial</h2>
+      <Show when={drag()?.error}>
+        <p class="drag-error">{drag()!.error}</p>
+      </Show>
       <Show when={total() > 0} fallback={<p class="muted">Sin features todavía. Dibujá un perfil y extruilo para empezar.</p>}>
         <ol
           class="timeline-list"
@@ -45,6 +80,16 @@ export function Timeline(props: { store: CadStore }) {
           onKeyDown={(e) => {
             const f = store.selectedFeature();
             if (f && (e.key === 'Delete' || e.key === 'Supr')) confirmDelete(f);
+            // Alt + flecha: mover la feature elegida un lugar.
+            if (f && e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              e.preventDefault();
+              const i = store.doc().features.findIndex((x) => x.id === f.id);
+              const to = e.key === 'ArrowUp' ? i - 1 : i + 1;
+              if (to >= 0 && to < store.doc().features.length) move(f.id, to);
+            }
+          }}
+          onDragLeave={(e) => {
+            if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, slot: null, error: null } : d));
           }}
         >
           <Show when={active() === 0}><Marker /></Show>
@@ -57,6 +102,21 @@ export function Timeline(props: { store: CadStore }) {
                 <>
                   <li
                     class={`feature status-${status()}${store.selectedId() === f.id ? ' selected' : ''}`}
+                    classList={{
+                      dragging: drag()?.id === f.id,
+                      'drop-before': drag()?.slot === i(),
+                      'drop-after': drag()?.slot === i() + 1 && i() === store.doc().features.length - 1,
+                      'drop-blocked': !!drag()?.error && (drag()?.slot === i() || (drag()?.slot === i() + 1 && i() === store.doc().features.length - 1)),
+                    }}
+                    draggable={true}
+                    onDragStart={(e) => {
+                      setDrag({ id: f.id, slot: null, error: null });
+                      e.dataTransfer?.setData('text/plain', f.id);
+                      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => onDragOver(e, i())}
+                    onDrop={onDrop}
+                    onDragEnd={() => setDrag(null)}
                     onClick={() => store.selectFeature(f.id)}
                     onDblClick={() => (f.type === 'sketch' ? store.editSketch(f.id) : store.openDialog(f.id, false))}
                     title={status() === 'pending' ? 'Calculando…' : STATUS_LABEL[status() as FeatureStatus]}

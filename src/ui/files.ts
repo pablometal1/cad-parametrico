@@ -3,7 +3,16 @@ import { parseDocument, serializeDocument } from '../document/serialize';
 import type { CadDocument } from '../document/types';
 
 export const FILE_EXTENSION = '.cad.json';
-const DRAFT_KEY = 'cad-parametrico:borrador';
+/**
+ * Borrador automático. Con `?pieza=<nombre>` en la URL cada pestaña guarda el suyo
+ * (sin eso, todas comparten el mismo).
+ */
+const DRAFT_KEY = (() => {
+  const base = 'cad-parametrico:borrador';
+  if (typeof location === 'undefined') return base;
+  const name = new URLSearchParams(location.search).get('pieza')?.trim();
+  return name ? `${base}:${name}` : base;
+})();
 
 /** Descarga el documento como archivo JSON. */
 export function downloadDocument(doc: CadDocument, fileName: string) {

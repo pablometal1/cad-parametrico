@@ -31,7 +31,7 @@ describe('barra de herramientas y atajos', () => {
   });
 
   it('los íconos son SVG simples y bien cerrados', () => {
-    const element = /<(path|circle|rect)(\s+[a-z-]+="[^"]*")+\s*\/>/g;
+    const element = /<(path|circle|rect|ellipse)(\s+[a-z-]+="[^"]*")+\s*\/>/g;
     for (const [name, markup] of Object.entries(ICONS)) {
       expect(markup.replace(element, ''), name).toBe('');
       expect(markup.length, name).toBeGreaterThan(10);

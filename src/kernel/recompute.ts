@@ -7,6 +7,7 @@ import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
 import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
+import { runLoft, runSweep } from './features/sweep';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -187,6 +188,19 @@ export class RecomputeEngine {
           const { source, sketch } = resolveSource(feature, ctx);
           return ok(runMirror(feature, source, sketch, ctx.input));
         }
+        case 'sweep':
+          return ok(runSweep(
+            feature,
+            resolveSketchById(feature.profile, 'el perfil de este barrido', ctx),
+            resolveSketchById(feature.path, 'la trayectoria de este barrido', ctx),
+            ctx.input,
+          ));
+        case 'loft':
+          return ok(runLoft(
+            feature,
+            feature.sections.map((id, i) => resolveSketchById(id, `la sección ${i + 1} de esta solevación`, ctx)),
+            ctx.input,
+          ));
       }
     } catch (err) {
       return { key, output: ctx.input, owned: false, status: 'error', error: describeError(err), timeMs: elapsed(t0) };
@@ -216,6 +230,12 @@ function dependencyState(feature: Feature, ctx: Context): string {
       resolveSketch(feature, ctx);
       return 'ok';
     }
+    if (feature.type === 'sweep' || feature.type === 'loft') {
+      for (const id of feature.type === 'sweep' ? [feature.profile, feature.path] : feature.sections) {
+        resolveSketchById(id, 'un sketch', ctx);
+      }
+      return 'ok';
+    }
     if (feature.type === 'pattern' || feature.type === 'mirror') {
       // Incluye los parámetros de la feature de origen: si cambian, la copia se recalcula.
       const { source } = resolveSource(feature, ctx);
@@ -242,11 +262,15 @@ function resolveSource(feature: CopyFeature, ctx: Context): { source: ProfileFea
 
 /** Busca el sketch que usa una feature y explica por qué no está disponible si falta. */
 function resolveSketch(feature: ProfileFeature, ctx: Context): EvaluatedSketch {
-  const evaluated = ctx.sketches.get(feature.sketch);
+  return resolveSketchById(feature.sketch, `el sketch de ${feature.type === 'extrude' ? 'esta extrusión' : 'esta revolución'}`, ctx);
+}
+
+/** `what` describe el sketch en los mensajes ("el perfil de este barrido"…). */
+function resolveSketchById(id: FeatureId, what: string, ctx: Context): EvaluatedSketch {
+  const evaluated = ctx.sketches.get(id);
   if (evaluated) return evaluated;
-  const what = feature.type === 'extrude' ? 'esta extrusión' : 'esta revolución';
-  const i = ctx.doc.features.findIndex((f) => f.id === feature.sketch);
-  if (i < 0) throw new FeatureError(`El sketch de ${what} fue borrado`);
+  const i = ctx.doc.features.findIndex((f) => f.id === id);
+  if (i < 0) throw new FeatureError(`${what[0].toUpperCase()}${what.slice(1)} fue borrado`);
   const target = ctx.doc.features[i];
   if (target.type !== 'sketch') throw new FeatureError(`"${target.name}" no es un sketch`);
   if (i > ctx.index) throw new FeatureError(`El sketch "${target.name}" está después en el historial`);

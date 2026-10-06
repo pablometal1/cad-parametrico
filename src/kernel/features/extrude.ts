@@ -13,8 +13,8 @@ export { volume } from './measure';
  * No modifica `input`; devuelve un sólido nuevo propiedad del llamador.
  */
 export function runExtrude(feature: ExtrudeFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
-  if (feature.operation !== 'new' && !input) {
-    throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
+  if (feature.operation === 'cut' && !input) {
+    throw new FeatureError('No hay un sólido previo para cortar');
   }
   return combine(feature.operation, input, buildExtrudeTool(feature, sketch), feature.id);
 }

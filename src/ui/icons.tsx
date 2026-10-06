@@ -13,6 +13,8 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   shell: 'shell',
   pattern: 'pattern',
   mirror: 'mirror',
+  sweep: 'sweep',
+  loft: 'loft',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {

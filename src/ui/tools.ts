@@ -12,11 +12,13 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
   { id: 'slot', label: 'Ranura', icon: 'slot', key: 'S' },
 ];
 
-export type FeatureTool = 'extrude' | 'revolve' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
+export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
   { id: 'revolve', label: 'Revolución', icon: 'revolve', key: 'Shift+R', desc: 'Girar el sketch seleccionado alrededor de un eje' },
+  { id: 'sweep', label: 'Barrido', icon: 'sweep', key: 'Shift+B', desc: 'Pasar un perfil cerrado a lo largo de una trayectoria (otro sketch con líneas y arcos)' },
+  { id: 'loft', label: 'Solevación', icon: 'loft', key: 'Shift+L', desc: 'Unir dos o más perfiles (sketches en distintos planos) con una forma suave' },
   { id: 'pattern', label: 'Patrón', icon: 'pattern', key: 'Shift+P', desc: 'Repetir la extrusión/revolución seleccionada (lineal o circular)', sepBefore: true },
   { id: 'mirror', label: 'Simetría', icon: 'mirror', key: 'Shift+M', desc: 'Reflejar la extrusión/revolución seleccionada respecto de un plano' },
   { id: 'fillet', label: 'Redondeo', icon: 'fillet', key: 'Shift+F', desc: 'Redondear las aristas seleccionadas', sepBefore: true },
@@ -68,6 +70,7 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
       ['Rueda', 'Zoom'],
       ['Z', 'Sombreado: estándar, arcilla, cromo, cebra, normales'],
       ['Supr', 'Borrar la feature elegida en el historial'],
+      ['Alt+↑ / Alt+↓', 'Mover la feature elegida en el historial (o arrastrarla)'],
     ],
   },
   {

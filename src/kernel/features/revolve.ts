@@ -9,8 +9,8 @@ import { combine, sweepRegions } from './boolean';
 import { buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
 
 export function runRevolve(feature: RevolveFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
-  if (feature.operation !== 'new' && !input) {
-    throw new FeatureError(`No hay un sólido previo para ${feature.operation === 'join' ? 'unir' : 'cortar'}`);
+  if (feature.operation === 'cut' && !input) {
+    throw new FeatureError('No hay un sólido previo para cortar');
   }
   return combine(feature.operation, input, buildRevolveTool(feature, sketch), feature.id);
 }

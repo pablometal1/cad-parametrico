@@ -69,6 +69,8 @@ export function App() {
     const sel = viewSel();
     if (id === 'extrude') store.setNotice(store.addExtrude());
     else if (id === 'revolve') store.setNotice(store.addRevolve());
+    else if (id === 'sweep') store.setNotice(store.addSweep());
+    else if (id === 'loft') store.setNotice(store.addLoft());
     else if (id === 'pattern' || id === 'mirror') store.setNotice(store.addCopy(id));
     else if (id === 'fillet' || id === 'chamfer') store.addEdgeFeature(id, sel.edges);
     else store.addShell(sel.faces);
@@ -651,7 +653,7 @@ export function App() {
 
 /** "Nueva extrusión", "Nuevo redondeo"… */
 function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
-  const feminine = type === 'extrude' || type === 'revolve';
+  const feminine = type === 'extrude' || type === 'revolve' || type === 'loft';
   return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
 }
 

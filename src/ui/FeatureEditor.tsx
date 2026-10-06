@@ -1,9 +1,9 @@
 // Panel de parámetros de la feature seleccionada en el timeline.
 import { Icon } from './icons';
-import { Match, Show, Switch } from 'solid-js';
+import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
-  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis,
+  RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId,
 } from '../document/types';
 import { ExprField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
@@ -56,6 +56,12 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'pattern' || feature().type === 'mirror'}>
                 <CopyPanel store={store} feature={feature() as PatternFeature | MirrorFeature} />
+              </Match>
+              <Match when={feature().type === 'sweep'}>
+                <SweepPanel store={store} feature={feature() as SweepFeature} />
+              </Match>
+              <Match when={feature().type === 'loft'}>
+                <LoftPanel store={store} feature={feature() as LoftFeature} />
               </Match>
             </Switch>
           </div>
@@ -169,6 +175,81 @@ function ShellPanel(props: { store: CadStore; feature: ShellFeature }) {
         {f().faces.length === 0 ? 'Sin caras quitadas: queda hueco y cerrado.' : `${f().faces.length} cara${f().faces.length === 1 ? '' : 's'} quitada${f().faces.length === 1 ? '' : 's'}`}
       </p>
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir caras a quitar…</button>
+    </>
+  );
+}
+
+/** Sketches anteriores a la feature `before`, como opciones de un selector. */
+function sketchOptions(store: CadStore, before: FeatureId, current?: FeatureId) {
+  const features = store.doc().features;
+  const i = features.findIndex((x) => x.id === before);
+  const opts = features.slice(0, i).filter((x) => x.type === 'sketch').map((x) => ({ value: x.id, label: x.name }));
+  if (current && !opts.some((o) => o.value === current)) opts.unshift({ value: current, label: '(sketch no disponible)' });
+  return opts;
+}
+
+function SweepPanel(props: { store: CadStore; feature: SweepFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<SweepFeature>) => props.store.updateFeature<SweepFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Barrido</h3>
+      <SelectField label="Perfil" value={f().profile} options={sketchOptions(props.store, f().id, f().profile)} onChange={(profile) => update({ profile })} />
+      <SelectField label="Trayectoria" value={f().path} options={sketchOptions(props.store, f().id, f().path)} onChange={(path) => update({ path })} />
+      <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
+      <p class="hint">
+        El perfil (contorno cerrado) recorre la trayectoria: líneas y arcos unidos en una sola cadena, o un círculo.
+        Conviene dibujar el perfil en un plano perpendicular al comienzo de la trayectoria.
+      </p>
+    </>
+  );
+}
+
+function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<LoftFeature>) => props.store.updateFeature<LoftFeature>(f().id, patch);
+  const setAt = (i: number, id: FeatureId) => update({ sections: f().sections.map((s, k) => (k === i ? id : s)) });
+  const remove = (i: number) => update({ sections: f().sections.filter((_, k) => k !== i) });
+  const swap = (i: number, j: number) => {
+    const next = f().sections.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    update({ sections: next });
+  };
+  const free = () => sketchOptions(props.store, f().id).filter((o) => !f().sections.includes(o.value));
+  return (
+    <>
+      <h3>Solevación</h3>
+      <For each={f().sections}>
+        {(id, i) => (
+          <div class="section-row">
+            <SelectField label={`Sección ${i() + 1}`} value={id} options={sketchOptions(props.store, f().id, id)} onChange={(v) => setAt(i(), v)} />
+            <span class="section-actions">
+              <button class="icon-btn" disabled={i() === 0} onClick={() => swap(i(), i() - 1)} aria-label="Subir sección" data-tip="Subir sección">
+                <Icon name="toTop" size={13} />
+              </button>
+              <button class="icon-btn" disabled={i() === f().sections.length - 1} onClick={() => swap(i(), i() + 1)} aria-label="Bajar sección" data-tip="Bajar sección">
+                <Icon name="toBottom" size={13} />
+              </button>
+              <button class="icon-btn danger" disabled={f().sections.length <= 2} onClick={() => remove(i())} aria-label="Quitar sección" data-tip="Quitar sección">
+                <Icon name="close" size={13} />
+              </button>
+            </span>
+          </div>
+        )}
+      </For>
+      <Show when={free().length > 0}>
+        <SelectField label="Agregar" value={'' as FeatureId} options={[{ value: '' as FeatureId, label: 'Elegir sketch…' }, ...free()]}
+          onChange={(id) => id && update({ sections: [...f().sections, id] })} />
+      </Show>
+      <label class="field">
+        <span class="field-label">Reglada</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().ruled} onChange={(e) => update({ ruled: e.currentTarget.checked })} />
+          <span class="muted">caras planas entre secciones</span>
+        </span>
+      </label>
+      <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
+      <p class="hint">Cada sección es un sketch con un solo contorno cerrado, en el orden en que se unen.</p>
     </>
   );
 }

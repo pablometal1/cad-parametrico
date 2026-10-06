@@ -218,13 +218,37 @@ export interface MirrorFeature extends FeatureBase {
   plane: BasePlane;
 }
 
+/**
+ * Barrido: el perfil cerrado de un sketch recorre la trayectoria de otro sketch (una cadena de
+ * líneas y arcos, abierta o cerrada). La orientación del perfil acompaña la curva (Frenet corregido).
+ */
+export interface SweepFeature extends FeatureBase {
+  type: 'sweep';
+  profile: FeatureId;
+  path: FeatureId;
+  operation: BooleanOperation;
+}
+
+/**
+ * Solevación: une dos o más secciones (un perfil cerrado por sketch, en orden) con una superficie
+ * suave, o con caras planas entre sección y sección si `ruled`.
+ */
+export interface LoftFeature extends FeatureBase {
+  type: 'loft';
+  sections: FeatureId[];
+  ruled: boolean;
+  operation: BooleanOperation;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */
 export type ProfileFeature = ExtrudeFeature | RevolveFeature;
+/** Features que crean cuerpo a partir de sketches (para dependencias y operación por defecto). */
+export type BodyFeature = ProfileFeature | SweepFeature | LoftFeature;
 export type FeatureType = Feature['type'];
 
 export interface CadDocument {

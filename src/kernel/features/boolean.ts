@@ -20,9 +20,11 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
     tool.shape.delete();
     return nb.finish(featureId);
   }
+  // Unir sin nada antes (p. ej. tras reordenar el historial) crea el cuerpo, como en Fusion.
+  if (!input && op === 'join') return tool;
   if (!input) {
     tool.shape.delete();
-    throw new FeatureError(`No hay un sólido previo para ${op === 'join' ? 'unir' : 'cortar'}`);
+    throw new FeatureError('No hay un sólido previo para cortar');
   }
 
   const oc = getOC();

@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type ShellFeature, type SketchFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -99,6 +99,8 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   shell: 'Vaciado',
   pattern: 'Patrón',
   mirror: 'Simetría',
+  sweep: 'Barrido',
+  loft: 'Solevación',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -149,25 +151,116 @@ export function isProfileFeature(f: Feature): f is ProfileFeature {
   return f.type === 'extrude' || f.type === 'revolve';
 }
 
+/** Sketches que usa una feature (extrusión, revolución, barrido o solevación). */
+export function sketchesUsedBy(f: Feature): FeatureId[] {
+  switch (f.type) {
+    case 'extrude':
+    case 'revolve':
+      return [f.sketch];
+    case 'sweep':
+      return [f.profile, f.path];
+    case 'loft':
+      return f.sections;
+    default:
+      return [];
+  }
+}
+
+export function isBodyFeature(f: Feature): f is BodyFeature {
+  return isProfileFeature(f) || f.type === 'sweep' || f.type === 'loft';
+}
+
 /**
  * Features que dependen directamente de la indicada por id (las que usan un sketch).
  * Las referencias a caras/aristas son por nombre y no se listan acá.
  */
 export function dependents(doc: CadDocument, id: FeatureId): Feature[] {
   return doc.features.filter(
-    (f) => (isProfileFeature(f) && f.sketch === id) || ((f.type === 'pattern' || f.type === 'mirror') && f.source === id),
+    (f) => sketchesUsedBy(f).includes(id) || ((f.type === 'pattern' || f.type === 'mirror') && f.source === id),
   );
 }
 
 /** Sketches activos que todavía no usa ninguna feature activa. */
 export function unusedSketches(doc: CadDocument): SketchFeature[] {
   const active = doc.features.slice(0, activeCount(doc)).filter((f) => !f.suppressed);
-  const used = new Set(active.flatMap((f) => (isProfileFeature(f) ? [f.sketch] : [])));
+  const used = new Set(active.flatMap(sketchesUsedBy));
   return active.filter((f): f is SketchFeature => f.type === 'sketch' && !used.has(f.id));
 }
 
 function hasSolidBefore(doc: CadDocument): boolean {
-  return doc.features.slice(0, activeCount(doc)).some((f) => isProfileFeature(f) && !f.suppressed);
+  return doc.features.slice(0, activeCount(doc)).some((f) => isBodyFeature(f) && !f.suppressed);
+}
+
+// ---------------------------------------------------------------- mover en el historial
+
+/** Ids de features que aparecen en un nombre de cara/arista (`f_abc:side:l1|f_def:end`). */
+function idsInRefName(name: string): FeatureId[] {
+  return name.split('|').flatMap((part) => {
+    const id = part.split(':')[0];
+    return id.startsWith('f_') ? [id] : [];
+  });
+}
+
+/**
+ * Features de las que depende `f` y que por eso tienen que quedar antes en el historial:
+ * los sketches que usa, el origen de un patrón/simetría y las features que crearon las caras o
+ * aristas que referencia (por el nombre topológico).
+ */
+export function requiredFeatures(f: Feature): Set<FeatureId> {
+  const req = new Set<FeatureId>(sketchesUsedBy(f));
+  if (f.type === 'pattern' || f.type === 'mirror') req.add(f.source);
+  const names: string[] = [];
+  if (f.type === 'sketch' && f.plane.kind === 'face') names.push(f.plane.face.name);
+  if (f.type === 'fillet' || f.type === 'chamfer') names.push(...f.edges.map((e) => e.name));
+  if (f.type === 'shell') names.push(...f.faces.map((x) => x.name));
+  for (const n of names) for (const id of idsInRefName(n)) req.add(id);
+  req.delete(f.id);
+  return req;
+}
+
+/** Motivo por el que no se puede mover la feature a `toIndex` (null si se puede). */
+export function moveBlocker(doc: CadDocument, id: FeatureId, toIndex: number): string | null {
+  const from = doc.features.findIndex((f) => f.id === id);
+  if (from < 0) return 'La feature no existe';
+  if (toIndex < 0 || toIndex >= doc.features.length) return 'Posición fuera del historial';
+  if (toIndex === from) return null;
+  const f = doc.features[from];
+  if (toIndex < from) {
+    // Sube: no puede pasar por encima de algo que necesita.
+    const req = requiredFeatures(f);
+    const blocker = doc.features.slice(toIndex, from).find((x) => req.has(x.id));
+    if (blocker) return `"${f.name}" usa "${blocker.name}": tiene que quedar después`;
+  } else {
+    // Baja: no puede pasar por debajo de algo que la necesita.
+    const blocker = doc.features.slice(from + 1, toIndex + 1).find((x) => requiredFeatures(x).has(f.id));
+    if (blocker) return `"${blocker.name}" usa "${f.name}": tiene que quedar antes`;
+  }
+  return null;
+}
+
+/**
+ * Mueve una feature a la posición `toIndex` (índice final en la lista). El marcador de historial
+ * sigue a las mismas features: si estaba activa sigue activa y viceversa.
+ */
+export function moveFeature(doc: CadDocument, id: FeatureId, toIndex: number): CadDocument {
+  const reason = moveBlocker(doc, id, toIndex);
+  if (reason) throw new Error(reason);
+  const from = doc.features.findIndex((f) => f.id === id);
+  if (from === toIndex) return doc;
+  const features = doc.features.slice();
+  const [f] = features.splice(from, 1);
+  features.splice(toIndex, 0, f);
+  let rollback = doc.rollback;
+  if (rollback !== null) {
+    const wasActive = from < rollback;
+    const nowActive = toIndex < rollback;
+    // Sale de la zona activa (baja más allá del marcador) o entra (sube por encima).
+    if (wasActive && !nowActive) rollback--;
+    else if (!wasActive && nowActive) rollback++;
+    // El marcador al final equivale a "sin marcador".
+    if (rollback >= features.length) rollback = null;
+  }
+  return { ...doc, features, rollback };
 }
 
 function base<T extends FeatureType>(doc: CadDocument, type: T) {
@@ -209,6 +302,14 @@ export function makePattern(doc: CadDocument, source: FeatureId, overrides: Part
 
 export function makeMirror(doc: CadDocument, source: FeatureId, plane: BasePlane = 'YZ'): MirrorFeature {
   return { ...base(doc, 'mirror'), source, plane };
+}
+
+export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId, overrides: Partial<Omit<SweepFeature, 'type'>> = {}): SweepFeature {
+  return { ...base(doc, 'sweep'), profile, path, operation: hasSolidBefore(doc) ? 'join' : 'new', ...overrides };
+}
+
+export function makeLoft(doc: CadDocument, sections: FeatureId[], overrides: Partial<Omit<LoftFeature, 'type'>> = {}): LoftFeature {
+  return { ...base(doc, 'loft'), sections, ruled: false, operation: hasSolidBefore(doc) ? 'join' : 'new', ...overrides };
 }
 
 /** ¿Se puede repetir/reflejar esta feature? (por ahora, extrusiones y revoluciones). */

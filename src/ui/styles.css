@@ -500,3 +500,26 @@ kbd {
 .empty-hint h3 { color: var(--text); font-size: 15px; font-weight: 600; margin: 0 0 10px; }
 .empty-hint ol { text-align: left; margin: 0 auto; padding-left: 20px; line-height: 1.9; display: inline-block; }
 .empty-hint .icon { display: inline-block; vertical-align: -3px; margin: 0 2px; color: var(--accent); }
+
+/* Reordenar el historial arrastrando */
+.timeline-list .feature[draggable='true'] { cursor: grab; }
+.timeline-list .feature.dragging { opacity: 0.45; }
+.timeline-list .feature { position: relative; }
+.timeline-list .feature.drop-before::before,
+.timeline-list .feature.drop-after::after {
+  content: ''; position: absolute; left: 4px; right: 4px; height: 2px; border-radius: 1px;
+  background: var(--accent); pointer-events: none;
+}
+.timeline-list .feature.drop-before::before { top: -1px; }
+.timeline-list .feature.drop-after::after { bottom: -1px; }
+.timeline-list .feature.drop-blocked::before,
+.timeline-list .feature.drop-blocked::after { background: var(--error); }
+.drag-error {
+  margin: -4px 4px 8px; padding: 4px 6px; font-size: 11px; line-height: 1.3;
+  color: #ffd0d0; background: #3a2222; border: 1px solid #6a3a3a; border-radius: 4px;
+}
+
+/* Secciones de la solevación */
+.section-row { display: flex; align-items: center; gap: 2px; }
+.section-row .field { flex: 1; min-width: 0; }
+.section-actions { display: flex; gap: 1px; margin-bottom: 6px; }

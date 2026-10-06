@@ -80,6 +80,8 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
       case 'sketch':
       case 'pattern':
       case 'mirror':
+      case 'sweep':
+      case 'loft':
         return null;
     }
   } catch {

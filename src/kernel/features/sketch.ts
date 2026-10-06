@@ -138,6 +138,12 @@ export function buildSketchFaces(s: EvaluatedSketch, offset = 0): Face[] {
   return faces;
 }
 
+/** Wire del contorno exterior de cada región (para solevaciones). El llamador es dueño. */
+export function buildOuterWires(s: EvaluatedSketch) {
+  const index = new SketchIndex(s.data);
+  return s.regions.map((r) => buildWire(index, s.frame, r.outer));
+}
+
 function buildWire(index: SketchIndex, frame: PlaneFrame, loop: ProfileLoop) {
   const P = (id: string) => {
     const [u, v] = index.point(id);
