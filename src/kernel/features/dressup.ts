@@ -36,15 +36,68 @@ export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: N
     for (const i of indices) nb.generated(history, table.items[i].wrapped, `${feature.id}:${kind}:${names[i]}`);
     return nb.finish(feature.id);
   } catch (err) {
-    if (err instanceof FeatureError) throw err;
-    const hint = isFillet
-      ? `No se pudo redondear con radio ${size} mm: probá con un radio menor o con otras aristas`
-      : `No se pudo achaflanar con ${size} mm: probá con una distancia menor o con otras aristas`;
-    throw new FeatureError(err instanceof Error && err.message === 'not done' ? hint : `${hint} (${describeError(err)})`);
+    if (err instanceof FeatureError && !err.message.endsWith('no es un sólido válido')) throw err;
+    // Busca el valor más grande que sí entra, para que el mensaje diga cuánto probar.
+    const max = largestThatWorks(size, (v) => edgeFeatureWorks(input, indices, isFillet, v));
+    const what = isFillet ? `redondear con radio ${size} mm` : `achaflanar con ${size} mm`;
+    const hint =
+      max === null
+        ? `No se pudo ${what}: ninguna medida entra en estas aristas; probá con otras`
+        : `No se pudo ${what}: en estas aristas entra hasta ≈ ${fmtMax(max)} mm ` +
+          '(no puede superar el ancho de las caras que toca; en una pieza vaciada, el espesor de la pared)';
+    throw new FeatureError(err instanceof Error && (err.message === 'not done' || err instanceof FeatureError) ? hint : `${hint} (${describeError(err)})`);
   } finally {
     builder.delete();
     range.delete();
   }
+}
+
+/** ¿Se puede redondear/achaflanar esas aristas con esa medida? (sin quedarse con el resultado) */
+function edgeFeatureWorks(input: NamedShape, indices: number[], isFillet: boolean, size: number): boolean {
+  const oc = getOC();
+  const table = ShapeTable.edges(input.shape);
+  const builder = isFillet
+    ? new oc.BRepFilletAPI_MakeFillet(input.shape.wrapped, oc.ChFi3d_FilletShape.ChFi3d_Rational)
+    : new oc.BRepFilletAPI_MakeChamfer(input.shape.wrapped);
+  const range = new oc.Message_ProgressRange();
+  try {
+    for (const i of indices) builder.Add(size, table.items[i].wrapped);
+    builder.Build(range);
+    if (!builder.IsDone()) return false;
+    const result = cast(builder.Shape());
+    const ok = result.solids.length > 0 && isValidShape(result);
+    result.delete();
+    return ok;
+  } catch {
+    return false;
+  } finally {
+    builder.delete();
+    range.delete();
+  }
+}
+
+/**
+ * Mayor valor en (0, failed) para el que `works` da verdadero, por bisección. null si ni
+ * siquiera el 1 % funciona. Se corta a los 1.5 s para no trabar el recálculo en piezas grandes.
+ */
+export function largestThatWorks(failed: number, works: (v: number) => boolean): number | null {
+  let lo = failed * 0.01;
+  if (!works(lo)) return null;
+  let hi = failed;
+  const start = performance.now();
+  for (let k = 0; k < 12 && performance.now() - start < 1500; k++) {
+    const mid = (lo + hi) / 2;
+    if (works(mid)) lo = mid;
+    else hi = mid;
+    if (hi - lo < Math.max(0.005, failed * 0.002)) break;
+  }
+  return lo;
+}
+
+/** Redondea hacia abajo con 2 decimales (el valor que se muestra tiene que funcionar). */
+function fmtMax(v: number) {
+  const r = Math.floor(v * 100) / 100;
+  return r > 0 ? String(r) : String(Math.floor(v * 1000) / 1000);
 }
 
 /** Vaciado hacia adentro con el espesor dado, quitando las caras referenciadas. */
@@ -84,9 +137,41 @@ export function runShell(feature: ShellFeature, input: NamedShape | null): Named
     table.items.forEach((e, i) => nb.generated(history, e.wrapped, `${feature.id}:rim:${names[i]}`));
     return nb.finish(feature.id);
   } catch (err) {
-    if (err instanceof FeatureError) throw err;
-    const hint = `No se pudo vaciar con espesor ${feature.thickness} mm: probá con un espesor menor (y menor que el radio de los redondeos)`;
-    throw new FeatureError(err instanceof Error && err.message === 'not done' ? hint : `${hint} (${describeError(err)})`);
+    if (err instanceof FeatureError && !err.message.endsWith('no es un sólido válido')) throw err;
+    const max = largestThatWorks(feature.thickness, (t) => shellWorks(input, [...removed], t));
+    const hint =
+      max === null
+        ? `No se pudo vaciar con espesor ${feature.thickness} mm quitando esas caras; probá con otras caras`
+        : `No se pudo vaciar con espesor ${feature.thickness} mm: entra hasta ≈ ${fmtMax(max)} mm. ` +
+          'El espesor tiene que ser menor que el radio de los redondeos y que las partes más finas de la pieza';
+    throw new FeatureError(err instanceof Error && (err.message === 'not done' || err instanceof FeatureError) ? hint : `${hint} (${describeError(err)})`);
+  } finally {
+    builder.delete();
+    range.delete();
+    list.delete();
+  }
+}
+
+/** ¿Se puede vaciar con ese espesor? (mismas comprobaciones que runShell, sin quedarse con el resultado) */
+function shellWorks(input: NamedShape, removed: number[], thickness: number): boolean {
+  const oc = getOC();
+  const faces = input.shape.faces;
+  const list = new oc.NCollection_List_TopoDS_Shape();
+  for (const i of removed) list.Append(faces[i].wrapped);
+  const builder = new oc.BRepOffsetAPI_MakeThickSolid();
+  const range = new oc.Message_ProgressRange();
+  try {
+    builder.MakeThickSolidByJoin(
+      input.shape.wrapped, list, -thickness, 1e-3,
+      oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, range,
+    );
+    if (!builder.IsDone()) return false;
+    const result = cast(builder.Shape());
+    const ok = result.solids.length > 0 && isValidShape(result) && volume(result) < volume(input.shape) && insideBox(result, input.shape);
+    result.delete();
+    return ok;
+  } catch {
+    return false;
   } finally {
     builder.delete();
     range.delete();

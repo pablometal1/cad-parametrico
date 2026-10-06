@@ -179,7 +179,7 @@ describe('redondeo, chaflán, vaciado y revolución', () => {
     doc = addFeature(doc, makeFillet(doc, [ref], 50));
     const r = run(doc);
     expect(r.statuses).toEqual(['ok', 'ok', 'error']);
-    expect(r.results[2].error).toMatch(/radio menor/);
+    expect(r.results[2].error).toMatch(/entra hasta ≈ 19\.9\d? mm/);
     expect(r.volume).toBeCloseTo(24000, 4);
   });
 
