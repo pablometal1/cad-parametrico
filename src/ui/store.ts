@@ -86,6 +86,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   );
   const [picking, setPicking] = createSignal<Picking | null>(null);
   const [dialog, setDialog] = createSignal<ToolDialog | null>(null);
+  /** Dibujo directo en 3D activo (sobre un plano o cara, sin abrir el editor de sketch). */
+  const [drawing, setDrawing] = createSignal(false);
   const [fileName, setFileName] = createSignal(draft?.fileName ?? 'pieza');
   /** Documento tal como está en el último archivo guardado/abierto (para saber si hay cambios). */
   const [savedDoc, setSavedDoc] = createSignal<CadDocument | null>(draft && !draft.dirty ? draft.doc : draft ? null : doc());
@@ -247,18 +249,36 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     fileName,
     dirty,
 
+    drawing,
+    setDrawing,
+
+    /**
+     * Guarda lo dibujado directamente en 3D: crea el sketch la primera vez y después lo actualiza.
+     * Cada figura terminada es un paso del historial. Devuelve el id del sketch.
+     */
+    commitDirectDraw(featureId: FeatureId | null, plane: SketchFeature['plane'], data: SketchData): FeatureId {
+      if (featureId && ops.findFeature(doc(), featureId)) {
+        apply((d) => ops.updateFeature<SketchFeature>(d, featureId, { entities: data.entities, constraints: data.constraints }));
+        return featureId;
+      }
+      const f = ops.makeSketch(doc(), { plane, entities: data.entities, constraints: data.constraints });
+      apply((d) => ops.addFeature(d, f));
+      setSelectedId(f.id);
+      return f.id;
+    },
+
     canUndo: () => (historyVersion(), history.canUndo),
     canRedo: () => (historyVersion(), history.canRedo),
 
     undo() {
-      if (dialog() || picking() || editing()) return;
+      if (dialog() || picking() || editing() || drawing()) return;
       const prev = history.undo(doc());
       bumpHistory();
       if (prev) setDocument(prev);
     },
 
     redo() {
-      if (dialog() || picking() || editing()) return;
+      if (dialog() || picking() || editing() || drawing()) return;
       const next = history.redo(doc());
       bumpHistory();
       if (next) setDocument(next);

@@ -7,6 +7,14 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import type { Manipulator, MeshPayload, SketchLines } from '../kernel/protocol';
 import { ManipulatorWidget, type ManipulatorHandlers } from './ManipulatorWidget';
 import { VIEW_DIRECTIONS, ViewCube, type StandardView } from './ViewCube';
+import { DrawPlane, type DrawOverlay } from './DrawPlane';
+import type { PlaneFrame } from '../document/planes';
+
+/** Eventos del dibujo directo en 3D: coordenadas (u, v) en el plano y posición en pantalla. */
+export interface DrawHandlers {
+  move: (uv: [number, number], screen: [number, number], ev: PointerEvent) => void;
+  click: (uv: [number, number], screen: [number, number], ev: PointerEvent) => void;
+}
 
 export type { StandardView };
 export type Projection = 'perspective' | 'orthographic';
@@ -50,6 +58,8 @@ export class Viewport {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly viewCube: ViewCube;
   private readonly manipulator: ManipulatorWidget;
+  private readonly drawPlane: DrawPlane;
+  private drawHandlers: DrawHandlers | null = null;
   private readonly planeGroup = new THREE.Group();
   /** Animación de cámara hacia una vista estándar. */
   private anim: { from: THREE.Vector3; to: THREE.Vector3; upFrom: THREE.Vector3; upTo: THREE.Vector3; t0: number } | null = null;
@@ -117,6 +127,8 @@ export class Viewport {
 
     this.manipulator = new ManipulatorWidget(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
+    this.drawPlane = new DrawPlane(container);
+    this.scene.add(this.drawPlane.group);
 
     this.viewCube = new ViewCube((v) => this.setStandardView(v));
     container.appendChild(this.viewCube.element);
@@ -316,6 +328,43 @@ export class Viewport {
     this.needsRender = true;
   }
 
+  /**
+   * Modo dibujo directo: el cursor se proyecta sobre el plano `frame` y los clics se envían a
+   * `handlers` en lugar de seleccionar. null lo apaga.
+   */
+  setDrawMode(frame: PlaneFrame | null, handlers: DrawHandlers | null, center?: [number, number], extent?: number, step?: number) {
+    this.drawPlane.setPlane(frame, center, extent, step);
+    this.drawHandlers = frame ? handlers : null;
+    if (frame) {
+      this.setHovered(null);
+      this.manipulator.set(null, null);
+    }
+    this.renderer.domElement.style.cursor = frame ? 'crosshair' : '';
+    this.needsRender = true;
+  }
+
+  setDrawOverlay(o: DrawOverlay) {
+    this.drawPlane.setOverlay(o);
+    this.needsRender = true;
+  }
+
+  /** Posición en pantalla (px dentro del viewport) de un punto 3D. */
+  project(p: readonly number[]): [number, number] {
+    const v = new THREE.Vector3(p[0], p[1], p[2]).project(this.camera);
+    const { w, h } = this.size();
+    return [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
+  }
+
+  /** mm por píxel en un punto 3D (para grillas y tolerancias de enganche). */
+  mmPerPixelAt(p: readonly number[]): number {
+    return this.worldPerPixel(new THREE.Vector3(p[0], p[1], p[2]));
+  }
+
+  /** Radio de la esfera que envuelve el modelo (o 0 si no hay). */
+  get modelRadius(): number {
+    return this.mesh?.geometry.boundingSphere?.radius ?? 0;
+  }
+
   /** Planos translúcidos de los sketches indicados (vista previa del plano de trabajo). */
   setSketchPlanes(sketches: SketchLines[], visible: ReadonlySet<string>) {
     for (const child of [...this.planeGroup.children]) {
@@ -361,6 +410,7 @@ export class Viewport {
     this.renderer.setAnimationLoop(null);
     this.viewCube.dispose();
     this.manipulator.dispose();
+    this.drawPlane.dispose();
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearModel();
@@ -375,6 +425,7 @@ export class Viewport {
     if (!this.needsRender) return;
     this.needsRender = false;
     this.manipulator.update(this.camera, (p) => this.worldPerPixel(p), this.size());
+    this.drawPlane.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.renderer.render(this.scene, this.camera);
     this.viewCube.sync(this.camera, this.controls.target);
   };
@@ -524,6 +575,11 @@ export class Viewport {
     this.projectionButton.title = ortho ? 'Proyección ortográfica (clic: perspectiva)' : 'Proyección en perspectiva (clic: ortográfica)';
   }
 
+  private screenOf(ev: PointerEvent): [number, number] {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return [ev.clientX - rect.left, ev.clientY - rect.top];
+  }
+
   private rayFrom(ev: PointerEvent): THREE.Raycaster {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
@@ -560,7 +616,7 @@ export class Viewport {
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
     // El asa del manipulador tiene prioridad sobre la órbita y la selección.
-    if (this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
+    if (!this.drawHandlers && this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
       this.manipulator.beginDrag();
       this.controls.enabled = false;
       this.renderer.domElement.setPointerCapture(ev.pointerId);
@@ -580,6 +636,11 @@ export class Viewport {
     this.pointerDown = null;
     if (ev.button !== 0 || !down) return;
     if (Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > CLICK_TOLERANCE_PX) return; // fue órbita
+    if (this.drawHandlers) {
+      const uv = this.drawPlane.intersect(this.rayFrom(ev).ray);
+      if (uv) this.drawHandlers.click(uv, this.screenOf(ev), ev);
+      return;
+    }
     const item = this.pick(ev);
     const multi = ev.shiftKey || ev.ctrlKey || ev.metaKey;
     if (!item) {
@@ -602,6 +663,11 @@ export class Viewport {
       return;
     }
     if (ev.buttons !== 0) return; // no resaltar mientras se orbita
+    if (this.drawHandlers) {
+      const uv = this.drawPlane.intersect(this.rayFrom(ev).ray);
+      if (uv) this.drawHandlers.move(uv, this.screenOf(ev), ev);
+      return;
+    }
     if (this.manipulator.active) {
       const over = this.manipulator.hitTest(this.rayFrom(ev));
       this.manipulator.setHover(over);

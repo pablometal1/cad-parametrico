@@ -10,11 +10,20 @@ import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
 import { FEATURE_ICONS, Timeline } from './Timeline';
 import { ParameterTable } from './ParameterTable';
+import { createDirectDraw, type DrawTool } from './draw3d/controller';
+import { basePlaneFrame, faceFrame } from '../document/planes';
 
 const PLANE_MENU: { plane: BasePlane; label: string }[] = [
   { plane: 'XY', label: 'Plano XY (planta)' },
   { plane: 'XZ', label: 'Plano XZ (frente)' },
   { plane: 'YZ', label: 'Plano YZ (lateral)' },
+];
+
+const DRAW_TOOLS: { id: DrawTool; label: string; icon: string; key: string }[] = [
+  { id: 'line', label: 'Línea', icon: '╱', key: 'L' },
+  { id: 'rectangle', label: 'Rectángulo', icon: '▭', key: 'R' },
+  { id: 'circle', label: 'Círculo', icon: '◯', key: 'C' },
+  { id: 'arc', label: 'Arco', icon: '◜', key: 'A' },
 ];
 
 const PICK_TEXT = {
@@ -99,6 +108,60 @@ export function App() {
   };
 
   const store = createCadStore(kernel, { onMesh: showMesh, onSketches: setSketchLines });
+  const draw = createDirectDraw(store, () => viewport);
+
+  /**
+   * Empieza a dibujar en 3D. Plano: la cara plana seleccionada; si no, el sketch seleccionado
+   * (se sigue dibujando en él); si no, el plano base elegido (XY por defecto).
+   */
+  const startDrawing = async (tool: DrawTool, base?: BasePlane) => {
+    store.setNotice(null);
+    const size = Math.max(50, (viewport?.modelRadius ?? 0) * 1.5);
+    const sel = viewSel();
+    if (!base && sel.faces.length === 1) {
+      try {
+        const [info] = await Promise.all([kernel.faceInfo(sel.faces[0])]);
+        if (info.surfaceType !== 'PLANE') {
+          store.setNotice('La cara seleccionada no es plana: elegí una cara plana o deseleccioná para dibujar en un plano base');
+          return;
+        }
+        const [ref] = await kernel.faceRefs([sel.faces[0]]);
+        const frame = faceFrame(info.center, info.normal);
+        const c = info.center;
+        const r = [c[0] - frame.origin[0], c[1] - frame.origin[1], c[2] - frame.origin[2]];
+        const center: [number, number] = [
+          r[0] * frame.xDir[0] + r[1] * frame.xDir[1] + r[2] * frame.xDir[2],
+          r[0] * frame.yDir[0] + r[1] * frame.yDir[1] + r[2] * frame.yDir[2],
+        ];
+        draw.start({
+          plane: { kind: 'face', face: ref, offset: 0 }, frame, featureId: null, data: { entities: [], constraints: [] },
+          label: `cara #${info.index}`, center, extent: Math.max(30, Math.sqrt(info.area)),
+        }, tool);
+      } catch (err) {
+        store.setNotice((err as Error).message);
+      }
+      return;
+    }
+    const selected = store.selectedFeature();
+    if (!base && selected?.type === 'sketch') {
+      const lines = sketchLines().find((l) => l.id === selected.id);
+      const evaluatedSketch = store.evaluated().doc.features.find((f) => f.id === selected.id) as SketchFeature;
+      if (lines) {
+        const [u0, v0, u1, v1] = lines.bounds;
+        draw.start({
+          plane: selected.plane, frame: lines.plane, featureId: selected.id,
+          data: { entities: evaluatedSketch.entities, constraints: evaluatedSketch.constraints },
+          label: selected.name, center: [(u0 + u1) / 2, (v0 + v1) / 2], extent: Math.max(size, (u1 - u0), (v1 - v0)),
+        }, tool);
+        return;
+      }
+    }
+    const plane = base ?? 'XY';
+    draw.start({
+      plane: { kind: 'base', plane, offset: 0 }, frame: basePlaneFrame({ kind: 'base', plane, offset: 0 }), featureId: null,
+      data: { entities: [], constraints: [] }, label: `plano ${plane}`, center: [0, 0], extent: size,
+    }, tool);
+  };
 
   // Sketches visibles en 3D: los que todavía no usa ninguna feature, más el seleccionado y el
   // de la extrusión/revolución seleccionada (vista previa del perfil y de su plano de trabajo).
@@ -125,7 +188,7 @@ export function App() {
     store.results(); // re-evaluar tras cada recálculo
     const feature = id ? findFeature(store.doc(), id) : undefined;
     const req = ++manipulatorRequest;
-    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || !ready()) {
+    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || !ready()) {
       viewport?.setManipulator(null, null);
       return;
     }
@@ -195,7 +258,7 @@ export function App() {
   onCleanup(() => viewport?.dispose());
 
   const ready = () => store.kernelState().state === 'ready';
-  const busy = () => !ready() || !!store.editing() || !!store.picking();
+  const busy = () => !ready() || !!store.editing() || !!store.picking() || store.drawing();
   const singleFace = () => viewSel().faces.length === 1 && viewSel().edges.length === 0;
 
   return (
@@ -261,6 +324,14 @@ export function App() {
           </Show>
         </div>
         <span class="sep" />
+        <span class="tool-label">Dibujar</span>
+        <For each={DRAW_TOOLS}>
+          {(t) => (
+            <button class="icon-only" disabled={busy()} onClick={() => void startDrawing(t.id)}
+              title={`${t.label} en 3D (${t.key}) · sobre la cara o el sketch seleccionado, si no en el plano XY`}>{t.icon}</button>
+          )}
+        </For>
+        <span class="sep" />
         <button onClick={() => store.setNotice(store.addExtrude())} disabled={busy()} title="Extruir el sketch seleccionado o el último sin usar">▤ Extrusión</button>
         <button onClick={() => store.setNotice(store.addRevolve())} disabled={busy()} title="Revolucionar el sketch seleccionado o el último sin usar">◔ Revolución</button>
         <span class="sep" />
@@ -315,6 +386,41 @@ export function App() {
           <div class="toast" onClick={() => store.setNotice(null)} title="Clic para ocultar">
             {store.notice()} <span class="toast-close">✕</span>
           </div>
+        </Show>
+        <Show when={draw.active()}>
+          {(a) => (
+            <div class="draw-bar">
+              <span class="draw-title">✎ Dibujando en {a().label}</span>
+              <div class="tool-group">
+                <For each={DRAW_TOOLS}>
+                  {(t) => (
+                    <button classList={{ active: draw.tool() === t.id }} title={`${t.label} (${t.key})`} onClick={() => draw.setTool(t.id)}>
+                      {t.icon} {t.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+              <Show when={a().plane.kind === 'base' && !draw.currentSketch()}>
+                <select title="Plano de dibujo" value={(a().plane as { plane: BasePlane }).plane}
+                  onChange={(e) => void startDrawing(draw.tool(), e.currentTarget.value as BasePlane)}>
+                  <For each={PLANE_MENU}>{(p) => <option value={p.plane}>{p.plane}</option>}</For>
+                </select>
+              </Show>
+              <label class="check" title="Ajustar a la grilla (G). Alt al hacer clic: posición libre">
+                <input type="checkbox" checked={draw.gridSnap()} onChange={(e) => draw.setGridSnap(e.currentTarget.checked)} /> Grilla
+              </label>
+              <Show when={draw.currentSketch()}>
+                <button title="Abrir el sketch en el editor para agregar cotas y restricciones" onClick={() => {
+                  const id = draw.currentSketch()!;
+                  draw.stop();
+                  store.editSketch(id);
+                }}>Cotas…</button>
+              </Show>
+              <button class="primary" onClick={() => draw.stop()} title="Terminar (Enter o Esc)">✓ Terminar</button>
+              <Show when={draw.message()}><span class="error">{draw.message()}</span></Show>
+              <span class="muted draw-hint">Clic para ubicar puntos · arrastrar: orbitar · Esc cancela · Ctrl+Z deshace</span>
+            </div>
+          )}
         </Show>
         <Show when={paramsOpen() && !store.editing()}>
           <ParameterTable store={store} onClose={() => setParamsOpen(false)} />
