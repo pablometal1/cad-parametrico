@@ -57,6 +57,7 @@ export const ICONS = {
   rollTo: '<path d="M4 6h16M4 11h10M4 16h6"/><path d="M14 18h7M18 15l3 3-3 3"/>',
   toTop: '<path d="M5 4h14M12 20V8M7.5 12.5 12 8l4.5 4.5"/>',
   toBottom: '<path d="M5 20h14M12 4v12M7.5 11.5 12 16l4.5-4.5"/>',
+  shading: '<circle cx="12" cy="12" r="8.5"/><path d="M4.6 9c4.6 2.2 10.2 2.2 14.8 0M4.2 13.6c5 2.4 10.6 2.4 15.6 0M6.8 18c3.4 1.4 7 1.4 10.4 0"/>',
   iso: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
   zoomIn: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/>',
   zoomOut: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5"/>',

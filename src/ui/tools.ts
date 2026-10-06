@@ -66,6 +66,7 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
       ['Arrastrar', 'Orbitar'],
       ['Clic der.', 'Arrastrar para desplazar'],
       ['Rueda', 'Zoom'],
+      ['Z', 'Sombreado: estándar, arcilla, cromo, cebra, normales'],
       ['Supr', 'Borrar la feature elegida en el historial'],
     ],
   },

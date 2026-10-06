@@ -1,5 +1,11 @@
 // Viewport 3D: muestra la teselación del kernel, órbita/zoom/pan y selección de caras y aristas.
 import { iconMarkup, type IconName } from '../ui/iconPaths';
+import {
+  baseFaceColor, createFaceMaterial, disposeShadingTextures, highlightColor, isShadingMode, nextShading, SHADING_MODES,
+  type ShadingMode,
+} from './shading';
+
+const SHADING_KEY = 'cad-parametrico:sombreado';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -38,7 +44,6 @@ export interface ViewportEvents {
   onHoverChange?: (item: PickItem | null) => void;
 }
 
-const COLOR_BASE = new THREE.Color(0xb8c4d0);
 const COLOR_HOVER = new THREE.Color(0x7fb8ff);
 const COLOR_SELECTED = new THREE.Color(0xff9a3c);
 const COLOR_EDGE = new THREE.Color(0x15181c);
@@ -96,6 +101,10 @@ export class Viewport {
   private needsRender = true;
   private animDistance = 0;
   private projectionButton: HTMLButtonElement | null = null;
+  private shadingButton: HTMLButtonElement | null = null;
+  private shadingMenu: HTMLDivElement | null = null;
+  /** Sombreado de las caras (estándar o modos de análisis); se recuerda en este navegador. */
+  private shading: ShadingMode = loadShading();
 
   constructor(private readonly container: HTMLElement, private readonly events: ViewportEvents = {}) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -196,17 +205,7 @@ export class Viewport {
     geom.setIndex(new THREE.BufferAttribute(data.indices, 1));
     geom.computeBoundingSphere();
 
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      metalness: 0.05,
-      roughness: 0.65,
-      side: THREE.DoubleSide,
-      // Empuja las caras hacia atrás para que las aristas se vean nítidas encima.
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-    });
-    this.mesh = new THREE.Mesh(geom, mat);
+    this.mesh = new THREE.Mesh(geom, createFaceMaterial(this.shading));
     this.modelGroup.add(this.mesh);
 
     const eg = new THREE.BufferGeometry();
@@ -456,6 +455,7 @@ export class Viewport {
     this.controls.dispose();
     this.clearModel();
     this.highlightMaterial.dispose();
+    disposeShadingTextures();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -509,9 +509,12 @@ export class Viewport {
       const arr = attr.array as Float32Array;
       const selected = new Set(this.selection.faces);
       const hov = this.hovered?.kind === 'face' ? this.hovered.index : -1;
+      const base = baseFaceColor(this.shading);
+      const sel = highlightColor(this.shading, COLOR_SELECTED);
+      const hover = highlightColor(this.shading, COLOR_HOVER);
       for (let v = 0; v < this.vertexFace.length; v++) {
         const f = this.vertexFace[v];
-        const c = selected.has(f) ? COLOR_SELECTED : f === hov ? COLOR_HOVER : COLOR_BASE;
+        const c = selected.has(f) ? sel : f === hov ? hover : base;
         arr[3 * v] = c.r;
         arr[3 * v + 1] = c.g;
         arr[3 * v + 2] = c.b;
@@ -609,7 +612,75 @@ export class Viewport {
       this.setProjection(this.projection === 'perspective' ? 'orthographic' : 'perspective'),
     );
     this.updateProjectionButton();
+
+    // Sombreado: botón con el modo actual y lista desplegable.
+    this.shadingButton = button(null, '', 'Z', () => this.toggleShadingMenu());
+    this.shadingButton.classList.add('shading-btn');
+    const menu = document.createElement('div');
+    menu.className = 'shading-menu';
+    menu.hidden = true;
+    for (const m of SHADING_MODES) {
+      const item = document.createElement('button');
+      item.dataset.mode = m.id;
+      item.dataset.tip = m.label;
+      item.dataset.desc = m.desc;
+      item.textContent = m.label;
+      item.addEventListener('click', () => {
+        this.setShading(m.id);
+        this.toggleShadingMenu(false);
+      });
+      menu.appendChild(item);
+    }
+    bar.appendChild(menu);
+    this.shadingMenu = menu;
+    this.updateShadingButton();
     return bar;
+  }
+
+  get shadingMode(): ShadingMode {
+    return this.shading;
+  }
+
+  /** Cambia el sombreado de las caras (matcap, cebra, normales…). */
+  setShading(mode: ShadingMode) {
+    if (mode === this.shading) return;
+    this.shading = mode;
+    try {
+      localStorage.setItem(SHADING_KEY, mode);
+    } catch {
+      // Sin almacenamiento (ventana privada): solo dura esta sesión.
+    }
+    if (this.mesh) {
+      (this.mesh.material as THREE.Material).dispose();
+      this.mesh.material = createFaceMaterial(mode);
+      this.repaint();
+    }
+    this.updateShadingButton();
+    this.needsRender = true;
+  }
+
+  /** Pasa al siguiente modo de sombreado (atajo Z). */
+  cycleShading() {
+    this.setShading(nextShading(this.shading));
+  }
+
+  private toggleShadingMenu(open = this.shadingMenu?.hidden === true) {
+    if (!this.shadingMenu) return;
+    this.shadingMenu.hidden = !open;
+    this.shadingButton?.classList.toggle('active', open);
+  }
+
+  private updateShadingButton() {
+    const m = SHADING_MODES.find((x) => x.id === this.shading)!;
+    if (this.shadingButton) {
+      this.shadingButton.innerHTML = `${iconMarkup('shading', 14)}<span>${m.label}</span>`;
+      this.shadingButton.dataset.tip = `Sombreado: ${m.label}`;
+      this.shadingButton.dataset.desc = 'Clic: elegir modo. Z: pasar al siguiente';
+      this.shadingButton.setAttribute('aria-label', this.shadingButton.dataset.tip);
+    }
+    for (const item of this.shadingMenu?.children ?? []) {
+      (item as HTMLElement).classList.toggle('active', (item as HTMLElement).dataset.mode === this.shading);
+    }
   }
 
   private updateProjectionButton() {
@@ -731,4 +802,14 @@ export class Viewport {
     this.repaint();
     this.events.onHoverChange?.(item);
   }
+}
+
+function loadShading(): ShadingMode {
+  try {
+    const v = localStorage.getItem(SHADING_KEY);
+    if (isShadingMode(v)) return v;
+  } catch {
+    // Sin almacenamiento: se usa el estándar.
+  }
+  return 'standard';
 }

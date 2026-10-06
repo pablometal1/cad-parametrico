@@ -298,7 +298,17 @@ button.wide { width: 100%; margin-top: 6px; }
   height: 28px; padding: 0; font-size: 12px; color: #c9d0d8;
   background: rgba(32, 36, 42, 0.85); border-color: #3a424c;
 }
-.view-controls button:last-child { grid-column: span 2; }
+.view-controls > button:nth-child(5), .view-controls > .shading-btn { grid-column: span 2; }
+.view-controls .shading-btn { gap: 5px; font-size: 12px; }
+.view-controls .shading-btn.active { border-color: #8a6a40; color: #ffd2a0; }
+.shading-menu {
+  grid-column: span 2; display: flex; flex-direction: column; gap: 1px; padding: 3px;
+  background: rgba(32, 36, 42, 0.95); border: 1px solid #3a424c; border-radius: 4px;
+}
+.shading-menu[hidden] { display: none; }
+.view-controls .shading-menu button { height: 24px; justify-content: flex-start; padding: 0 8px; border-color: transparent; background: transparent; }
+.view-controls .shading-menu button:hover { background: #343b44; }
+.view-controls .shading-menu button.active { color: var(--accent); }
 .view-controls button:hover { background: #363d46; }
 
 /* Etiqueta del manipulador 3D */

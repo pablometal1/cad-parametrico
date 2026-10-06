@@ -143,6 +143,9 @@ export function App() {
     } else if (k === 'k') {
       e.preventDefault();
       setPlaneMenu(!planeMenu());
+    } else if (k === 'z' && ready()) {
+      e.preventDefault();
+      viewport?.cycleShading();
     }
   };
   // Aviso al cerrar con cambios sin guardar en archivo (en desarrollo no, para no trabar las recargas).
