@@ -8,6 +8,7 @@ import { SketchIndex, type Vec2 } from '../../sketch/model';
 import type { Viewport } from '../../viewport/Viewport';
 import { createSketchSession, type Anchor, type SketchSession, type Tool } from '../sketch/session';
 import type { CadStore } from '../store';
+import { DRAW_KEYS } from '../tools';
 import { gridStep, previewLabel, previewSegments2D, snapToGrid, toWorldSegments } from './preview';
 
 export type DrawTool = Exclude<Tool, 'select'>;
@@ -157,12 +158,9 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
       if (featureId && target) featureId = store.commitDirectDraw(featureId, target.plane, session.data());
       refresh();
     } else if (!e.ctrlKey && !e.metaKey) {
-      const tools: Record<string, DrawTool> = {
-        l: 'line', r: 'rectangle', c: 'circle', a: 'arc', e: 'centerRect', p: 'polygon', s: 'slot',
-      };
-      if (tools[k]) {
+      if (DRAW_KEYS[k]) {
         e.preventDefault();
-        setTool(tools[k]);
+        setTool(DRAW_KEYS[k]);
       } else if (k === 'g') {
         setGridSnap(!gridSnap());
       }

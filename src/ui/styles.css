@@ -17,7 +17,7 @@ html, body, #root { margin: 0; height: 100%; }
 
 .app {
   display: grid;
-  grid-template-rows: 40px 1fr 26px;
+  grid-template-rows: auto 1fr 26px;
   grid-template-columns: 240px 1fr 290px;
   grid-template-areas: 'toolbar toolbar toolbar' 'left viewport panel' 'status status status';
   height: 100%;
@@ -26,13 +26,15 @@ html, body, #root { margin: 0; height: 100%; }
 .toolbar {
   grid-area: toolbar;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 2px;
+  min-height: 42px;
+  padding: 4px 8px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; letter-spacing: 0.08em; margin-right: 12px; color: var(--accent); }
+.brand { font-weight: 700; letter-spacing: 0.08em; margin: 0 10px 0 4px; color: var(--accent); cursor: default; }
 
 button {
   background: #2c323a;
@@ -47,7 +49,8 @@ button:hover:not(:disabled) { background: #363d46; }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { border-color: #5a4630; background: #3a2f22; }
 button.primary:hover:not(:disabled) { background: #4a3b2a; }
-.toolbar .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+.toolbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+.toolbar .spacer { flex: 1; }
 
 .viewport { grid-area: viewport; position: relative; overflow: hidden; outline: none; }
 .viewport-canvas { position: absolute; inset: 0; }
@@ -202,7 +205,9 @@ button.primary:hover:not(:disabled) { background: #4a3b2a; }
   background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); padding: 4px;
 }
-.menu button { text-align: left; border: none; background: transparent; }
+.menu button { text-align: left; border: none; background: transparent; display: flex; align-items: center; gap: 8px; }
+.menu button .kbd { margin-left: auto; padding-left: 16px; }
+.menu button .icon { color: var(--muted); }
 .menu button:hover { background: #343b44; }
 .notice { color: #ffd27f; font-size: 12px; cursor: pointer; margin-left: 8px; }
 button.wide { width: 100%; margin-top: 6px; }
@@ -286,12 +291,14 @@ button.wide { width: 100%; margin-top: 6px; }
 .view-cube { position: absolute; top: 10px; right: 10px; width: 96px; height: 96px; z-index: 3; }
 .view-controls {
   position: absolute; top: 112px; right: 10px; z-index: 3;
-  display: flex; flex-direction: column; gap: 4px; width: 96px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 96px;
 }
 .view-controls button {
-  padding: 3px 0; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  height: 28px; padding: 0; font-size: 12px; color: #c9d0d8;
   background: rgba(32, 36, 42, 0.85); border-color: #3a424c;
 }
+.view-controls button:last-child { grid-column: span 2; }
 .view-controls button:hover { background: #363d46; }
 
 /* Etiqueta del manipulador 3D */
@@ -364,8 +371,7 @@ button.wide { width: 100%; margin-top: 6px; }
 .param-value { font-variant-numeric: tabular-nums; color: var(--text); }
 .param-value.error { color: var(--error); cursor: help; }
 
-/* Barra de herramientas en una sola línea (con desplazamiento si no entra). */
-.toolbar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+/* Si la ventana es angosta la barra pasa a dos filas (sin scroll: recortaría los menús). */
 .toolbar > * { flex: none; }
 .toolbar button { white-space: nowrap; }
 
@@ -415,3 +421,72 @@ button.wide { width: 100%; margin-top: 6px; }
   border-radius: 4px; padding: 1px 6px; font-size: 12px; white-space: nowrap;
 }
 .measure-info { border-color: #5f9a52; }
+
+/* Íconos */
+.icon {
+  display: block; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+}
+.icon .f { fill: currentColor; stroke: none; }
+.icon .d { stroke-dasharray: 2.2 2.6; }
+.icon.swap { opacity: 0.85; }
+.with-icon { display: inline-flex; align-items: center; gap: 6px; }
+button.with-icon { display: inline-flex; }
+
+/* Botones de barra: cuadrados, solo ícono; el nombre va en el tooltip. */
+button.tb {
+  display: inline-flex; align-items: center; justify-content: center; gap: 1px;
+  width: 32px; height: 32px; padding: 0;
+  background: transparent; border-color: transparent; border-radius: 5px;
+  color: #c9d0d8;
+}
+button.tb:hover:not(:disabled) { background: #343b44; color: #fff; }
+button.tb:active:not(:disabled) { background: #3d454f; }
+button.tb.active, .tool-group button.tb.active { background: #4a3b2a; border-color: #8a6a40; color: #ffd2a0; }
+button.tb.primary { color: var(--accent); background: #2f2820; border-color: #4f3e2b; }
+button.tb.primary:hover:not(:disabled) { background: #43362a; color: #ffc080; }
+button.tb.has-caret { width: auto; padding: 0 3px 0 6px; }
+button.tb .caret { opacity: 0.6; margin-left: -1px; }
+button.tb:disabled { opacity: 0.35; }
+button:focus-visible { outline: 2px solid #5d7fa6; outline-offset: 1px; }
+.tb-group { display: flex; gap: 1px; padding: 0 2px; margin-left: 4px; border-radius: 6px; background: #1b1f24; }
+.toolbar .file-name { margin: 0 4px 0 6px; max-width: 150px; cursor: default; }
+
+/* Barras del editor de sketch y del dibujo 3D con los mismos botones. */
+.sketch-toolbar { gap: 4px; padding: 4px 8px; min-height: 42px; }
+.tool-group { gap: 1px; padding: 0 4px; }
+.tool-group button.tb { width: 30px; height: 30px; padding: 0; }
+.draw-bar { gap: 6px; padding: 4px 8px; right: auto; max-width: calc(100% - 140px); }
+.draw-bar > button.tb { width: 30px; height: 30px; }
+
+/* Tooltip */
+.tooltip {
+  position: fixed; z-index: 100; pointer-events: none;
+  max-width: 260px; padding: 5px 8px;
+  background: #0f1215; color: var(--text); border: 1px solid #3a424c; border-radius: 5px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5); font-size: 12px; line-height: 1.35;
+}
+.tooltip.above { transform: translateY(-100%); }
+.tooltip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 600; white-space: nowrap; }
+.tooltip-desc { color: var(--muted); margin-top: 2px; }
+kbd {
+  font: 11px ui-monospace, 'Cascadia Mono', Consolas, monospace; color: #c9d0d8;
+  background: #262b32; border: 1px solid #3a424c; border-bottom-width: 2px; border-radius: 3px; padding: 0 4px;
+}
+
+/* Ayuda de atajos */
+.help-dialog { left: 50%; transform: translateX(-50%); width: min(900px, calc(100% - 20px)); max-height: calc(100% - 20px); display: flex; flex-direction: column; }
+.help-body { padding: 10px 14px 14px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 26px; }
+.help-body h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin: 6px 0 6px; }
+.help-body dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; align-items: center; }
+.help-body dt { white-space: nowrap; }
+.help-body dd { margin: 0; color: #c9d0d8; }
+
+/* Modelo vacío */
+.empty-hint {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 3;
+  width: min(420px, calc(100% - 40px)); text-align: center; color: var(--muted); pointer-events: none;
+}
+.empty-hint h3 { color: var(--text); font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+.empty-hint ol { text-align: left; margin: 0 auto; padding-left: 20px; line-height: 1.9; display: inline-block; }
+.empty-hint .icon { display: inline-block; vertical-align: -3px; margin: 0 2px; color: var(--accent); }

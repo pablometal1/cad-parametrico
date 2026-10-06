@@ -8,7 +8,11 @@ import { FeatureEditor } from './FeatureEditor';
 import { createSketchSession } from './sketch/session';
 import { SketchEditor } from './sketch/SketchEditor';
 import { createCadStore } from './store';
-import { FEATURE_ICONS, Timeline } from './Timeline';
+import { Timeline } from './Timeline';
+import { FEATURE_ICONS, Icon, tip } from './icons';
+import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, type FeatureTool } from './tools';
+import { TooltipLayer } from './Tooltip';
+import { ShortcutHelp } from './ShortcutHelp';
 import { ParameterTable } from './ParameterTable';
 import { ExportDialog } from './ExportDialog';
 import { PartInfo } from './PartInfo';
@@ -22,15 +26,6 @@ const PLANE_MENU: { plane: BasePlane; label: string }[] = [
   { plane: 'YZ', label: 'Plano YZ (lateral)' },
 ];
 
-const DRAW_TOOLS: { id: DrawTool; label: string; icon: string; key: string }[] = [
-  { id: 'line', label: 'Línea', icon: '╱', key: 'L' },
-  { id: 'rectangle', label: 'Rectángulo', icon: '▭', key: 'R' },
-  { id: 'circle', label: 'Círculo', icon: '◯', key: 'C' },
-  { id: 'arc', label: 'Arco', icon: '◜', key: 'A' },
-  { id: 'centerRect', label: 'Rectángulo desde el centro', icon: '⊡', key: 'E' },
-  { id: 'polygon', label: 'Polígono regular', icon: '⬡', key: 'P' },
-  { id: 'slot', label: 'Ranura', icon: '⬭', key: 'S' },
-];
 
 const PICK_TEXT = {
   edges: 'Elegí las aristas (Shift + clic para varias)',
@@ -54,6 +49,7 @@ export function App() {
   const [exportOpen, setExportOpen] = createSignal(false);
   const [mass, setMass] = createSignal<MassProperties | null>(null);
   const [measurement, setMeasurement] = createSignal<Measurement | null>(null);
+  const [helpOpen, setHelpOpen] = createSignal(false);
   let fileInput!: HTMLInputElement;
 
   const openFile = async (file: File) => {
@@ -61,6 +57,21 @@ export function App() {
     const err = store.open(await file.text(), file.name);
     store.setNotice(err ?? `Se abrió "${file.name}"`);
     framed = false; // encuadrar el proyecto nuevo
+  };
+  const saveAs = () => {
+    const name = window.prompt('Nombre del archivo', store.fileName());
+    if (name?.trim()) {
+      store.setFileName(name.trim());
+      store.save();
+    }
+  };
+  const runFeatureTool = (id: FeatureTool) => {
+    const sel = viewSel();
+    if (id === 'extrude') store.setNotice(store.addExtrude());
+    else if (id === 'revolve') store.setNotice(store.addRevolve());
+    else if (id === 'pattern' || id === 'mirror') store.setNotice(store.addCopy(id));
+    else if (id === 'fillet' || id === 'chamfer') store.addEdgeFeature(id, sel.edges);
+    else store.addShell(sel.faces);
   };
   const newProject = () => {
     if (store.dirty() && !window.confirm('Hay cambios sin guardar. ¿Empezar un proyecto nuevo igual?')) return;
@@ -71,7 +82,10 @@ export function App() {
   const onGlobalKey = (e: KeyboardEvent) => {
     if (store.editing()) return;
     const tag = (e.target as HTMLElement)?.tagName;
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (!(e.ctrlKey || e.metaKey)) {
+      onPlainKey(e, tag);
+      return;
+    }
     const k = e.key.toLowerCase();
     if (k === 's') {
       e.preventDefault();
@@ -90,6 +104,45 @@ export function App() {
     } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
       e.preventDefault();
       store.redo();
+    }
+  };
+  // Atajos de una tecla: herramientas, features, encuadrar, ayuda.
+  const onPlainKey = (e: KeyboardEvent, tag: string | undefined) => {
+    if (e.altKey || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || draw.active()) return;
+    const k = e.key.toLowerCase();
+    if (e.key === '?') {
+      e.preventDefault();
+      setHelpOpen(!helpOpen());
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (helpOpen()) setHelpOpen(false);
+      else if (fileMenu() || planeMenu()) {
+        setFileMenu(false);
+        setPlaneMenu(false);
+      } else if (store.picking()) store.cancelPick();
+      else if (!store.dialog()) viewport?.setSelection({ faces: [], edges: [] });
+      return;
+    }
+    if (k === 'f' && !e.shiftKey) {
+      if (ready()) viewport?.fitView();
+      return;
+    }
+    if (busy()) return;
+    if (e.shiftKey) {
+      if (FEATURE_KEYS[k]) {
+        e.preventDefault();
+        runFeatureTool(FEATURE_KEYS[k]);
+      } else if (k === 'x') {
+        e.preventDefault();
+        setParamsOpen(!paramsOpen());
+      }
+    } else if (DRAW_KEYS[k]) {
+      e.preventDefault();
+      void startDrawing(DRAW_KEYS[k]);
+    } else if (k === 'k') {
+      e.preventDefault();
+      setPlaneMenu(!planeMenu());
     }
   };
   // Aviso al cerrar con cambios sin guardar en archivo (en desarrollo no, para no trabar las recargas).
@@ -301,24 +354,20 @@ export function App() {
   return (
     <div class="app">
       <header class="toolbar">
-        <span class="brand">CAD</span>
+        <span class="brand" {...tip('CAD paramétrico', undefined, 'Pieza en milímetros')}>CAD</span>
         <div class="menu-anchor">
-          <button onClick={() => setFileMenu(!fileMenu())} disabled={!!store.editing()}>Archivo ▾</button>
+          <button class="tb has-caret" classList={{ active: fileMenu() }} onClick={() => setFileMenu(!fileMenu())} disabled={!!store.editing()}
+            {...tip('Archivo', undefined, 'Nuevo, abrir, guardar y exportar')}>
+            <Icon name="file" /><Icon name="caret" size={12} class="caret" />
+          </button>
           <Show when={fileMenu()}>
             <div class="menu" onMouseLeave={() => setFileMenu(false)}>
-              <button onClick={() => { setFileMenu(false); newProject(); }}>Nuevo</button>
-              <button onClick={() => { setFileMenu(false); fileInput.click(); }}>Abrir… <span class="kbd">Ctrl+O</span></button>
-              <button onClick={() => { setFileMenu(false); store.save(); }}>Guardar <span class="kbd">Ctrl+S</span></button>
-              <button onClick={() => {
-                setFileMenu(false);
-                const name = window.prompt('Nombre del archivo', store.fileName());
-                if (name?.trim()) {
-                  store.setFileName(name.trim());
-                  store.save();
-                }
-              }}>Guardar como…</button>
+              <button onClick={() => { setFileMenu(false); newProject(); }}><Icon name="new" size={16} />Nuevo</button>
+              <button onClick={() => { setFileMenu(false); fileInput.click(); }}><Icon name="open" size={16} />Abrir… <span class="kbd">Ctrl+O</span></button>
+              <button onClick={() => { setFileMenu(false); store.save(); }}><Icon name="save" size={16} />Guardar <span class="kbd">Ctrl+S</span></button>
+              <button onClick={() => { setFileMenu(false); saveAs(); }}><Icon name="saveAs" size={16} />Guardar como…</button>
               <button disabled={!mass()} onClick={() => { setFileMenu(false); setExportOpen(true); }}>
-                Exportar STL / 3MF / STEP… <span class="kbd">Ctrl+E</span>
+                <Icon name="export" size={16} />Exportar STL / 3MF / STEP… <span class="kbd">Ctrl+E</span>
               </button>
             </div>
           </Show>
@@ -334,17 +383,23 @@ export function App() {
             }}
           />
         </div>
-        <span class="file-name" title={store.dirty() ? 'Hay cambios sin guardar en el archivo' : 'Guardado'}>
+        <button class="tb" onClick={() => store.save()} disabled={!!store.editing()} {...tip('Guardar', 'Ctrl+S')}><Icon name="save" /></button>
+        <button class="tb" onClick={() => setExportOpen(true)} disabled={!mass() || !!store.editing()} {...tip('Exportar', 'Ctrl+E', 'STL, 3MF o STEP para imprimir')}>
+          <Icon name="export" />
+        </button>
+        <span class="file-name" {...tip(store.fileName(), undefined, store.dirty() ? 'Hay cambios sin guardar en el archivo' : 'Guardado')}>
           {store.fileName()}{store.dirty() ? ' •' : ''}
         </span>
-        <button class="icon-only" title="Deshacer (Ctrl+Z)" onClick={() => store.undo()}
-          disabled={!store.canUndo() || !!store.editing() || !!store.dialog() || !!store.picking()}>↶</button>
-        <button class="icon-only" title="Rehacer (Ctrl+Y)" onClick={() => store.redo()}
-          disabled={!store.canRedo() || !!store.editing() || !!store.dialog() || !!store.picking()}>↷</button>
+        <span class="sep" />
+        <button class="tb" onClick={() => store.undo()} {...tip('Deshacer', 'Ctrl+Z')}
+          disabled={!store.canUndo() || !!store.editing() || !!store.dialog() || !!store.picking()}><Icon name="undo" /></button>
+        <button class="tb" onClick={() => store.redo()} {...tip('Rehacer', 'Ctrl+Y')}
+          disabled={!store.canRedo() || !!store.editing() || !!store.dialog() || !!store.picking()}><Icon name="redo" /></button>
         <span class="sep" />
         <div class="menu-anchor">
-          <button class="primary" onClick={() => setPlaneMenu(!planeMenu())} disabled={busy()} title="Nuevo sketch">
-            ✎ Sketch ▾
+          <button class="tb primary has-caret" classList={{ active: planeMenu() }} onClick={() => setPlaneMenu(!planeMenu())} disabled={busy()}
+            {...tip('Nuevo sketch', 'K', 'Abrir el editor 2D con restricciones sobre un plano o una cara')}>
+            <Icon name="sketch" /><Icon name="caret" size={12} class="caret" />
           </button>
           <Show when={planeMenu()}>
             <div class="menu" onMouseLeave={() => setPlaneMenu(false)}>
@@ -363,49 +418,55 @@ export function App() {
             </div>
           </Show>
         </div>
+        <div class="tb-group">
+          <For each={DRAW_TOOLS}>
+            {(t) => (
+              <button class="tb" disabled={busy()} onClick={() => void startDrawing(t.id)}
+                {...tip(t.label, t.key, 'Dibujar en 3D sobre la cara o el sketch seleccionado (si no, en el plano XY)')}>
+                <Icon name={t.icon} />
+              </button>
+            )}
+          </For>
+        </div>
         <span class="sep" />
-        <span class="tool-label">Dibujar</span>
-        <For each={DRAW_TOOLS}>
+        <For each={FEATURE_TOOLS}>
           {(t) => (
-            <button class="icon-only" disabled={busy()} onClick={() => void startDrawing(t.id)}
-              title={`${t.label} en 3D (${t.key}) · sobre la cara o el sketch seleccionado, si no en el plano XY`}>{t.icon}</button>
+            <>
+              <Show when={t.sepBefore}><span class="sep" /></Show>
+              <button class="tb" onClick={() => runFeatureTool(t.id)} disabled={busy()} {...tip(t.label, t.key, t.desc)}>
+                <Icon name={t.icon} />
+              </button>
+            </>
           )}
         </For>
         <span class="sep" />
-        <button onClick={() => store.setNotice(store.addExtrude())} disabled={busy()} title="Extruir el sketch seleccionado o el último sin usar">▤ Extrusión</button>
-        <button onClick={() => store.setNotice(store.addRevolve())} disabled={busy()} title="Revolucionar el sketch seleccionado o el último sin usar">◔ Revolución</button>
-        <span class="sep" />
-        <button onClick={() => store.setNotice(store.addCopy('pattern'))} disabled={busy()}
-          title="Repetir la extrusión/revolución seleccionada (lineal o circular)">⁂ Patrón</button>
-        <button onClick={() => store.setNotice(store.addCopy('mirror'))} disabled={busy()}
-          title="Reflejar la extrusión/revolución seleccionada respecto de un plano">⇋ Simetría</button>
-        <span class="sep" />
-        <button onClick={() => store.addEdgeFeature('fillet', viewSel().edges)} disabled={busy()} title="Redondear las aristas seleccionadas">◜ Redondeo</button>
-        <button onClick={() => store.addEdgeFeature('chamfer', viewSel().edges)} disabled={busy()} title="Achaflanar las aristas seleccionadas">◸ Chaflán</button>
-        <button onClick={() => store.addShell(viewSel().faces)} disabled={busy()} title="Vaciar quitando las caras seleccionadas">▢ Vaciado</button>
-        <span class="sep" />
-        <button classList={{ active: paramsOpen() }} onClick={() => setParamsOpen(!paramsOpen())} disabled={!!store.editing()}
-          title="Tabla de parámetros con nombre (usables en cualquier campo numérico)">ƒx Parámetros</button>
-        <span class="sep" />
-        <button onClick={() => viewport?.fitView()} disabled={!ready() || !!store.editing()} title="Encuadrar (F)">Encuadrar</button>
+        <button class="tb" classList={{ active: paramsOpen() }} onClick={() => setParamsOpen(!paramsOpen())} disabled={!!store.editing()}
+          {...tip('Parámetros', 'Shift+X', 'Tabla de valores con nombre, usables en cualquier campo numérico')}><Icon name="params" /></button>
+        <span class="spacer" />
+        <button class="tb" onClick={() => viewport?.fitView()} disabled={!ready() || !!store.editing()} {...tip('Encuadrar', 'F')}><Icon name="fit" /></button>
+        <button class="tb" classList={{ active: helpOpen() }} onClick={() => setHelpOpen(!helpOpen())} {...tip('Atajos de teclado', '?')}><Icon name="help" /></button>
       </header>
 
       <aside class="left">
         <Timeline store={store} />
       </aside>
 
-      <main class="viewport" tabIndex={0} onKeyDown={(e) => {
-        if (store.editing()) return;
-        if (e.key === 'f' || e.key === 'F') viewport?.fitView();
-        if (e.key === 'Escape') {
-          if (store.picking()) store.cancelPick();
-          else viewport?.setSelection({ faces: [], edges: [] });
-        }
-      }}>
+      <main class="viewport" tabIndex={0}>
         {/* Contenedor propio para el canvas: Solid no debe reconciliar sus hijos. */}
         <div class="viewport-canvas" ref={viewportEl} />
         <Show when={store.kernelState().state === 'loading'}>
           <div class="overlay">Cargando OpenCascade…</div>
+        </Show>
+        <Show when={ready() && store.doc().features.length === 0 && !store.editing() && !draw.active()}>
+          <div class="empty-hint">
+            <h3>Empezá una pieza</h3>
+            <ol>
+              <li>Dibujá en el plano XY con <Icon name="rectangle" size={16} /> <kbd>R</kbd> o <Icon name="circle" size={16} /> <kbd>C</kbd>, o abrí un <Icon name="sketch" size={16} /> sketch <kbd>K</kbd></li>
+              <li>Dale volumen con <Icon name="extrude" size={16} /> Extrusión <kbd>Shift+E</kbd></li>
+              <li>Exportá para imprimir con <Icon name="export" size={16} /> <kbd>Ctrl+E</kbd></li>
+            </ol>
+            <p>Todos los atajos: <kbd>?</kbd></p>
+          </div>
         </Show>
         <Show when={store.dialog() && !store.picking() && store.selectedFeature()}>
           {(f) => (
@@ -413,7 +474,7 @@ export function App() {
               if (e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT') store.cancelDialog();
             }}>
               <div class="tool-dialog-title">
-                <span>{FEATURE_ICONS[f().type]} {store.dialog()!.isNew ? newFeatureTitle(f().type) : `Editar ${f().name}`}</span>
+                <span class="with-icon"><Icon name={FEATURE_ICONS[f().type]} size={16} /> {store.dialog()!.isNew ? newFeatureTitle(f().type) : `Editar ${f().name}`}</span>
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
@@ -423,7 +484,7 @@ export function App() {
               </div>
               <div class="tool-dialog-actions">
                 <button onClick={() => store.cancelDialog()}>Cancelar</button>
-                <button class="primary" onClick={() => store.acceptDialog()}>✓ Aceptar</button>
+                <button class="primary with-icon" onClick={() => store.acceptDialog()}><Icon name="check" size={15} />Aceptar</button>
               </div>
             </div>
           )}
@@ -437,12 +498,12 @@ export function App() {
         <Show when={draw.active()}>
           {(a) => (
             <div class="draw-bar">
-              <span class="draw-title">✎ Dibujando en {a().label}</span>
+              <span class="draw-title with-icon"><Icon name="sketch" size={16} /> {a().label}</span>
               <div class="tool-group">
                 <For each={DRAW_TOOLS}>
                   {(t) => (
-                    <button classList={{ active: draw.tool() === t.id }} title={`${t.label} (${t.key})`} onClick={() => draw.setTool(t.id)}>
-                      {t.icon}
+                    <button class="tb" classList={{ active: draw.tool() === t.id }} {...tip(t.label, t.key)} onClick={() => draw.setTool(t.id)}>
+                      <Icon name={t.icon} />
                     </button>
                   )}
                 </For>
@@ -458,21 +519,23 @@ export function App() {
                   <For each={PLANE_MENU}>{(p) => <option value={p.plane}>{p.plane}</option>}</For>
                 </select>
               </Show>
-              <label class="check" title="Ajustar a la grilla (G). Alt al hacer clic: posición libre">
-                <input type="checkbox" checked={draw.gridSnap()} onChange={(e) => draw.setGridSnap(e.currentTarget.checked)} /> Grilla
-              </label>
+              <button class="tb" classList={{ active: draw.gridSnap() }} onClick={() => draw.setGridSnap(!draw.gridSnap())}
+                {...tip('Ajustar a la grilla', 'G', 'Alt al hacer clic: posición libre')}><Icon name="grid" /></button>
               <Show when={draw.currentSketch()}>
-                <button title="Abrir el sketch en el editor para agregar cotas y restricciones" onClick={() => {
+                <button class="tb" {...tip('Cotas y restricciones', undefined, 'Abrir este sketch en el editor 2D')} onClick={() => {
                   const id = draw.currentSketch()!;
                   draw.stop();
                   store.editSketch(id);
-                }}>Cotas…</button>
+                }}><Icon name="dims" /></button>
               </Show>
-              <button class="primary" onClick={() => draw.stop()} title="Terminar (Enter o Esc)">✓ Terminar</button>
+              <button class="primary with-icon" onClick={() => draw.stop()} {...tip('Terminar', 'Enter')}><Icon name="check" size={16} />Terminar</button>
               <Show when={draw.message()}><span class="error">{draw.message()}</span></Show>
               <span class="muted draw-hint">Clic para ubicar puntos · arrastrar: orbitar · Esc cancela · Ctrl+Z deshace</span>
             </div>
           )}
+        </Show>
+        <Show when={helpOpen()}>
+          <ShortcutHelp onClose={() => setHelpOpen(false)} />
         </Show>
         <Show when={exportOpen()}>
           <ExportDialog kernel={kernel} fileName={store.fileName()} onClose={() => setExportOpen(false)} onDone={(m) => store.setNotice(m)} />
@@ -536,7 +599,7 @@ export function App() {
           <Show when={measurement()}>
             {(m) => (
               <dl class="face-info measure-info">
-                <dt>📏 Distancia</dt><dd>{fmtNum(m().distance)} mm</dd>
+                <dt class="with-icon"><Icon name="measure" size={14} />Distancia</dt><dd>{fmtNum(m().distance)} mm</dd>
                 <Show when={m().planeDistance !== undefined}>
                   <dt>Entre planos</dt><dd>{fmtNum(m().planeDistance!)} mm</dd>
                 </Show>
@@ -559,6 +622,7 @@ export function App() {
         </Show>
       </aside>
 
+      <TooltipLayer />
       <footer class="statusbar">
         {(() => {
           const k = store.kernelState();

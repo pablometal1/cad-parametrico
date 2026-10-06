@@ -1,4 +1,5 @@
 // Editor 2D de sketch: dibujo, selección, arrastre con el solver y restricciones.
+import { Icon, tip, type IconName } from '../icons';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchCurve, type SketchData } from '../../document/types';
 import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, sub, type ArcParams } from '../../sketch/geometry';
@@ -19,28 +20,28 @@ const CURVE_HIT_PX = 6;
 const LABEL_HIT_PX = 11;
 const DRAG_THRESHOLD_PX = 3;
 
-const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
-  { id: 'select', label: 'Seleccionar', key: 'Esc', icon: '↖' },
-  { id: 'line', label: 'Línea', key: 'L', icon: '╱' },
-  { id: 'rectangle', label: 'Rectángulo', key: 'R', icon: '▭' },
-  { id: 'circle', label: 'Círculo', key: 'C', icon: '◯' },
-  { id: 'arc', label: 'Arco', key: 'A', icon: '◜' },
-  { id: 'centerRect', label: 'Rect. centro', key: 'E', icon: '⊡' },
-  { id: 'polygon', label: 'Polígono', key: 'P', icon: '⬡' },
-  { id: 'slot', label: 'Ranura', key: 'S', icon: '⬭' },
+const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
+  { id: 'select', label: 'Seleccionar', key: 'Esc', icon: 'select' },
+  { id: 'line', label: 'Línea', key: 'L', icon: 'line' },
+  { id: 'rectangle', label: 'Rectángulo', key: 'R', icon: 'rectangle' },
+  { id: 'circle', label: 'Círculo', key: 'C', icon: 'circle' },
+  { id: 'arc', label: 'Arco', key: 'A', icon: 'arc' },
+  { id: 'centerRect', label: 'Rectángulo desde el centro', key: 'E', icon: 'centerRect' },
+  { id: 'polygon', label: 'Polígono regular', key: 'P', icon: 'polygon' },
+  { id: 'slot', label: 'Ranura', key: 'S', icon: 'slot' },
 ];
 
-const CONSTRAINT_BUTTONS: { type: SketchConstraintType; icon: string }[] = [
-  { type: 'coincident', icon: '◉' },
-  { type: 'horizontal', icon: 'H' },
-  { type: 'vertical', icon: 'V' },
-  { type: 'parallel', icon: '∥' },
-  { type: 'perpendicular', icon: '⊥' },
-  { type: 'tangent', icon: 'T' },
-  { type: 'equal', icon: '=' },
-  { type: 'distance', icon: '↔' },
-  { type: 'radius', icon: 'R' },
-  { type: 'angle', icon: '∠' },
+const CONSTRAINT_BUTTONS: { type: SketchConstraintType; icon: IconName }[] = [
+  { type: 'coincident', icon: 'coincident' },
+  { type: 'horizontal', icon: 'horizontal' },
+  { type: 'vertical', icon: 'vertical' },
+  { type: 'parallel', icon: 'parallel' },
+  { type: 'perpendicular', icon: 'perpendicular' },
+  { type: 'tangent', icon: 'tangent' },
+  { type: 'equal', icon: 'equal' },
+  { type: 'distance', icon: 'distance' },
+  { type: 'radius', icon: 'radius' },
+  { type: 'angle', icon: 'angle' },
 ];
 
 const GLYPH: Partial<Record<SketchConstraintType, string>> = {
@@ -432,12 +433,12 @@ export function SketchEditor(props: {
   return (
     <div class="sketch-editor">
       <div class="sketch-toolbar">
-        <span class="sketch-title" title="Editando sketch">✎ {props.title}</span>
+        <span class="sketch-title with-icon" {...tip('Editando sketch', undefined, props.title)}><Icon name="sketch" size={16} />{props.title}</span>
         <div class="tool-group">
           <For each={TOOLS}>
             {(t) => (
-              <button classList={{ active: s.tool() === t.id }} title={`${t.label} (${t.key})`} onClick={() => s.setTool(t.id)}>
-                <span class="tool-icon">{t.icon}</span>{t.label}
+              <button class="tb" classList={{ active: s.tool() === t.id }} {...tip(t.label, t.key)} onClick={() => s.setTool(t.id)}>
+                <Icon name={t.icon} />
               </button>
             )}
           </For>
@@ -447,27 +448,30 @@ export function SketchEditor(props: {
                 onChange={(e) => s.setPolygonSides(Math.max(3, Math.min(64, Number(e.currentTarget.value) || 6)))} /> lados
             </label>
           </Show>
-          <button classList={{ active: s.construction() }} title="Dibujar geometría de construcción" onClick={() => s.setConstruction(!s.construction())}>
-            <span class="tool-icon">┄</span>Construcción
+          <button class="tb" classList={{ active: s.construction() }} {...tip('Modo construcción', undefined, 'Lo que se dibuja queda como geometría auxiliar (no forma perfiles)')}
+            onClick={() => s.setConstruction(!s.construction())}>
+            <Icon name="construction" />
           </button>
         </div>
         <div class="tool-group">
           <For each={CONSTRAINT_BUTTONS}>
             {(c) => (
-              <button class="icon-only" title={CONSTRAINT_LABELS[c.type]} onClick={() => s.applyConstraint(c.type)}>{c.icon}</button>
+              <button class="tb" {...tip(CONSTRAINT_LABELS[c.type], undefined, 'Se aplica a la selección actual')} onClick={() => s.applyConstraint(c.type)}><Icon name={c.icon} /></button>
             )}
           </For>
         </div>
         <div class="tool-group">
-          <button title="Alternar construcción en la selección (G)" onClick={() => s.toggleConstruction()} disabled={!s.selection().length}>┄ Aux</button>
-          <button title="Borrar selección (Supr)" onClick={() => s.deleteSelection()} disabled={!s.selection().length}>✕ Borrar</button>
-          <button title="Deshacer (Ctrl+Z)" onClick={() => s.undo()} disabled={!s.historySize().undo}>↶</button>
-          <button title="Rehacer (Ctrl+Y)" onClick={() => s.redo()} disabled={!s.historySize().redo}>↷</button>
-          <button title="Encuadrar (F)" onClick={fit}>⤢</button>
+          <button class="tb" {...tip('Pasar a construcción', 'G', 'Alterna la selección entre geometría normal y auxiliar')} onClick={() => s.toggleConstruction()} disabled={!s.selection().length}>
+            <Icon name="construction" class="swap" />
+          </button>
+          <button class="tb" {...tip('Borrar selección', 'Supr')} onClick={() => s.deleteSelection()} disabled={!s.selection().length}><Icon name="trash" /></button>
+          <button class="tb" {...tip('Deshacer', 'Ctrl+Z')} onClick={() => s.undo()} disabled={!s.historySize().undo}><Icon name="undo" /></button>
+          <button class="tb" {...tip('Rehacer', 'Ctrl+Y')} onClick={() => s.redo()} disabled={!s.historySize().redo}><Icon name="redo" /></button>
+          <button class="tb" {...tip('Encuadrar', 'F')} onClick={fit}><Icon name="fit" /></button>
         </div>
         <span class="spacer" />
-        <button onClick={props.onCancel}>Cancelar</button>
-        <button class="primary" onClick={props.onFinish}>✓ Terminar sketch</button>
+        <button class="with-icon" onClick={props.onCancel} {...tip('Cancelar', undefined, 'Descartar los cambios del sketch')}><Icon name="close" size={16} />Cancelar</button>
+        <button class="primary with-icon" onClick={props.onFinish} {...tip('Terminar sketch', undefined, 'Guardar y volver al modelo 3D')}><Icon name="check" size={16} />Terminar</button>
       </div>
 
       <div class="sketch-canvas">

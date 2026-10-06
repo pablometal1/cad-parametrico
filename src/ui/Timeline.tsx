@@ -1,5 +1,6 @@
 // Historial de features: estado de cada una, supresión, borrado y marcador de retroceso.
 import { For, Show } from 'solid-js';
+import { FEATURE_ICONS, Icon, tip } from './icons';
 import { activeCount } from '../document/ops';
 import type { Feature } from '../document/types';
 import type { FeatureStatus } from '../kernel/protocol';
@@ -10,17 +11,6 @@ const STATUS_LABEL: Record<FeatureStatus, string> = {
   error: 'Error',
   suppressed: 'Suprimida',
   rolledBack: 'Después del marcador',
-};
-
-export const FEATURE_ICONS: Record<Feature['type'], string> = {
-  sketch: '✎',
-  extrude: '▤',
-  revolve: '◔',
-  fillet: '◜',
-  chamfer: '◸',
-  shell: '▢',
-  pattern: '⁂',
-  mirror: '⇋',
 };
 
 export function Timeline(props: { store: CadStore }) {
@@ -37,10 +27,10 @@ export function Timeline(props: { store: CadStore }) {
       <span class="marker-line" />
       <span class="marker-label">Marcador</span>
       <Show when={active() > 0}>
-        <button class="icon-btn" title="Retroceder al inicio" onClick={() => store.setRollback(0)}>⤒</button>
+        <button class="icon-btn" {...tip('Retroceder al inicio')} onClick={() => store.setRollback(0)}><Icon name="toTop" size={14} /></button>
       </Show>
       <Show when={active() < total()}>
-        <button class="icon-btn" title="Avanzar al final" onClick={() => store.setRollback(null)}>⤓</button>
+        <button class="icon-btn" {...tip('Avanzar al final')} onClick={() => store.setRollback(null)}><Icon name="toBottom" size={14} /></button>
       </Show>
     </li>
   );
@@ -48,7 +38,7 @@ export function Timeline(props: { store: CadStore }) {
   return (
     <div class="timeline">
       <h2>Historial</h2>
-      <Show when={total() > 0} fallback={<p class="muted">Sin features. Agregá una extrusión desde la barra.</p>}>
+      <Show when={total() > 0} fallback={<p class="muted">Sin features todavía. Dibujá un perfil y extruilo para empezar.</p>}>
         <ol
           class="timeline-list"
           tabIndex={0}
@@ -72,7 +62,7 @@ export function Timeline(props: { store: CadStore }) {
                     title={status() === 'pending' ? 'Calculando…' : STATUS_LABEL[status() as FeatureStatus]}
                   >
                     <span class="feature-icon" aria-hidden="true">
-                      {status() === 'error' ? '!' : FEATURE_ICONS[f.type]}
+                      <Icon name={status() === 'error' ? 'warning' : FEATURE_ICONS[f.type]} size={16} />
                     </span>
                     <span class="feature-main">
                       <span class="feature-name">{f.name}</span>
@@ -85,13 +75,13 @@ export function Timeline(props: { store: CadStore }) {
                     </span>
                     <span class="feature-actions" onClick={(e) => e.stopPropagation()}>
                       <Show when={f.type === 'sketch'}>
-                        <button class="icon-btn" title="Editar sketch" onClick={() => store.editSketch(f.id)}>✎</button>
+                        <button class="icon-btn" {...tip('Editar sketch')} onClick={() => store.editSketch(f.id)}><Icon name="sketch" size={14} /></button>
                       </Show>
-                      <button class="icon-btn" title={f.suppressed ? 'Reactivar' : 'Suprimir'} onClick={() => store.toggleSuppressed(f.id)}>
-                        {f.suppressed ? '◌' : '●'}
+                      <button class="icon-btn" {...tip(f.suppressed ? 'Reactivar' : 'Suprimir')} onClick={() => store.toggleSuppressed(f.id)}>
+                        <Icon name={f.suppressed ? 'eyeOff' : 'eye'} size={14} />
                       </button>
-                      <button class="icon-btn" title="Mover el marcador hasta acá" onClick={() => store.rollbackAfter(f.id)}>⇥</button>
-                      <button class="icon-btn danger" title="Borrar" onClick={() => confirmDelete(f)}>✕</button>
+                      <button class="icon-btn" {...tip('Mover el marcador hasta acá')} onClick={() => store.rollbackAfter(f.id)}><Icon name="rollTo" size={14} /></button>
+                      <button class="icon-btn danger" {...tip('Borrar', 'Supr')} onClick={() => confirmDelete(f)}><Icon name="trash" size={14} /></button>
                     </span>
                   </li>
                   <Show when={i() + 1 === active() && active() > 0}><Marker /></Show>

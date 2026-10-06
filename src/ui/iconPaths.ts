@@ -1,0 +1,71 @@
+// Trazos de los íconos (24×24, trazo con currentColor). Sin JSX: lo usan la UI y el viewport.
+// Clases internas: "d" = trazo punteado, "f" = relleno sólido.
+
+export const ICONS = {
+  // Archivo y edición
+  file: '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
+  new: '<path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',
+  open: '<path d="M3 18.5V6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h7a1.5 1.5 0 0 1 1.5 1.5V10"/><path d="M3 18.5 5.6 11h16L19 19.5H4z"/>',
+  save: '<path d="M5 3h11l3 3v13.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19.5v-15A1.5 1.5 0 0 1 5 3z"/><path d="M8 3v5h7V3M7.5 21v-7h9v7"/>',
+  saveAs: '<path d="M12 21H5.5A1.5 1.5 0 0 1 4 19.5v-15A1.5 1.5 0 0 1 5.5 3H16l3 3v4"/><path d="M8 3v5h7V3"/><path d="M14 21v-2.5l5.5-5.5 2.5 2.5-5.5 5.5z"/>',
+  export: '<path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/>',
+  undo: '<path d="M9 13 4 8l5-5"/><path d="M4 8h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="m15 13 5-5-5-5"/><path d="M20 8H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  caret: '<path d="m8 10 4 4 4-4"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8v.5"/><circle class="f" cx="12" cy="17" r="1"/>',
+  fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><rect x="8.5" y="8.5" width="7" height="7" rx="1"/>',
+  params: '<path d="M6 20c1.5 0 2.2-.8 2.6-2.6L11 6.6C11.4 4.8 12.1 4 13.6 4"/><path d="M7 10h6M14.5 13l5 6M19.5 13l-5 6"/>',
+  grid: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/>',
+  dims: '<path d="M4 7v10M20 7v10M4 12h16M7 9.5 4.5 12 7 14.5M17 9.5l2.5 2.5-2.5 2.5"/>',
+  measure: '<path d="m3 16 13-13 5 5-13 13z"/><path d="m7 12 2 2M10 9l2 2M13 6l2 2"/>',
+  // Sketch y dibujo
+  sketch: '<path d="M3 21h8"/><path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="m12.5 6.5 5 5"/>',
+  select: '<path d="M6 3.5 18.5 11l-5.8 1.5L10 18.5z"/>',
+  line: '<path d="M6 18 18 6"/><circle class="f" cx="6" cy="18" r="2"/><circle class="f" cx="18" cy="6" r="2"/>',
+  rectangle: '<rect x="4" y="6" width="16" height="12" rx="0.5"/>',
+  circle: '<circle cx="12" cy="12" r="8"/><circle class="f" cx="12" cy="12" r="1.4"/>',
+  arc: '<path d="M5 18A11 11 0 0 1 19 6"/><circle class="f" cx="5" cy="18" r="2"/><circle class="f" cx="19" cy="6" r="2"/>',
+  centerRect: '<rect x="4" y="6" width="16" height="12" rx="0.5"/><path class="d" d="M4 6l16 12M20 6 4 18"/><circle class="f" cx="12" cy="12" r="1.6"/>',
+  polygon: '<path d="M12 3.5 19.4 7.8v8.4L12 20.5l-7.4-4.3V7.8z"/>',
+  slot: '<path d="M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7z"/><circle class="f" cx="8" cy="12" r="1.3"/><circle class="f" cx="16" cy="12" r="1.3"/>',
+  construction: '<path class="d" d="M4 20 20 4"/>',
+  // Features
+  extrude: '<path d="M3.5 16.5 12 20.5l8.5-4L12 12.5z"/><path d="M12 16V3M8.5 6.5 12 3l3.5 3.5"/>',
+  revolve: '<path class="d" d="M12 2v20"/><path d="M17.5 9.4A8 3.6 0 1 1 6 8.8"/><path d="m14.2 6.6 3.6 2.8-3.4 2"/>',
+  pattern: '<rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect class="d" x="13.5" y="13.5" width="7" height="7" rx="1"/>',
+  mirror: '<path class="d" d="M12 2v20"/><path d="M9.5 6 3 18h6.5z"/><path d="M14.5 6 21 18h-6.5z"/>',
+  fillet: '<path d="M4 20v-8a8 8 0 0 1 8-8h8"/><path class="d" d="M4 12V4h8"/>',
+  chamfer: '<path d="M4 20v-9l7-7h9"/><path class="d" d="M4 11V4h7"/>',
+  shell: '<path d="M3 5v13.5A1.5 1.5 0 0 0 4.5 20h15a1.5 1.5 0 0 0 1.5-1.5V5"/><path d="M7 5v11h10V5"/>',
+  // Restricciones
+  coincident: '<path d="M3 19 12 12l9 7"/><circle class="f" cx="12" cy="12" r="2.6"/>',
+  horizontal: '<path d="M4 12h16M4 8.5v7M20 8.5v7"/>',
+  vertical: '<path d="M12 4v16M8.5 4h7M8.5 20h7"/>',
+  parallel: '<path d="M6 20 12 4M12 20 18 4"/>',
+  perpendicular: '<path d="M4 20h16M11 20V4"/><path d="M11 15h5v5"/>',
+  tangent: '<circle cx="12" cy="14" r="6"/><path d="M3 8h18"/>',
+  equal: '<path d="M5 9h14M5 15h14"/>',
+  distance: '<path d="M4 6v12M20 6v12M5 12h14M8 9l-3 3 3 3M16 9l3 3-3 3"/>',
+  radius: '<circle cx="12" cy="12" r="8"/><path d="m12 12 5.7-5.7"/><circle class="f" cx="12" cy="12" r="1.4"/>',
+  angle: '<path d="M4 20h16M4 20 15 5"/><path d="M11 20a7 7 0 0 0-2.4-5.3"/>',
+  // Historial
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  eyeOff: '<path d="M4 4l16 16M10 6c.6-.1 1.3-.5 2-.5 6 0 9.5 6.5 9.5 6.5s-.9 1.6-2.6 3.3M6.6 7.3C4 9 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.5 4.2-1.1"/>',
+  rollTo: '<path d="M4 6h16M4 11h10M4 16h6"/><path d="M14 18h7M18 15l3 3-3 3"/>',
+  toTop: '<path d="M5 4h14M12 20V8M7.5 12.5 12 8l4.5 4.5"/>',
+  toBottom: '<path d="M5 20h14M12 4v12M7.5 11.5 12 16l4.5-4.5"/>',
+  iso: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+  zoomIn: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/>',
+  zoomOut: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5"/>',
+  warning: '<path d="M12 3.5 21.5 20h-19z"/><path d="M12 10v4.5"/><circle class="f" cx="12" cy="17.3" r="1"/>',
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
+/** SVG como texto (para DOM armado a mano, como los controles del viewport). */
+export function iconMarkup(name: IconName, size = 18): string {
+  return `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+}

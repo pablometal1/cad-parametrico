@@ -1,4 +1,5 @@
 // Tabla de parámetros con nombre: `ancho = largo / 2`. Renombrar actualiza todas las referencias.
+import { Icon, tip } from './icons';
 import { createSignal, Index, Show } from 'solid-js';
 import type { Parameter } from '../document/types';
 import type { CadStore } from './store';
@@ -21,7 +22,7 @@ export function ParameterTable(props: { store: CadStore; onClose: () => void }) 
     <div class="param-panel" ref={panel} onKeyDown={(e) => e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT' && props.onClose()}>
       <div class="tool-dialog-title param-title">
         <span>ƒx Parámetros</span>
-        <button class="icon-btn" title="Cerrar" onClick={props.onClose}>✕</button>
+        <button class="icon-btn" {...tip('Cerrar', 'Esc')} onClick={props.onClose}><Icon name="close" size={14} /></button>
       </div>
       <div class="param-body">
         <Show
@@ -92,7 +93,7 @@ function ParamRow(props: { store: CadStore; param: Parameter; value?: number; er
         <CellInput value={p().comment ?? ''} onCommit={(v) => props.store.setParameterComment(p().id, v)} />
       </td>
       <td>
-        <button class="icon-btn danger" title="Borrar parámetro" onClick={confirmDelete}>✕</button>
+        <button class="icon-btn danger" {...tip('Borrar parámetro')} onClick={confirmDelete}><Icon name="trash" size={14} /></button>
       </td>
     </tr>
   );

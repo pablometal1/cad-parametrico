@@ -1,4 +1,5 @@
 // Panel de parámetros de la feature seleccionada en el timeline.
+import { Icon } from './icons';
 import { Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
@@ -79,14 +80,14 @@ function SketchPanel(props: { store: CadStore; feature: SketchFeature; info?: st
       <SelectField label="Plano" value={planeValue()} options={planeOptions()}
         onChange={(v) => v !== 'face' && update({ plane: { kind: 'base', plane: v, offset: f().plane.offset } })} />
       <Num store={props.store} id={f().id} path="plane.offset" label="Desplazamiento" unit="mm" />
-      <button class="wide" onClick={() => props.store.beginPick(f().id)} title="Elegir una cara plana del modelo como plano del sketch">
-        ◧ {f().plane.kind === 'face' ? 'Cambiar cara de apoyo…' : 'Apoyar en una cara…'}
+      <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)} title="Elegir una cara plana del modelo como plano del sketch">
+        <Icon name="select" size={15} />{f().plane.kind === 'face' ? 'Cambiar cara de apoyo…' : 'Apoyar en una cara…'}
       </button>
       <p class="hint">
         {curves()} curva{curves() === 1 ? '' : 's'} · {f().constraints.length} restricci{f().constraints.length === 1 ? 'ón' : 'ones'}
         <Show when={props.info}> · {props.info}</Show>
       </p>
-      <button class="primary wide" onClick={() => props.store.editSketch(f().id)}>✎ Editar sketch</button>
+      <button class="primary wide with-icon" onClick={() => props.store.editSketch(f().id)}><Icon name="sketch" size={15} />Editar sketch</button>
     </>
   );
 }
@@ -153,7 +154,7 @@ function EdgeFeaturePanel(props: { store: CadStore; feature: FilletFeature | Cha
       <h3>{isFillet() ? 'Redondeo' : 'Chaflán'}</h3>
       <Num store={props.store} id={f().id} path={isFillet() ? 'radius' : 'distance'} label={isFillet() ? 'Radio' : 'Distancia'} unit="mm" />
       <p class="hint">{f().edges.length} arista{f().edges.length === 1 ? '' : 's'}</p>
-      <button class="wide" onClick={() => props.store.beginPick(f().id)}>⌁ Elegir aristas…</button>
+      <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir aristas…</button>
     </>
   );
 }
@@ -167,7 +168,7 @@ function ShellPanel(props: { store: CadStore; feature: ShellFeature }) {
       <p class="hint">
         {f().faces.length === 0 ? 'Sin caras quitadas: queda hueco y cerrado.' : `${f().faces.length} cara${f().faces.length === 1 ? '' : 's'} quitada${f().faces.length === 1 ? '' : 's'}`}
       </p>
-      <button class="wide" onClick={() => props.store.beginPick(f().id)}>◧ Elegir caras a quitar…</button>
+      <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir caras a quitar…</button>
     </>
   );
 }

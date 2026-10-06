@@ -1,4 +1,5 @@
 // Viewport 3D: muestra la teselación del kernel, órbita/zoom/pan y selección de caras y aristas.
+import { iconMarkup, type IconName } from '../ui/iconPaths';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -590,19 +591,21 @@ export class Viewport {
   private buildViewControls(): HTMLDivElement {
     const bar = document.createElement('div');
     bar.className = 'view-controls';
-    const button = (text: string, title: string, onClick: () => void) => {
+    const button = (icon: IconName | null, label: string, key: string | null, onClick: () => void) => {
       const b = document.createElement('button');
-      b.textContent = text;
-      b.title = title;
+      if (icon) b.innerHTML = iconMarkup(icon, 16);
+      b.dataset.tip = label;
+      b.setAttribute('aria-label', label);
+      if (key) b.dataset.key = key;
       b.addEventListener('click', onClick);
       bar.appendChild(b);
       return b;
     };
-    button('⌂', 'Vista isométrica', () => this.setStandardView('iso'));
-    button('⤢', 'Encuadrar todo (F)', () => this.fitView());
-    button('+', 'Acercar', () => this.zoomBy(0.8));
-    button('−', 'Alejar', () => this.zoomBy(1.25));
-    this.projectionButton = button('', '', () =>
+    button('iso', 'Vista isométrica', null, () => this.setStandardView('iso'));
+    button('fit', 'Encuadrar todo', 'F', () => this.fitView());
+    button('zoomIn', 'Acercar', 'Rueda', () => this.zoomBy(0.8));
+    button('zoomOut', 'Alejar', 'Rueda', () => this.zoomBy(1.25));
+    this.projectionButton = button(null, '', null, () =>
       this.setProjection(this.projection === 'perspective' ? 'orthographic' : 'perspective'),
     );
     this.updateProjectionButton();
@@ -613,7 +616,9 @@ export class Viewport {
     if (!this.projectionButton) return;
     const ortho = this.projection === 'orthographic';
     this.projectionButton.textContent = ortho ? 'Orto' : 'Persp';
-    this.projectionButton.title = ortho ? 'Proyección ortográfica (clic: perspectiva)' : 'Proyección en perspectiva (clic: ortográfica)';
+    this.projectionButton.dataset.tip = ortho ? 'Proyección ortográfica' : 'Proyección en perspectiva';
+    this.projectionButton.dataset.desc = ortho ? 'Clic: pasar a perspectiva' : 'Clic: pasar a ortográfica (sin deformación, para medir a ojo)';
+    this.projectionButton.setAttribute('aria-label', this.projectionButton.dataset.tip);
   }
 
   private screenOf(ev: PointerEvent): [number, number] {

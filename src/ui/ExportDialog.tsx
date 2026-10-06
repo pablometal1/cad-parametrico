@@ -1,4 +1,5 @@
 // Exportar el modelo a STL, 3MF o STEP, con calidad de malla.
+import { Icon } from './icons';
 import { createSignal, For, Show } from 'solid-js';
 import type { KernelClient } from '../kernel/client';
 import type { ExportFormat, ExportQuality } from '../kernel/protocol';
@@ -41,7 +42,7 @@ export function ExportDialog(props: { kernel: KernelClient; fileName: string; on
 
   return (
     <div class="tool-dialog export-dialog">
-      <div class="tool-dialog-title">⇩ Exportar</div>
+      <div class="tool-dialog-title with-icon"><Icon name="export" size={16} />Exportar</div>
       <div class="tool-dialog-body">
         <For each={FORMATS}>
           {(f) => (
@@ -66,7 +67,7 @@ export function ExportDialog(props: { kernel: KernelClient; fileName: string; on
       </div>
       <div class="tool-dialog-actions">
         <button onClick={props.onClose}>Cancelar</button>
-        <button class="primary" disabled={busy()} onClick={() => void run()}>{busy() ? 'Exportando…' : '⇩ Exportar'}</button>
+        <button class="primary" disabled={busy()} onClick={() => void run()}>{busy() ? 'Exportando…' : 'Exportar'}</button>
       </div>
     </div>
   );
