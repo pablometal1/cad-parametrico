@@ -105,7 +105,22 @@ export interface SketchArc extends CurveBase {
 }
 
 export type SketchCurve = SketchLine | SketchCircle | SketchArc;
-export type SketchEntity = SketchPoint | SketchCurve;
+/**
+ * Texto: su punto `point` es la esquina inferior izquierda (sobre la línea de base); se puede
+ * acotar o restringir como cualquier punto. `height` es la altura de las mayúsculas (mm).
+ */
+export interface SketchText {
+  id: SketchEntityId;
+  type: 'text';
+  point: SketchEntityId;
+  text: string;
+  height: number;
+  /** Grados, antihorario. */
+  angle: number;
+  bold: boolean;
+}
+
+export type SketchEntity = SketchPoint | SketchCurve | SketchText;
 
 export type SketchConstraint =
   /** Punto-punto, o punto sobre línea/círculo/arco (`b` es la curva). */

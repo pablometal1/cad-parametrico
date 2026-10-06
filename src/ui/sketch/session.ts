@@ -1,15 +1,15 @@
 // Estado y lógica del editor de sketch (sin DOM). La vista (SketchEditor) traduce eventos a estas acciones.
 import { batch, createSignal } from 'solid-js';
-import type { SketchConstraint, SketchConstraintType, SketchData, SketchEntityId } from '../../document/types';
+import type { SketchConstraint, SketchConstraintType, SketchData, SketchEntityId, SketchText } from '../../document/types';
 import { SketchBuilder } from '../../sketch/builders';
 import { dist, sub } from '../../sketch/geometry';
-import { removeItems, SketchIndex, type Vec2 } from '../../sketch/model';
+import { removeItems, SketchIndex, type Vec2, curvePoints } from '../../sketch/model';
 import { constraintFromSelection, DIMENSIONAL, displayValue, withValue } from '../../sketch/rules';
 import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'point' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
+export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
 
 /** Posición del cursor, opcionalmente enganchada a un punto existente. */
 export interface Anchor {
@@ -72,6 +72,14 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   const [construction, setConstruction] = createSignal(false);
   /** Lados del polígono regular. */
   const [polygonSides, setPolygonSides] = createSignal(6);
+  /** Texto, altura y negrita para la herramienta Texto. */
+  const [textOptions, setTextOptions] = createSignal({ text: 'Texto', height: 10, bold: true });
+
+  /** Cambia un texto ya ubicado (contenido, altura, ángulo, negrita). */
+  function updateText(id: SketchEntityId, patch: Partial<Pick<SketchText, 'text' | 'height' | 'angle' | 'bold'>>) {
+    const d = data();
+    commit({ ...d, entities: d.entities.map((e) => (e.id === id && e.type === 'text' ? { ...e, ...patch } : e)) }, { allowRedundant: true });
+  }
   const [selection, setSelection] = createSignal<string[]>([]);
   const [pending, setPending] = createSignal<Pending | null>(null);
   const [message, setMessage] = createSignal<Message>(first.error ? { kind: 'error', text: first.error } : null);
@@ -132,6 +140,20 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     switch (tool()) {
       case 'select':
         return;
+      case 'text': {
+        // Texto anclado en el punto (o en uno existente, si se hizo clic sobre él).
+        const opts = textOptions();
+        if (!opts.text.trim()) {
+          setMessage({ kind: 'hint', text: 'Escribí el texto arriba antes de ubicarlo' });
+          return;
+        }
+        const b = new SketchBuilder(data());
+        const point = b.point(at.pointId ?? at.pos);
+        const id = nextTextId(data());
+        const next = { ...b.data, entities: [...b.data.entities, { id, type: 'text' as const, point, text: opts.text, height: opts.height, angle: 0, bold: opts.bold }] };
+        if (commit(next)) setSelection([id]);
+        return;
+      }
       case 'point': {
         // Un punto suelto (centro de agujero). Sobre un punto existente no agrega nada.
         if (at.pointId) return;
@@ -284,7 +306,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     const index = new SketchIndex(data());
     const e = index.get(id);
     if (!e) return; // origen/ejes: no se arrastran
-    const pointIds = e.type === 'point' ? [e.id] : e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : [e.center, e.start, e.end];
+    const pointIds = e.type === 'point' ? [e.id] : curvePoints(e);
     dragBase = { data: data(), points: pointIds.map((p) => ({ id: p, from: index.point(p) })), origin: at, moved: false };
   }
 
@@ -398,15 +420,15 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
 
   function toggleConstruction() {
     const ids = new Set(selection());
-    const curves = data().entities.filter((e) => ids.has(e.id) && e.type !== 'point');
+    const curves = data().entities.filter((e) => ids.has(e.id) && e.type !== 'point' && e.type !== 'text');
     if (!curves.length) {
       setMessage({ kind: 'hint', text: 'Elegí líneas, círculos o arcos para alternar construcción' });
       return;
     }
-    const value = !curves.every((c) => c.type !== 'point' && c.construction);
+    const value = !curves.every((c) => c.type !== 'point' && c.type !== 'text' && c.construction);
     commit({
       ...data(),
-      entities: data().entities.map((e) => (ids.has(e.id) && e.type !== 'point' ? { ...e, construction: value } : e)),
+      entities: data().entities.map((e) => (ids.has(e.id) && e.type !== 'point' && e.type !== 'text' ? { ...e, construction: value } : e)),
     }, { allowRedundant: true });
   }
 
@@ -444,7 +466,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
 
   return {
     data, exprs, documentExprs, info, tool, construction, selection, pending, message, prompt, dirty, historySize,
-    polygonSides, setPolygonSides,
+    polygonSides, setPolygonSides, textOptions, setTextOptions, updateText,
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
     applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,
@@ -455,6 +477,7 @@ export type SketchSession = ReturnType<typeof createSketchSession>;
 
 const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
   point: 'Punto: clic donde va cada centro de agujero (después, Agujero los usa todos).',
+  text: 'Texto: escribilo arriba y hacé clic donde empieza (esquina inferior izquierda). Se graba o se pone en relieve extruyendo.',
   line: 'Línea: clic en el inicio y en cada vértice. Esc termina; clic en el primer punto cierra.',
   rectangle: 'Rectángulo: clic en dos esquinas opuestas.',
   circle: 'Círculo: clic en el centro y luego en un punto del borde.',
@@ -502,4 +525,12 @@ export function slotRadius(c1: Vec2, c2: Vec2, p: Vec2): number {
   const L = Math.hypot(d[0], d[1]);
   if (L < 1e-12) return 0;
   return Math.abs(d[0] * (p[1] - c1[1]) - d[1] * (p[0] - c1[0])) / L;
+}
+
+/** Próximo id libre para un texto (t1, t2…). */
+function nextTextId(d: SketchData): string {
+  const used = new Set(d.entities.map((e) => e.id));
+  let n = 1;
+  while (used.has(`t${n}`)) n++;
+  return `t${n}`;
 }

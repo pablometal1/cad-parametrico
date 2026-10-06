@@ -147,7 +147,7 @@ function toGcs(index: SketchIndex, c: SketchConstraint): SketchPrimitive[] {
     case 'tangent': {
       const [ka, kb] = [kind(c.a), kind(c.b)];
       // Se normaliza el orden: línea primero, luego círculo, luego arco.
-      const order = { line: 0, circle: 1, arc: 2, point: 9 } as const;
+      const order = { line: 0, circle: 1, arc: 2, point: 9, text: 9 } as const;
       const [x, y] = order[ka] <= order[kb] ? [c.a, c.b] : [c.b, c.a];
       const pair = `${kind(x)}-${kind(y)}`;
       if (pair === 'line-circle') return [{ id, type: 'tangent_lc', l_id: x, c_id: y }];

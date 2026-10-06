@@ -1,5 +1,7 @@
 // Feature de sketch en el kernel: resuelve las restricciones y construye las caras de sus perfiles.
-import { assembleWire, makeCircle, makeFace, makeLine, makeThreePointArc, type AnyShape, type Edge, type Face } from 'replicad';
+import { assembleWire, makeBezierCurve, makeCircle, makeFace, makeLine, makeThreePointArc, type AnyShape, type Edge, type Face } from 'replicad';
+import { flattenContour, signedArea, textContours, textRegions, type TextContour } from '../../sketch/text';
+import type { Vec2 } from '../../sketch/model';
 import { basePlaneFrame, faceFrame, offsetFrame, scale, toPlane, toWorld, type PlaneFrame } from '../../document/planes';
 import type { FeatureId, SketchData, SketchFeature } from '../../document/types';
 import { arcParams, curveDistance } from '../../sketch/geometry';
@@ -20,6 +22,13 @@ export interface EvaluatedSketch {
   dof: number;
   /** Contorno de la cara de apoyo en coordenadas del sketch (pares u,v por segmento). */
   reference: number[];
+  /** Textos del sketch: contornos de las letras en coordenadas del sketch. */
+  text: { id: string; contours: TextContour[] }[];
+}
+
+/** ¿El sketch tiene algo para extruir/revolucionar? (perfiles cerrados o texto) */
+export function hasProfiles(s: EvaluatedSketch) {
+  return s.regions.length > 0 || s.text.some((t) => t.contours.length > 0);
 }
 
 export function evaluateSketch(
@@ -46,14 +55,24 @@ export function evaluateSketch(
     if (err instanceof ProfileError) throw new FeatureError(err.message);
     throw err;
   }
+  const index = new SketchIndex(solved.data);
+  let text: EvaluatedSketch['text'];
+  try {
+    text = index.texts().map((t) => ({ id: t.id, contours: t.text.trim() ? textContours(t, index.point(t.point)) : [] }));
+  } catch (err) {
+    throw new FeatureError(`No se pudo armar el texto (${(err as Error).message})`);
+  }
+  const hasText = text.some((t) => t.contours.length > 0);
   return {
     frame,
     reference,
     data: solved.data,
     regions: analysis.regions,
     openChains: analysis.openChains,
-    overlapping: analysis.overlapping,
+    // Texto junto a otros perfiles: cada región se barre por separado y se unen.
+    overlapping: analysis.overlapping || (hasText && (analysis.regions.length > 0 || text.length > 1)),
     dof: solved.dof,
+    text,
   };
 }
 
@@ -113,7 +132,8 @@ export function nameSweep(nb: NameBuilder, history: History, s: EvaluatedSketch,
 export function describeSketch(s: EvaluatedSketch): string {
   if (s.data.entities.length === 0) return 'Vacío';
   const def = s.dof === 0 ? 'Totalmente definido' : `${s.dof} grado${s.dof === 1 ? '' : 's'} de libertad`;
-  const profiles = s.regions.length === 1 ? '1 perfil' : `${s.regions.length} perfiles`;
+  const texts = s.text.filter((t) => t.contours.length > 0).length;
+  const profiles = (s.regions.length === 1 ? '1 perfil' : `${s.regions.length} perfiles`) + (texts ? ` · ${texts} texto${texts === 1 ? '' : 's'}` : '');
   const open = s.openChains > 0 ? ` · ${s.openChains} abierto${s.openChains === 1 ? '' : 's'}` : '';
   return `${def} · ${profiles}${open}`;
 }
@@ -143,6 +163,41 @@ export function buildSketchFaces(s: EvaluatedSketch, offset = 0): Face[] {
       throw new FeatureError('Un perfil del sketch se cruza consigo mismo o con otro perfil');
     }
     faces.push(face);
+  }
+  for (const t of s.text) faces.push(...buildTextFaces(t.contours, frame));
+  return faces;
+}
+
+/** Caras planas de las letras (curvas de Bézier exactas), con sus agujeros. */
+function buildTextFaces(contours: TextContour[], frame: PlaneFrame): Face[] {
+  const faces: Face[] = [];
+  const P = ([u, v]: Vec2) => toWorld(frame, u, v);
+  const wire = (c: TextContour, ccw: boolean) => {
+    // Exteriores antihorarios y agujeros horarios (en el plano del sketch).
+    const poly = flattenContour(c);
+    const reverse = signedArea(poly) > 0 !== ccw;
+    const segs = reverse ? [...c].reverse().map((s) => [...s].reverse()) : c;
+    const edges: Edge[] = segs.map((s) => (s.length === 2 ? makeLine(P(s[0]), P(s[1])) : makeBezierCurve(s.map(P))));
+    try {
+      return assembleWire(edges);
+    } finally {
+      edges.forEach((e) => e.delete());
+    }
+  };
+  for (const region of textRegions(contours)) {
+    const outer = wire(region.outer, true);
+    const holes = region.holes.map((h) => wire(h, false));
+    try {
+      const face = makeFace(outer, holes);
+      if (!isValidShape(face)) {
+        face.delete();
+        throw new FeatureError('Una letra del texto salió inválida');
+      }
+      faces.push(face);
+    } finally {
+      outer.delete();
+      holes.forEach((h) => h.delete());
+    }
   }
   return faces;
 }

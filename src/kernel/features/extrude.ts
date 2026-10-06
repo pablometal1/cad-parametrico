@@ -4,7 +4,7 @@ import type { ExtrudeFeature } from '../../document/types';
 import { historyOf, NameBuilder, type NamedShape } from '../naming';
 import { FeatureError } from '../occtUtils';
 import { combine, sweepRegions } from './boolean';
-import { buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
+import { buildSketchFaces, hasProfiles, nameSweep, type EvaluatedSketch } from './sketch';
 
 export { volume } from './measure';
 
@@ -24,7 +24,7 @@ export function buildExtrudeTool(feature: ExtrudeFeature, sketch: EvaluatedSketc
   const oc = getOC();
   const d = feature.distance;
   if (!(d > 0)) throw new FeatureError(`La distancia debe ser mayor que 0 (es ${d})`);
-  if (sketch.regions.length === 0) {
+  if (!hasProfiles(sketch)) {
     throw new FeatureError(
       sketch.openChains > 0 ? 'El sketch no tiene perfiles cerrados (hay contornos abiertos)' : 'El sketch no tiene perfiles cerrados',
     );

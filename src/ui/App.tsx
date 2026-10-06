@@ -585,6 +585,20 @@ export function App() {
                   )}
                 </For>
               </div>
+              <Show when={draw.tool() === 'text'}>
+                <span class="text-opts">
+                  <input class="text-input" value={draw.textOptions().text} placeholder="Texto"
+                    onInput={(e) => draw.setTextOptions({ ...draw.textOptions(), text: e.currentTarget.value })} />
+                  <label class="sides" title="Altura de las mayúsculas (mm)">
+                    <input type="number" min="0.5" step="0.5" value={draw.textOptions().height}
+                      onChange={(e) => draw.setTextOptions({ ...draw.textOptions(), height: Math.max(0.5, Number(e.currentTarget.value) || 10) })} /> mm
+                  </label>
+                  <label class="sides">
+                    <input type="checkbox" checked={draw.textOptions().bold}
+                      onChange={(e) => draw.setTextOptions({ ...draw.textOptions(), bold: e.currentTarget.checked })} /> negrita
+                  </label>
+                </span>
+              </Show>
               <Show when={draw.tool() === 'polygon'}>
                 <label class="sides" title="Cantidad de lados del polígono">
                   <input type="number" min="3" max="64" value={draw.sides()} onChange={(e) => draw.setSides(Number(e.currentTarget.value))} /> lados

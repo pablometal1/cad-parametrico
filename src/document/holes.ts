@@ -10,6 +10,7 @@ export function holeCenters(data: SketchData): { id: string; pos: [number, numbe
   const centers: string[] = [];
   for (const e of data.entities) {
     if (e.type === 'line') used.add(e.p1).add(e.p2);
+    else if (e.type === 'text') used.add(e.point);
     else if (e.type === 'arc') used.add(e.center).add(e.start).add(e.end);
     else if (e.type === 'circle') {
       used.add(e.center);

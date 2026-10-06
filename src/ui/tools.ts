@@ -4,6 +4,7 @@ import type { IconName } from './iconPaths';
 
 export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: string }[] = [
   { id: 'point', label: 'Punto (centro de agujero)', icon: 'point', key: 'O' },
+  { id: 'text', label: 'Texto (grabar o en relieve)', icon: 'text', key: 'T' },
   { id: 'line', label: 'Línea', icon: 'line', key: 'L' },
   { id: 'rectangle', label: 'Rectángulo', icon: 'rectangle', key: 'R' },
   { id: 'circle', label: 'Círculo', icon: 'circle', key: 'C' },
@@ -87,7 +88,7 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
   {
     title: 'Editor de sketch',
     rows: [
-      ['O L R E C A P S', 'Las mismas herramientas de dibujo'],
+      ['O T L R E C A P S', 'Las mismas herramientas de dibujo'],
       ['G', 'Pasar a construcción'],
       ['Supr', 'Borrar selección'],
       ['Doble clic', 'Editar el valor de una cota'],

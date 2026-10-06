@@ -1,4 +1,5 @@
 // Editor 2D de sketch: dibujo, selección, arrastre con el solver y restricciones.
+import { flattenContour, fontsLoaded, textContours } from '../../sketch/text';
 import { Icon, tip, type IconName } from '../icons';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchCurve, type SketchData } from '../../document/types';
@@ -23,6 +24,7 @@ const DRAG_THRESHOLD_PX = 3;
 const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
   { id: 'select', label: 'Seleccionar', key: 'Esc', icon: 'select' },
   { id: 'point', label: 'Punto (centro de agujero)', key: 'O', icon: 'point' },
+  { id: 'text', label: 'Texto', key: 'T', icon: 'text' },
   { id: 'line', label: 'Línea', key: 'L', icon: 'line' },
   { id: 'rectangle', label: 'Rectángulo', key: 'R', icon: 'rectangle' },
   { id: 'circle', label: 'Círculo', key: 'C', icon: 'circle' },
@@ -103,6 +105,7 @@ export function SketchEditor(props: {
         pts.push([ctr[0] - c.radius, ctr[1] - c.radius], [ctr[0] + c.radius, ctr[1] + c.radius]);
       }
     }
+    for (const t of textShapes()) pts.push([t.box[0], t.box[1]], [t.box[2], t.box[3]]);
     let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const [x, y] of pts) {
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
@@ -167,7 +170,7 @@ export function SketchEditor(props: {
       if (id === AXIS_Y) return [0, view().cy + 20 / view().scale];
       const e = idx.get(id);
       if (!e) return [0, 0];
-      return e.type === 'point' ? [e.x, e.y] : curveMidpoint(idx, e);
+      return e.type === 'point' ? [e.x, e.y] : e.type === 'text' ? idx.point(e.point) : curveMidpoint(idx, e);
     };
 
     for (const c of s.data().constraints) {
@@ -207,6 +210,9 @@ export function SketchEditor(props: {
     if (best) return (best as { id: string }).id;
     for (const c of idx.curves()) consider(c.id, curveDistance(idx, c, p) * scale, CURVE_HIT_PX);
     if (best) return (best as { id: string }).id;
+    for (const t of textShapes()) {
+      if (p[0] >= t.box[0] && p[0] <= t.box[2] && p[1] >= t.box[1] && p[1] <= t.box[3]) return t.id;
+    }
     consider(AXIS_X, Math.abs(p[1]) * scale, CURVE_HIT_PX);
     consider(AXIS_Y, Math.abs(p[0]) * scale, CURVE_HIT_PX);
     return best ? (best as { id: string }).id : null;
@@ -311,6 +317,7 @@ export function SketchEditor(props: {
     if (e.key === 'Escape') s.escape();
     else if (e.key === 'Delete' || e.key === 'Backspace') s.deleteSelection();
     else if (k === 'o') s.setTool('point');
+    else if (k === 't') s.setTool('text');
     else if (k === 'l') s.setTool('line');
     else if (k === 'r') s.setTool('rectangle');
     else if (k === 'c') s.setTool('circle');
@@ -348,6 +355,29 @@ export function SketchEditor(props: {
       lines.push({ a: toScreen([x0, y]), b: toScreen([x1, y]), major: Math.abs(Math.round(y / step)) % 5 === 0 });
     }
     return { lines, step };
+  });
+
+  /** Textos del sketch ya convertidos en contornos (coordenadas del sketch) y su caja. */
+  const textShapes = createMemo(() => {
+    const idx = index();
+    if (!fontsLoaded()) return [];
+    return idx.texts().map((t) => {
+      const polys = t.text.trim() ? textContours(t, idx.point(t.point)).map((c) => flattenContour(c, 4)) : [];
+      const all = polys.flat();
+      const [ax, ay] = idx.point(t.point);
+      const box: [number, number, number, number] = all.length
+        ? [Math.min(...all.map((q) => q[0])), Math.min(...all.map((q) => q[1])), Math.max(...all.map((q) => q[0])), Math.max(...all.map((q) => q[1]))]
+        : [ax, ay, ax + 1, ay + 1];
+      return { id: t.id, polys, box };
+    });
+  });
+
+  /** Texto elegido (para editarlo), si hay exactamente uno. */
+  const selectedText = createMemo(() => {
+    const ids = s.selection();
+    if (ids.length !== 1) return null;
+    const e = index().get(ids[0]);
+    return e?.type === 'text' ? e : null;
   });
 
   const curveElement = (c: SketchCurve) => {
@@ -444,6 +474,37 @@ export function SketchEditor(props: {
               </button>
             )}
           </For>
+          <Show when={selectedText()} fallback={
+            <Show when={s.tool() === 'text'}>
+              <span class="text-opts">
+                <input class="text-input" value={s.textOptions().text} placeholder="Texto"
+                  onInput={(e) => s.setTextOptions({ ...s.textOptions(), text: e.currentTarget.value })} />
+                <label class="sides" title="Altura de las mayúsculas (mm)">
+                  <input type="number" min="0.5" step="0.5" value={s.textOptions().height}
+                    onChange={(e) => s.setTextOptions({ ...s.textOptions(), height: Math.max(0.5, Number(e.currentTarget.value) || 10) })} /> mm
+                </label>
+                <label class="sides" title="Negrita: más legible al imprimir">
+                  <input type="checkbox" checked={s.textOptions().bold} onChange={(e) => s.setTextOptions({ ...s.textOptions(), bold: e.currentTarget.checked })} /> negrita
+                </label>
+              </span>
+            </Show>
+          }>
+            {(t) => (
+              <span class="text-opts" title="Texto elegido">
+                <input class="text-input" value={t().text} onChange={(e) => s.updateText(t().id, { text: e.currentTarget.value })} />
+                <label class="sides" title="Altura de las mayúsculas (mm)">
+                  <input type="number" min="0.5" step="0.5" value={t().height}
+                    onChange={(e) => s.updateText(t().id, { height: Math.max(0.5, Number(e.currentTarget.value) || t().height) })} /> mm
+                </label>
+                <label class="sides" title="Ángulo (grados)">
+                  <input type="number" step="5" value={t().angle} onChange={(e) => s.updateText(t().id, { angle: Number(e.currentTarget.value) || 0 })} /> °
+                </label>
+                <label class="sides">
+                  <input type="checkbox" checked={t().bold} onChange={(e) => s.updateText(t().id, { bold: e.currentTarget.checked })} /> negrita
+                </label>
+              </span>
+            )}
+          </Show>
           <Show when={s.tool() === 'polygon'}>
             <label class="sides" title="Cantidad de lados del polígono">
               <input type="number" min="3" max="64" value={s.polygonSides()}
@@ -518,6 +579,11 @@ export function SketchEditor(props: {
           })()}
           {/* Se regenera entero en cada cambio: las líneas no cambian de identidad al mover sus puntos. */}
           {index().curves().map((c) => curveElement(c))}
+          {textShapes().map((t) => (
+            <path d={t.polys.map((poly) => 'M' + poly.map((q) => toScreen(q).join(' ')).join('L') + 'Z').join('')}
+              stroke={color(t.id, false)} stroke-width={s.selection().includes(t.id) || hover() === t.id ? 2.2 : 1.3}
+              fill={s.selection().includes(t.id) ? 'rgba(255,154,60,0.18)' : 'rgba(255,200,87,0.08)'} fill-rule="evenodd" />
+          ))}
 
           {/* Líneas auxiliares de cotas */}
           <For each={labels().filter((l) => l.leader)}>

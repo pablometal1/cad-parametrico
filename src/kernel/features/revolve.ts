@@ -6,7 +6,7 @@ import { SketchIndex } from '../../sketch/model';
 import { historyOf, NameBuilder, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 import { combine, sweepRegions } from './boolean';
-import { buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
+import { buildSketchFaces, nameSweep, type EvaluatedSketch, hasProfiles } from './sketch';
 
 export function runRevolve(feature: RevolveFeature, sketch: EvaluatedSketch, input: NamedShape | null): NamedShape {
   if (feature.operation === 'cut' && !input) {
@@ -21,7 +21,7 @@ export function buildRevolveTool(feature: RevolveFeature, sketch: EvaluatedSketc
   if (!(feature.angle > 0 && feature.angle <= 360)) {
     throw new FeatureError(`El ángulo debe estar entre 0 y 360° (es ${feature.angle})`);
   }
-  if (sketch.regions.length === 0) throw new FeatureError('El sketch no tiene perfiles cerrados');
+  if (!hasProfiles(sketch)) throw new FeatureError('El sketch no tiene perfiles cerrados');
 
   const [origin, dir] = revolveAxis(feature, sketch);
   const faces = buildSketchFaces(sketch);

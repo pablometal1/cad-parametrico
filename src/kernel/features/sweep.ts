@@ -7,7 +7,7 @@ import { SketchIndex } from '../../sketch/model';
 import { historyOf, NameBuilder, type NamedShape } from '../naming';
 import { describeError, FeatureError, isValidShape } from '../occtUtils';
 import { combine, sweepRegions } from './boolean';
-import { buildOuterWires, buildSketchFaces, nameSweep, type EvaluatedSketch } from './sketch';
+import { buildOuterWires, buildSketchFaces, hasProfiles, nameSweep, type EvaluatedSketch } from './sketch';
 
 /** Tolerancia para unir extremos de la trayectoria (mm). */
 const JOIN_TOL = 1e-6;
@@ -23,7 +23,7 @@ export function runSweep(feature: SweepFeature, profile: EvaluatedSketch, path: 
 export function buildSweepTool(feature: SweepFeature, profile: EvaluatedSketch, path: EvaluatedSketch): NamedShape {
   const oc = getOC();
   if (feature.profile === feature.path) throw new FeatureError('El perfil y la trayectoria tienen que ser sketches distintos');
-  if (profile.regions.length === 0) throw new FeatureError('El sketch del perfil no tiene contornos cerrados');
+  if (!hasProfiles(profile)) throw new FeatureError('El sketch del perfil no tiene contornos cerrados');
   const spine = buildPathWire(path);
   const faces = buildSketchFaces(profile);
   const sweep = (group: Face[]): NamedShape => {

@@ -1,4 +1,5 @@
 // Curvas de un sketch evaluado como segmentos 3D, para mostrarlas en el viewport.
+import { flattenContour } from '../sketch/text';
 import { toWorld } from '../document/planes';
 import { sampleCurve } from '../sketch/geometry';
 import { SketchIndex } from '../sketch/model';
@@ -13,8 +14,18 @@ export function sketchSegments(s: EvaluatedSketch): { segments: Float32Array; co
     const out = c.construction ? aux : normal;
     for (let i = 0; i + 1 < pts.length; i++) out.push(...pts[i], ...pts[i + 1]);
   }
+  // Texto: el contorno de cada letra.
+  for (const t of s.text) {
+    for (const contour of t.contours) {
+      const pts = flattenContour(contour).map(([u, v]) => toWorld(s.frame, u, v));
+      for (let i = 0; i + 1 < pts.length; i++) normal.push(...pts[i], ...pts[i + 1]);
+    }
+  }
   // Puntos sueltos (centros de agujero): una cruz chica para que se vean en 3D.
-  const used = new Set(index.curves().flatMap((c) => (c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.center, c.start, c.end] : [c.center])));
+  const used = new Set([
+    ...index.curves().flatMap((c) => (c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.center, c.start, c.end] : [c.center])),
+    ...index.texts().map((t) => t.point),
+  ]);
   const k = 0.75;
   for (const p of index.points()) {
     if (used.has(p.id)) continue;

@@ -49,6 +49,7 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     session = createSketchSession(t.data, { scope: () => store.evaluated().scope });
     session.setTool(initialTool);
     session.setPolygonSides(sides());
+    session.setTextOptions(textOpts());
     setToolSignal(initialTool);
     setMessage(null);
     const vp = viewport();
@@ -172,10 +173,17 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
   }
 
   const [sides, setSidesSignal] = createSignal(6);
+  const [textOpts, setTextOpts] = createSignal({ text: 'Texto', height: 10, bold: true });
 
   return {
     active,
     tool,
+    /** Opciones de la herramienta Texto (las usa la sesión al ubicar un texto). */
+    textOptions: textOpts,
+    setTextOptions(v: { text: string; height: number; bold: boolean }) {
+      setTextOpts(v);
+      session?.setTextOptions(v);
+    },
     sides,
     setSides(n: number) {
       const v = Math.max(3, Math.min(64, Math.round(n) || 6));
@@ -194,3 +202,4 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
 }
 
 export type DirectDraw = ReturnType<typeof createDirectDraw>;
+

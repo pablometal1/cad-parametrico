@@ -1,6 +1,7 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
 import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
+import { loadFonts } from '../sketch/text';
 import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
@@ -36,7 +37,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
 
   async init(): Promise<{ occtLoadMs: number }> {
     const t0 = performance.now();
-    await Promise.all([initOCCT(this.wasmUrl), initSolver(this.solverWasmUrl)]);
+    await Promise.all([initOCCT(this.wasmUrl), initSolver(this.solverWasmUrl), loadFonts()]);
     return { occtLoadMs: Math.round(performance.now() - t0) };
   }
 

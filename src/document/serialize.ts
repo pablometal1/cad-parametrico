@@ -200,7 +200,7 @@ function validateSketch(
     kinds.set(e.id, e.type);
   });
   entities.forEach((e, i) => {
-    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end] : [];
+    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end] : e.type === 'text' ? [e.point] : [];
     for (const r of refs) {
       if (kinds.get(r) !== 'point') throw new DocumentFormatError(`${path}.entities[${i}]`, `referencia a un punto inexistente "${r}"`);
     }
@@ -232,6 +232,11 @@ function validateEntity(raw: unknown, path: string): SketchEntity {
       return {
         id, type: 'arc', center: str(o.center, `${path}.center`), start: str(o.start, `${path}.start`),
         end: str(o.end, `${path}.end`), construction: construction(),
+      };
+    case 'text':
+      return {
+        id, type: 'text', point: str(o.point, `${path}.point`), text: typeof o.text === 'string' ? o.text : str(o.text, `${path}.text`),
+        height: num(o.height, `${path}.height`), angle: num(o.angle, `${path}.angle`), bold: bool(o.bold, `${path}.bold`),
       };
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de entidad desconocido: ${String(o.type)}`);

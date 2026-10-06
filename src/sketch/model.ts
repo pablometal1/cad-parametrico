@@ -2,7 +2,7 @@
 import {
   AXIS_X, AXIS_Y, IMPLICIT_IDS, ORIGIN,
   type SketchConstraint, type SketchCurve, type SketchData, type SketchEntity, type SketchEntityId,
-  type SketchPoint,
+  type SketchPoint, type SketchText,
 } from '../document/types';
 
 export type Vec2 = [number, number];
@@ -34,19 +34,23 @@ export class SketchIndex {
     return this.byId.get(id)?.type;
   }
   curves(): SketchCurve[] {
-    return this.data.entities.filter((e): e is SketchCurve => e.type !== 'point');
+    return this.data.entities.filter((e): e is SketchCurve => e.type === 'line' || e.type === 'circle' || e.type === 'arc');
+  }
+  texts(): SketchText[] {
+    return this.data.entities.filter((e): e is SketchText => e.type === 'text');
   }
   points(): SketchPoint[] {
     return this.data.entities.filter((e): e is SketchPoint => e.type === 'point');
   }
 }
 
-/** Puntos que definen una curva. */
-export function curvePoints(c: SketchCurve): SketchEntityId[] {
+/** Puntos que definen una curva (o el punto de anclaje de un texto). */
+export function curvePoints(c: SketchCurve | SketchText): SketchEntityId[] {
   switch (c.type) {
     case 'line': return [c.p1, c.p2];
     case 'circle': return [c.center];
     case 'arc': return [c.center, c.start, c.end];
+    case 'text': return [c.point];
   }
 }
 
@@ -96,14 +100,14 @@ export function removeItems(data: SketchData, ids: Iterable<string>): SketchData
 
   // Puntos huérfanos de las curvas borradas.
   const stillUsed = new Set(
-    entities.filter((e): e is SketchCurve => e.type !== 'point').flatMap(curvePoints),
+    entities.filter((e): e is SketchCurve | SketchText => e.type !== 'point').flatMap(curvePoints),
   );
   const orphan = new Set(removedCurves.flatMap(curvePoints).filter((p) => !stillUsed.has(p)));
   // Un punto también se borra si se pidió explícitamente y ninguna curva restante lo usa.
   for (const id of remove) if (!stillUsed.has(id)) orphan.add(id);
   // Si se pidió borrar un punto que una curva sigue usando, se borra la curva también.
   const forcedCurves = entities.filter(
-    (e): e is SketchCurve => e.type !== 'point' && curvePoints(e).some((p) => remove.has(p)),
+    (e): e is SketchCurve | SketchText => e.type !== 'point' && curvePoints(e).some((p) => remove.has(p)),
   );
   if (forcedCurves.length > 0) {
     return removeItems(data, [...remove, ...forcedCurves.map((c) => c.id)]);

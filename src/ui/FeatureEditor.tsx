@@ -132,7 +132,14 @@ function ExtrudePanel(props: { store: CadStore; feature: ExtrudeFeature }) {
     <>
       <h3>Extrusión</h3>
       <SketchSelect store={props.store} feature={f()} onChange={(sketch) => update({ sketch })} />
-      <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
+      <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => {
+        // Cortar desde un sketch apoyado en una cara: hacia adentro del material (grabar, bolsillos).
+        const sk = props.store.doc().features.find((x) => x.id === f().sketch);
+        const onFace = sk?.type === 'sketch' && sk.plane.kind === 'face';
+        if (operation === 'cut' && onFace && f().direction === 'normal') update({ operation, direction: 'reversed' });
+        else if (operation !== 'cut' && onFace && f().direction === 'reversed') update({ operation, direction: 'normal' });
+        else update({ operation });
+      }} />
       <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
       <SelectField label="Dirección" value={f().direction} options={DIRECTIONS} onChange={(direction) => update({ direction })} />
     </>

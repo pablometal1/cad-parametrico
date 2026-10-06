@@ -529,3 +529,8 @@ kbd {
 .check-problems { margin: 0; padding: 0; list-style: none; color: #ffb3a8; font-size: 12px; }
 .check-problems li { display: flex; gap: 4px; align-items: flex-start; margin-bottom: 3px; line-height: 1.3; }
 .check-problems .icon { flex: none; margin-top: 1px; color: var(--error); }
+
+/* Opciones de texto */
+.text-opts { display: inline-flex; align-items: center; gap: 6px; }
+.text-input { width: 140px; background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; }
+.text-input:focus { outline: none; border-color: #5d7fa6; }

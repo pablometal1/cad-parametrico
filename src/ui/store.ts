@@ -1,4 +1,5 @@
 // Estado de la aplicación: el documento (fuente de verdad), su historial y los resultados del recálculo.
+import { loadFonts } from '../sketch/text';
 import { coarsePitch, holeCenters } from '../document/holes';
 import { findProfiles } from '../sketch/profiles';
 import { batch, createEffect, createMemo, createSignal, on } from 'solid-js';
@@ -332,7 +333,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     async start() {
       try {
         // El solver de sketch corre también en el hilo principal (edición interactiva).
-        await Promise.all([kernel.init(), initSolver(solverWasmUrl)]);
+        await Promise.all([kernel.init(), initSolver(solverWasmUrl), loadFonts()]);
         setKernelState({ state: 'ready' });
         pending = doc();
         await pump();

@@ -43,6 +43,7 @@ export const ICONS = {
   loft: '<rect x="3.5" y="15" width="17" height="5" rx="0.5"/><circle cx="12" cy="6" r="3"/><path d="M3.5 15 9 6.5M20.5 15 15 6.5"/>',
   hole: '<ellipse cx="12" cy="6.5" rx="6" ry="2.5"/><path d="M6 6.5v9.5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V6.5"/><path class="d" d="M12 9v12"/>',
   thread: '<path d="M8 3v18M16 3v18"/><path d="M8 5.5 16 3.5M8 9.5l8-2M8 13.5l8-2M8 17.5l8-2M8 21l8-1.5"/>',
+  text: '<path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6"/>',
   point: '<path d="M12 5v4M12 15v4M5 12h4M15 12h4"/><circle class="f" cx="12" cy="12" r="2.2"/>',
   plane: '<path d="M3 15 9.5 8h11.5L14.5 15z"/><path class="d" d="M12 19v-7.5"/><path d="M10 14l2 2 2-2" />',
   reorder: '<path d="M8 4v16M4.5 7.5 8 4l3.5 3.5M16 20V4M12.5 16.5 16 20l3.5-3.5"/>',
