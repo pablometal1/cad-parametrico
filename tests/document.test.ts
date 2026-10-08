@@ -155,7 +155,7 @@ describe('serialización', () => {
     expect(bad((d) => (d.features[0].distance = 'diez'))).toThrow(/\$\.features\[0\]\.distance/);
     expect(bad((d) => (d.features[0].sketch = ''))).toThrow(/sketch/);
     expect(bad((d) => (d.features[0].type = 'spline'))).toThrow(/feature desconocido/);
-    expect(bad((d) => (d.features[0].operation = 'intersect'))).toThrow(/operation/);
+    expect(bad((d) => (d.features[0].operation = 'subtract'))).toThrow(/operation/);
     expect(bad((d) => (d.rollback = 5))).toThrow(/rollback/);
     expect(bad((d) => d.features.push(structuredClone(d.features[0])))).toThrow(/duplicado/);
   });

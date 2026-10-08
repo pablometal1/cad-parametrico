@@ -4,6 +4,7 @@ import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
   RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature, ImportFeature,
+  PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature,
 } from '../document/types';
 import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
 import { ExprField, NumberField, SelectField, TextField } from './fields';
@@ -25,6 +26,7 @@ const OPERATIONS = [
   { value: 'new', label: 'Nuevo cuerpo' },
   { value: 'join', label: 'Unir' },
   { value: 'cut', label: 'Cortar' },
+  { value: 'intersect', label: 'Intersección' },
 ] as const satisfies readonly { value: BooleanOperation; label: string }[];
 
 export function FeatureEditor(props: { store: CadStore }) {
@@ -75,6 +77,21 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'loft'}>
                 <LoftPanel store={store} feature={feature() as LoftFeature} />
+              </Match>
+              <Match when={feature().type === 'pushpull'}>
+                <PushPullPanel store={store} feature={feature() as PushPullFeature} />
+              </Match>
+              <Match when={feature().type === 'draft'}>
+                <DraftPanel store={store} feature={feature() as DraftFeature} />
+              </Match>
+              <Match when={feature().type === 'combine'}>
+                <CombinePanel store={store} feature={feature() as CombineFeature} />
+              </Match>
+              <Match when={feature().type === 'split'}>
+                <SplitPanel store={store} feature={feature() as SplitFeature} />
+              </Match>
+              <Match when={feature().type === 'move'}>
+                <MovePanel store={store} feature={feature() as MoveFeature} />
               </Match>
             </Switch>
           </div>
@@ -298,6 +315,7 @@ const IMPORT_OPS = [
   { value: 'new', label: 'Cuerpo nuevo' },
   { value: 'join', label: 'Unir' },
   { value: 'cut', label: 'Cortar (encastre)' },
+  { value: 'intersect', label: 'Intersección' },
 ] as const satisfies readonly { value: ImportFeature['operation']; label: string }[];
 
 function ImportPanel(props: { store: CadStore; feature: ImportFeature }) {
@@ -556,6 +574,115 @@ function CopyPanel(props: { store: CadStore; feature: PatternFeature | MirrorFea
         )}
       </Show>
       <p class="hint">Se combina igual que la feature original (unir, cortar o cuerpo nuevo).</p>
+    </>
+  );
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function PickButton(props: { onClick: () => void; children: string }) {
+  return <button class="wide with-icon" onClick={props.onClick}><Icon name="select" size={15} />{props.children}</button>;
+}
+
+function PushPullPanel(props: { store: CadStore; feature: PushPullFeature }) {
+  const f = () => props.feature;
+  return (
+    <>
+      <h3>Empujar / tirar</h3>
+      <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
+      <p class="hint">{plural(f().faces.length, 'cara', 'caras')}. Positiva: la cara avanza y agrega material; negativa: retrocede y lo quita.</p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'faces')}>Elegir caras…</PickButton>
+    </>
+  );
+}
+
+function DraftPanel(props: { store: CadStore; feature: DraftFeature }) {
+  const f = () => props.feature;
+  return (
+    <>
+      <h3>Ángulo de desmoldeo</h3>
+      <Num store={props.store} id={f().id} path="angle" label="Ángulo" unit="°" />
+      <p class="hint">
+        {plural(f().faces.length, 'cara inclinada', 'caras inclinadas')}. Giran sobre su línea en la cara neutra; con ángulo
+        positivo la pieza se angosta al alejarse de ella (negativo: se ensancha).
+      </p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'faces')}>Elegir caras a inclinar…</PickButton>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'neutral')}>Cambiar cara neutra…</PickButton>
+    </>
+  );
+}
+
+const COMBINE_OPS = [
+  { value: 'join', label: 'Unir' },
+  { value: 'cut', label: 'Cortar' },
+  { value: 'intersect', label: 'Intersección' },
+] as const satisfies readonly { value: CombineFeature['operation']; label: string }[];
+
+function CombinePanel(props: { store: CadStore; feature: CombineFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<CombineFeature>) => props.store.updateFeature<CombineFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Combinar cuerpos</h3>
+      <SelectField label="Operación" value={f().operation} options={COMBINE_OPS} onChange={(operation) => update({ operation })} />
+      <label class="field">
+        <span class="field-label">Herramientas</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().keepTools} onChange={(e) => update({ keepTools: e.currentTarget.checked })} /> conservarlas
+        </span>
+      </label>
+      <p class="hint">{plural(f().tools.length, 'cuerpo herramienta', 'cuerpos herramienta')}.</p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'target')}>Cambiar cuerpo de destino…</PickButton>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'tools')}>Elegir herramientas…</PickButton>
+    </>
+  );
+}
+
+function SplitPanel(props: { store: CadStore; feature: SplitFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<SplitFeature>) => props.store.updateFeature<SplitFeature>(f().id, patch);
+  const planeValue = () => (f().plane.kind === 'face' ? 'face' : (f().plane as { plane: string }).plane);
+  const planeOptions = () => [
+    ...PLANES,
+    ...constructionPlaneOptions(props.store, f().id),
+    ...(f().plane.kind === 'face' ? [{ value: 'face', label: 'Cara del sólido' }] : []),
+  ];
+  return (
+    <>
+      <h3>Dividir</h3>
+      <SelectField label="Plano" value={planeValue()} options={planeOptions()} onChange={(v) => {
+        if (v === 'face') return;
+        update({ plane: v === 'XY' || v === 'XZ' || v === 'YZ' ? { kind: 'base', plane: v } : { kind: 'plane', plane: v } });
+      }} />
+      <Num store={props.store} id={f().id} path="offset" label="Desplazamiento" unit="mm" />
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'plane')}>Usar una cara plana…</PickButton>
+      <p class="hint">{f().body ? 'Divide un solo cuerpo.' : 'Divide todos los cuerpos que corta el plano.'}</p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'body')}>Elegir cuerpo…</PickButton>
+    </>
+  );
+}
+
+function MovePanel(props: { store: CadStore; feature: MoveFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<MoveFeature>) => props.store.updateFeature<MoveFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Mover / copiar cuerpos</h3>
+      <Num store={props.store} id={f().id} path="dx" label="X" unit="mm" />
+      <Num store={props.store} id={f().id} path="dy" label="Y" unit="mm" />
+      <Num store={props.store} id={f().id} path="dz" label="Z" unit="mm" />
+      <SelectField label="Girar en" value={f().axis} options={AXES} onChange={(axis) => update({ axis })} />
+      <Num store={props.store} id={f().id} path="angle" label="Ángulo" unit="°" />
+      <label class="field">
+        <span class="field-label">Copia</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().copy} onChange={(e) => update({ copy: e.currentTarget.checked })} /> dejar el original
+        </span>
+      </label>
+      <p class="hint">
+        {f().bodies.length ? plural(f().bodies.length, 'cuerpo', 'cuerpos') : 'Todos los cuerpos'}. Primero gira alrededor del eje (por el origen), después traslada.
+      </p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'bodies')}>Elegir cuerpos…</PickButton>
     </>
   );
 }

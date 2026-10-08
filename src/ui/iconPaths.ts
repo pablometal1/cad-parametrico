@@ -55,6 +55,11 @@ export const ICONS = {
   point: '<path d="M12 5v4M12 15v4M5 12h4M15 12h4"/><circle class="f" cx="12" cy="12" r="2.2"/>',
   plane: '<path d="M3 15 9.5 8h11.5L14.5 15z"/><path class="d" d="M12 19v-7.5"/><path d="M10 14l2 2 2-2" />',
   reorder: '<path d="M8 4v16M4.5 7.5 8 4l3.5 3.5M16 20V4M12.5 16.5 16 20l3.5-3.5"/>',
+  pushpull: '<path d="M4 14h16v6H4z"/><path class="d" d="M4 14V9h16v5"/><path d="M12 12V3M9 6l3-3 3 3"/>',
+  draft: '<path d="M3 20h18"/><path d="M6 20 8.5 6h7L18 20"/><path class="d" d="M6 6v14M18 6v14"/>',
+  combine: '<rect x="3" y="7" width="11" height="11" rx="1"/><circle cx="15" cy="10" r="6"/>',
+  split: '<path d="M4 6h16v13H4z"/><path class="d" d="M2 12.5h20"/><path d="m9 3 3 3 3-3M9 22l3-3 3 3"/>',
+  move: '<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
   shell: '<path d="M3 5v13.5A1.5 1.5 0 0 0 4.5 20h15a1.5 1.5 0 0 0 1.5-1.5V5"/><path d="M7 5v11h10V5"/>',
   // Restricciones
   coincident: '<path d="M3 19 12 12l9 7"/><circle class="f" cx="12" cy="12" r="2.6"/>',

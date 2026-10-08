@@ -176,7 +176,8 @@ export interface SketchFeature extends FeatureBase, SketchData {
 }
 
 export type ExtrudeDirection = 'normal' | 'reversed' | 'symmetric';
-export type BooleanOperation = 'new' | 'join' | 'cut';
+/** `intersect`: queda solo lo común entre el cuerpo nuevo y el sólido previo. */
+export type BooleanOperation = 'new' | 'join' | 'cut' | 'intersect';
 
 export interface ExtrudeFeature extends FeatureBase {
   type: 'extrude';
@@ -343,9 +344,64 @@ export interface ImportFeature extends FeatureBase {
   scale: number;
 }
 
+/**
+ * Empujar/tirar (modelado directo, como Press Pull de Fusion): mueve caras planas `distance` mm
+ * sobre su normal; positiva agrega material hacia afuera, negativa lo quita.
+ */
+export interface PushPullFeature extends FeatureBase {
+  type: 'pushpull';
+  faces: FaceRef[];
+  distance: number;
+}
+
+/**
+ * Ángulo de desmoldeo: inclina las caras elegidas `angle` grados respecto de la dirección de
+ * desmolde (la normal de la cara neutra), girándolas sobre su intersección con el plano neutro.
+ */
+export interface DraftFeature extends FeatureBase {
+  type: 'draft';
+  faces: FaceRef[];
+  neutral: FaceRef;
+  angle: number;
+}
+
+/** Combinar cuerpos: cada cuerpo se indica con una cara suya. */
+export interface CombineFeature extends FeatureBase {
+  type: 'combine';
+  target: FaceRef;
+  tools: FaceRef[];
+  operation: 'join' | 'cut' | 'intersect';
+  /** Conservar los cuerpos herramienta como cuerpos aparte. */
+  keepTools: boolean;
+}
+
+/** Dividir cuerpos con un plano (desplazado `offset` mm sobre su normal). Sin `body`: todos. */
+export interface SplitFeature extends FeatureBase {
+  type: 'split';
+  body?: FaceRef;
+  plane: PlaneReference;
+  offset: number;
+}
+
+/**
+ * Mover o copiar cuerpos (todos si no se elige ninguno): giro de `angle` grados alrededor de un
+ * eje global por el origen y después traslación (dx, dy, dz).
+ */
+export interface MoveFeature extends FeatureBase {
+  type: 'move';
+  bodies: FaceRef[];
+  dx: number;
+  dy: number;
+  dz: number;
+  axis: GlobalAxis;
+  angle: number;
+  copy: boolean;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
-  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature | ImportFeature;
+  | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature | ImportFeature
+  | PushPullFeature | DraftFeature | CombineFeature | SplitFeature | MoveFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

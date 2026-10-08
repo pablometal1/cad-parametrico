@@ -1,13 +1,13 @@
 // Planos de construcción: sistemas de coordenadas para apoyar sketches (no tocan el sólido).
 import { basePlaneFrame, constructionFrame, faceFrame, type PlaneFrame, type Vec3 } from '../../document/planes';
-import type { FeatureId, PlaneFeature } from '../../document/types';
+import type { FeatureId, PlaneFeature, PlaneReference } from '../../document/types';
 import { resolveEdge, resolveFace, type NamedShape } from '../naming';
 import { FeatureError } from '../occtUtils';
 
 export function evaluatePlane(feature: PlaneFeature, input: NamedShape | null, planes: ReadonlyMap<FeatureId, PlaneFrame>): PlaneFrame {
   if (!Number.isFinite(feature.angle)) throw new FeatureError('El ángulo no es un número válido');
   if (!Number.isFinite(feature.distance)) throw new FeatureError('La distancia no es un número válido');
-  return constructionFrame(referenceFrame(feature, input, planes), axisOf(feature, input), feature.angle, feature.distance);
+  return constructionFrame(referenceFrame(feature.reference, input, planes, feature.id), axisOf(feature, input), feature.angle, feature.distance);
 }
 
 /** Eje de giro: global, o la recta de una arista recta del modelo. */
@@ -26,13 +26,15 @@ function axisOf(feature: PlaneFeature, input: NamedShape | null): 'none' | 'X' |
   return { point: a, dir: d[big] < 0 ? [-d[0], -d[1], -d[2]] : d };
 }
 
-function referenceFrame(feature: PlaneFeature, input: NamedShape | null, planes: ReadonlyMap<FeatureId, PlaneFrame>): PlaneFrame {
-  const ref = feature.reference;
+/** Sistema de un plano de referencia: base, de construcción o cara plana del sólido. */
+export function referenceFrame(
+  ref: PlaneReference, input: NamedShape | null, planes: ReadonlyMap<FeatureId, PlaneFrame>, selfId: FeatureId,
+): PlaneFrame {
   switch (ref.kind) {
     case 'base':
       return basePlaneFrame({ kind: 'base', plane: ref.plane, offset: 0 });
     case 'plane': {
-      if (ref.plane === feature.id) throw new FeatureError('Un plano no puede usarse a sí mismo como referencia');
+      if (ref.plane === selfId) throw new FeatureError('Un plano no puede usarse a sí mismo como referencia');
       const f = planes.get(ref.plane);
       if (!f) throw new FeatureError('El plano de referencia no está disponible (borrado, suprimido, con error o más abajo en el historial)');
       return f;

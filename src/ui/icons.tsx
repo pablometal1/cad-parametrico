@@ -19,6 +19,11 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   hole: 'hole',
   thread: 'thread',
   import: 'import',
+  pushpull: 'pushpull',
+  draft: 'draft',
+  combine: 'combine',
+  split: 'split',
+  move: 'move',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {

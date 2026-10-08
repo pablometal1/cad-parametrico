@@ -4,6 +4,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
   type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
+  type PushPullFeature, type DraftFeature, type CombineFeature, type SplitFeature, type MoveFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -105,6 +106,11 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   hole: 'Agujero',
   thread: 'Rosca',
   import: 'Importado',
+  pushpull: 'Empujar',
+  draft: 'Desmoldeo',
+  combine: 'Combinar',
+  split: 'División',
+  move: 'Mover',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -224,6 +230,15 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
   if (f.type === 'fillet' || f.type === 'chamfer') names.push(...f.edges.map((e) => e.name));
   if (f.type === 'shell') names.push(...f.faces.map((x) => x.name));
   if (f.type === 'thread') names.push(f.face.name);
+  if (f.type === 'pushpull') names.push(...f.faces.map((x) => x.name));
+  if (f.type === 'draft') names.push(...f.faces.map((x) => x.name), f.neutral.name);
+  if (f.type === 'combine') names.push(f.target.name, ...f.tools.map((x) => x.name));
+  if (f.type === 'split') {
+    if (f.body) names.push(f.body.name);
+    if (f.plane.kind === 'face') names.push(f.plane.face.name);
+    if (f.plane.kind === 'plane') req.add(f.plane.plane);
+  }
+  if (f.type === 'move') names.push(...f.bodies.map((x) => x.name));
   for (const n of names) for (const id of idsInRefName(n)) req.add(id);
   req.delete(f.id);
   return req;
@@ -313,6 +328,26 @@ export function makePattern(doc: CadDocument, source: FeatureId, overrides: Part
 
 export function makeMirror(doc: CadDocument, source: FeatureId, plane: BasePlane = 'YZ'): MirrorFeature {
   return { ...base(doc, 'mirror'), source, plane };
+}
+
+export function makePushPull(doc: CadDocument, faces: FaceRef[], distance = 5): PushPullFeature {
+  return { ...base(doc, 'pushpull'), faces, distance };
+}
+
+export function makeDraft(doc: CadDocument, faces: FaceRef[], neutral: FaceRef, angle = 3): DraftFeature {
+  return { ...base(doc, 'draft'), faces, neutral, angle };
+}
+
+export function makeCombine(doc: CadDocument, target: FaceRef, tools: FaceRef[], operation: CombineFeature['operation'] = 'join'): CombineFeature {
+  return { ...base(doc, 'combine'), target, tools, operation, keepTools: false };
+}
+
+export function makeSplit(doc: CadDocument, plane: PlaneReference = { kind: 'base', plane: 'XY' }, overrides: Partial<Omit<SplitFeature, 'type'>> = {}): SplitFeature {
+  return { ...base(doc, 'split'), plane, offset: 0, ...overrides };
+}
+
+export function makeMove(doc: CadDocument, bodies: FaceRef[] = [], overrides: Partial<Omit<MoveFeature, 'type'>> = {}): MoveFeature {
+  return { ...base(doc, 'move'), bodies, dx: 10, dy: 0, dz: 0, axis: 'Z', angle: 0, copy: false, ...overrides };
 }
 
 /** Plano de construcción: por defecto, XY desplazado 20 mm. */

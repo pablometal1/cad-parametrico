@@ -14,7 +14,9 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
   { id: 'slot', label: 'Ranura', icon: 'slot', key: 'S' },
 ];
 
-export type FeatureTool = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'thread' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell';
+export type FeatureTool =
+  | 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'thread' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell'
+  | 'pushpull' | 'draft' | 'combine' | 'split' | 'move';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
@@ -28,6 +30,11 @@ export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; ke
   { id: 'fillet', label: 'Redondeo', icon: 'fillet', key: 'Shift+F', desc: 'Redondear las aristas seleccionadas', sepBefore: true },
   { id: 'chamfer', label: 'Chaflán', icon: 'chamfer', key: 'Shift+C', desc: 'Achaflanar las aristas seleccionadas' },
   { id: 'shell', label: 'Vaciado', icon: 'shell', key: 'Shift+V', desc: 'Vaciar el sólido quitando las caras seleccionadas' },
+  { id: 'draft', label: 'Desmoldeo', icon: 'draft', key: 'Shift+D', desc: 'Inclinar las caras elegidas; la última cara elegida es la neutra (la que no cambia, p. ej. la base)' },
+  { id: 'pushpull', label: 'Empujar/tirar', icon: 'pushpull', key: 'Shift+Q', desc: 'Mover las caras planas elegidas sobre su normal: tirar agrega material, empujar lo quita', sepBefore: true },
+  { id: 'combine', label: 'Combinar', icon: 'combine', key: 'Shift+J', desc: 'Unir, cortar o intersectar cuerpos: primero una cara del cuerpo destino, después una de cada herramienta' },
+  { id: 'split', label: 'Dividir', icon: 'split', key: 'Shift+S', desc: 'Partir los cuerpos con un plano: la cara plana elegida, el plano de construcción elegido o XY' },
+  { id: 'move', label: 'Mover/copiar', icon: 'move', key: 'Shift+G', desc: 'Trasladar y girar los cuerpos de las caras elegidas (ninguna: todos), o copiarlos' },
 ];
 
 /** Plano de construcción (va junto al menú de sketch, no entre las operaciones). */
