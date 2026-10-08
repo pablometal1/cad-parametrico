@@ -197,3 +197,26 @@ describe('información de caras curvas', () => {
     k.dispose();
   });
 });
+
+describe('rosca en una pared fina de una pieza más grande', () => {
+  it('agujero roscado horizontal: el hilo se limita al material (antes la booleana fallaba sin avisar)', () => {
+    // Placa 80×50×8 y pared trasera de 8 mm (y de 17 a 25); agujero M8 desde la cara de atrás.
+    let doc = build({ profile: rect(80, 50), distance: 8 });
+    const wall = new SketchBuilder({ entities: [], constraints: [] });
+    wall.rectangle([-40, 17], [40, 25]);
+    const sw = makeSketch(doc, { plane: { kind: 'base', plane: 'XY', offset: 8 }, ...wall.data });
+    doc = addFeature(doc, sw);
+    doc = addFeature(doc, makeExtrude(doc, sw.id, { distance: 40, operation: 'join' }));
+    const pts = new SketchBuilder({ entities: [], constraints: [] });
+    pts.point([0, 30]);
+    const sp = makeSketch(doc, { plane: { kind: 'base', plane: 'XZ', offset: -25 }, ...pts.data });
+    doc = addFeature(doc, sp);
+    const plain = run(addFeature(doc, makeHole(doc, sp.id, { diameter: threadBore(8, 1.25, 0.2), reversed: true })));
+    const threaded = run(addFeature(doc, makeHole(doc, sp.id, { diameter: 8, thread: true, threadPitch: 1.25, reversed: true })));
+    expect(threaded.status).toBe('ok');
+    expect(threaded.printable).toBe(true);
+    // El hilo quita material además de la perforación (unos 8 mm de rosca).
+    expect(plain.vol - threaded.vol).toBeGreaterThan(20);
+    expect(plain.vol - threaded.vol).toBeLessThan(60);
+  });
+});

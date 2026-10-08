@@ -60,8 +60,20 @@ export function runHole(feature: HoleFeature, sketch: EvaluatedSketch, input: Na
         const C = toWorld(sketch.frame, c.pos[0], c.pos[1]);
         const P = feature.threadPitch;
         const top = -wallTop(feature, bore);
-        const materialDepth = Math.max(...corners.map((k) => -((k[0] - C[0]) * out[0] + (k[1] - C[1]) * out[1] + (k[2] - C[2]) * out[2])));
-        const bottom = feature.extent === 'through' ? -(materialDepth + P) : -feature.depth;
+        // Dónde hay material a lo largo del eje: lo marcan las paredes recién perforadas de este
+        // agujero. Un surco mucho más largo que el material (atravesando aire) hace que la booleana
+        // de OCCT falle sin avisar.
+        const along = (p: number[]) => (p[0] - C[0]) * out[0] + (p[1] - C[1]) * out[1] + (p[2] - C[2]) * out[2];
+        const wallName = `${feature.id}:wall:${c.id}`;
+        let zLow = Infinity;
+        acc.shape.faces.forEach((f, i) => {
+          if (!acc.names[i]?.includes(wallName)) return;
+          for (const e of f.edges) for (let t = 0; t <= 4; t++) zLow = Math.min(zLow, along(e.pointAt(t / 4).toTuple()));
+        });
+        const materialDepth = Number.isFinite(zLow)
+          ? -zLow
+          : Math.max(...corners.map((k) => -along(k)));
+        const bottom = feature.extent === 'through' ? -(materialDepth + P / 2) : -feature.depth;
         if (!(top - bottom > P)) throw new FeatureError('El tramo para la rosca es más corto que un hilo');
         const groove = threadGroove(C, out, bore / 2 - 0.05, feature.diameter / 2 + feature.threadClearance / 2, P, bottom, top);
         const threaded = cutThread(acc, groove, feature.id, `thread:${c.id}`);
