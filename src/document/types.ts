@@ -137,7 +137,9 @@ export type SketchConstraint =
   | { id: string; type: 'distance'; a: SketchEntityId; b?: SketchEntityId; value: number }
   | { id: string; type: 'radius'; curve: SketchEntityId; value: number }
   /** Ángulo con signo de la línea `a` a la línea `b`, en grados (antihorario positivo). */
-  | { id: string; type: 'angle'; a: SketchEntityId; b: SketchEntityId; value: number };
+  | { id: string; type: 'angle'; a: SketchEntityId; b: SketchEntityId; value: number }
+  /** Puntos `a` y `b` simétricos respecto de la recta `line`. */
+  | { id: string; type: 'symmetric'; a: SketchEntityId; b: SketchEntityId; line: SketchEntityId };
 
 export type SketchConstraintType = SketchConstraint['type'];
 

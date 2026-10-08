@@ -89,6 +89,9 @@ export const SHORTCUT_SECTIONS: { title: string; rows: [string, string][] }[] = 
     title: 'Editor de sketch',
     rows: [
       ['O T L R E C A P S', 'Las mismas herramientas de dibujo'],
+      ['X', 'Recortar (clic en el tramo a borrar)'],
+      ['D', 'Desfase de la selección'],
+      ['M', 'Simetría (la última línea elegida es el eje)'],
       ['G', 'Pasar a construcción'],
       ['Supr', 'Borrar selección'],
       ['Doble clic', 'Editar el valor de una cota'],

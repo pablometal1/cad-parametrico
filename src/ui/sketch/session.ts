@@ -1,7 +1,8 @@
 // Estado y lógica del editor de sketch (sin DOM). La vista (SketchEditor) traduce eventos a estas acciones.
 import { batch, createSignal } from 'solid-js';
-import type { SketchConstraint, SketchConstraintType, SketchData, SketchEntityId, SketchText } from '../../document/types';
+import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchData, type SketchEntityId, type SketchText } from '../../document/types';
 import { SketchBuilder } from '../../sketch/builders';
+import { filletCorner, mirrorCurves, offsetCurves, patternCurves, trimCurve, type EditResult } from '../../sketch/edit';
 import { dist, sub } from '../../sketch/geometry';
 import { removeItems, SketchIndex, type Vec2, curvePoints } from '../../sketch/model';
 import { constraintFromSelection, DIMENSIONAL, displayValue, withValue } from '../../sketch/rules';
@@ -9,7 +10,24 @@ import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot';
+export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot' | 'trim';
+
+/** Herramientas de edición que piden valores antes de aplicarse. */
+export type EditAction = 'offset' | 'fillet' | 'circular' | 'linear';
+
+export interface ActionField {
+  label: string;
+  value: number;
+  unit: string;
+  /** Solo enteros (cantidades). */
+  integer?: boolean;
+}
+
+export interface ActionPrompt {
+  action: EditAction;
+  title: string;
+  fields: ActionField[];
+}
 
 /** Posición del cursor, opcionalmente enganchada a un punto existente. */
 export interface Anchor {
@@ -84,6 +102,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   const [pending, setPending] = createSignal<Pending | null>(null);
   const [message, setMessage] = createSignal<Message>(first.error ? { kind: 'error', text: first.error } : null);
   const [prompt, setPrompt] = createSignal<DimensionPrompt | null>(null);
+  const [actionPrompt, setActionPrompt] = createSignal<ActionPrompt | null>(null);
   const [dirty, setDirty] = createSignal(false);
 
   const undoStack: Snapshot[] = [];
@@ -129,6 +148,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     batch(() => {
       setToolSignal(t);
       setPending(null);
+      setActionPrompt(null);
       if (t !== 'select') setSelection([]);
       setMessage(t === 'select' ? null : { kind: 'hint', text: TOOL_HINTS[t] });
     });
@@ -139,6 +159,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     const p = pending();
     switch (tool()) {
       case 'select':
+      case 'trim':
         return;
       case 'text': {
         // Texto anclado en el punto (o en uno existente, si se hizo clic sobre él).
@@ -282,6 +303,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   /** Esc: cancela el dibujo en curso; si no hay, limpia la selección; si no, vuelve a seleccionar. */
   function escape() {
     if (prompt()) return setPrompt(null);
+    if (actionPrompt()) return setActionPrompt(null);
     if (pending()) return setPending(null);
     if (selection().length) return setSelection([]);
     if (tool() !== 'select') setTool('select');
@@ -406,6 +428,99 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     if (ok) setPrompt(null);
   }
 
+  // ------------------------------------------------------------ herramientas de edición
+
+  /** Aplica una edición; la geometría nueva queda elegida. */
+  function applyEdit(r: EditResult): boolean {
+    if (!r.ok) {
+      setMessage({ kind: 'error', text: r.error });
+      return false;
+    }
+    if (!commit(r.data, { allowRedundant: true })) return false;
+    setSelection(r.created);
+    return true;
+  }
+
+  /** Recortar: clic sobre el tramo de curva a borrar. */
+  function trimAt(curveId: SketchEntityId | null, at: Vec2) {
+    if (!curveId) {
+      setMessage({ kind: 'hint', text: TOOL_HINTS.trim });
+      return;
+    }
+    if (applyEdit(trimCurve(data(), curveId, at))) setSelection([]);
+  }
+
+  /** Simetría o pedido de valores para desfase, redondeo de esquina y patrones. */
+  function startEdit(action: EditAction | 'mirror') {
+    const sel = selection().filter((id) => isEntity(id));
+    const index = new SketchIndex(data());
+    const last = sel[sel.length - 1];
+    if (action === 'mirror') {
+      if (sel.length < 2 || index.kind(last) !== 'line') {
+        setMessage({ kind: 'hint', text: 'Simetría: elegí la geometría y, al final, la línea o el eje de simetría' });
+        return;
+      }
+      applyEdit(mirrorCurves(data(), sel.slice(0, -1), last));
+      return;
+    }
+    if (!sel.length) {
+      setMessage({ kind: 'hint', text: EDIT_HINTS[action] });
+      return;
+    }
+    const prompts: Record<EditAction, ActionPrompt> = {
+      offset: { action, title: 'Desfase', fields: [{ label: 'Distancia (negativa: hacia adentro)', value: 2, unit: 'mm' }] },
+      fillet: { action, title: 'Redondeo de esquina', fields: [{ label: 'Radio', value: 2, unit: 'mm' }] },
+      circular: { action, title: 'Patrón circular', fields: [{ label: 'Cantidad', value: 6, unit: '', integer: true }, { label: 'Ángulo total', value: 360, unit: '°' }] },
+      linear: { action, title: 'Patrón lineal', fields: [{ label: 'Cantidad', value: 3, unit: '', integer: true }, { label: 'Separación', value: 10, unit: 'mm' }] },
+    };
+    setActionPrompt(prompts[action]);
+    setMessage({ kind: 'hint', text: EDIT_HINTS[action] });
+  }
+
+  /** Confirma los valores (números o expresiones con parámetros) y aplica la edición. */
+  function confirmAction(texts: string[]) {
+    const p = actionPrompt();
+    if (!p) return;
+    const values: number[] = [];
+    for (const [i, f] of p.fields.entries()) {
+      try {
+        const t = texts[i] ?? String(f.value);
+        const v = plainNumber(t) ?? evaluateText(t, options.scope?.() ?? new Map());
+        values.push(f.integer ? Math.round(v) : v);
+      } catch (err) {
+        setMessage({ kind: 'error', text: `${f.label}: ${(err as Error).message}` });
+        return;
+      }
+    }
+    const sel = selection().filter((id) => isEntity(id));
+    const index = new SketchIndex(data());
+    const last = sel[sel.length - 1];
+    let r: EditResult;
+    switch (p.action) {
+      case 'offset':
+        r = offsetCurves(data(), sel, values[0]);
+        break;
+      case 'fillet':
+        r = filletCorner(data(), sel, values[0]);
+        break;
+      case 'circular': {
+        // Centro: el último punto elegido (si se eligió algo más), o el origen.
+        const center = sel.length > 1 && index.kind(last) === 'point' ? last : ORIGIN;
+        r = patternCurves(data(), sel.filter((id) => id !== center), { kind: 'circular', center, count: values[0], angle: values[1] });
+        break;
+      }
+      case 'linear': {
+        // Dirección: un eje o una línea de construcción elegida al final; si no, el eje X.
+        const e = index.get(last);
+        const isDir = sel.length > 1 && (last === AXIS_X || last === AXIS_Y || (e?.type === 'line' && e.construction));
+        const direction = isDir ? last : AXIS_X;
+        r = patternCurves(data(), sel.filter((id) => id !== direction), { kind: 'linear', direction, count: values[0], spacing: values[1] });
+        break;
+      }
+    }
+    if (applyEdit(r)) setActionPrompt(null);
+  }
+
   /** Expresiones de cotas que siguen existiendo, con la ruta que usa el documento. */
   function documentExprs(): Record<string, string> {
     const alive = new Set(data().constraints.map((c) => c.id));
@@ -465,11 +580,12 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   }
 
   return {
-    data, exprs, documentExprs, info, tool, construction, selection, pending, message, prompt, dirty, historySize,
+    data, exprs, documentExprs, info, tool, construction, selection, pending, message, prompt, actionPrompt, dirty, historySize,
     polygonSides, setPolygonSides, textOptions, setTextOptions, updateText,
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
     applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,
+    trimAt, startEdit, confirmAction, setActionPrompt,
   };
 }
 
@@ -485,6 +601,14 @@ const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
   centerRect: 'Rectángulo desde el centro: clic en el centro y luego en una esquina.',
   polygon: 'Polígono regular: clic en el centro y luego en un vértice.',
   slot: 'Ranura: clic en los dos centros y luego para el ancho.',
+  trim: 'Recortar: clic en el tramo a borrar; se corta hasta las intersecciones más cercanas.',
+};
+
+const EDIT_HINTS: Record<EditAction, string> = {
+  offset: 'Desfase: elegí las líneas, arcos o círculos del contorno.',
+  fillet: 'Redondeo de esquina: elegí el vértice entre dos líneas, o las dos líneas.',
+  circular: 'Patrón circular: elegí la geometría y, al final, el punto central (si no, el origen).',
+  linear: 'Patrón lineal: elegí la geometría y, al final, un eje o una línea de construcción como dirección (si no, el eje X).',
 };
 
 function safeSolve(d: SketchData, drag?: Parameters<typeof solveSketch>[1]): { result?: SolveResult; error?: string } {

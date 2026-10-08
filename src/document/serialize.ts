@@ -221,7 +221,8 @@ function validateSketch(
   const constraints = o.constraints.map((c, i) => validateConstraint(c, `${path}.constraints[${i}]`));
   constraints.forEach((c, i) => {
     if (kinds.has(c.id)) throw new DocumentFormatError(`${path}.constraints[${i}].id`, `ID duplicado "${c.id}"`);
-    const refs = 'line' in c ? [c.line] : 'curve' in c ? [c.curve] : 'b' in c && c.b !== undefined ? [c.a, c.b] : [c.a];
+    const refs = c.type === 'symmetric' ? [c.a, c.b, c.line]
+      : 'line' in c ? [c.line] : 'curve' in c ? [c.curve] : 'b' in c && c.b !== undefined ? [c.a, c.b] : [c.a];
     for (const r of refs) {
       if (!kinds.has(r)) throw new DocumentFormatError(`${path}.constraints[${i}]`, `referencia a una entidad inexistente "${r}"`);
     }
@@ -279,6 +280,8 @@ function validateConstraint(raw: unknown, path: string): SketchConstraint {
       return { id, type: 'radius', curve: str(o.curve, `${path}.curve`), value: num(o.value, `${path}.value`) };
     case 'angle':
       return { id, type: 'angle', a: a(), b: b(), value: num(o.value, `${path}.value`) };
+    case 'symmetric':
+      return { id, type: 'symmetric', a: a(), b: b(), line: str(o.line, `${path}.line`) };
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de restricción desconocido: ${String(o.type)}`);
   }

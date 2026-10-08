@@ -7,7 +7,7 @@ import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul
 import { SketchIndex, type Vec2 } from '../../sketch/model';
 import { CONSTRAINT_LABELS, dimensionText } from '../../sketch/rules';
 import { previewSegments2D } from '../draw3d/preview';
-import type { Anchor, SketchSession, Tool } from './session';
+import type { Anchor, EditAction, SketchSession, Tool } from './session';
 
 interface View {
   cx: number;
@@ -34,6 +34,15 @@ const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
   { id: 'slot', label: 'Ranura', key: 'S', icon: 'slot' },
 ];
 
+/** Herramientas de edición (como en Fusion): se aplican a la selección. */
+const EDIT_BUTTONS: { action: EditAction | 'mirror'; label: string; key?: string; icon: IconName; desc: string }[] = [
+  { action: 'offset', label: 'Desfase', key: 'D', icon: 'offset', desc: 'Copia paralela del contorno elegido, a una distancia (negativa: hacia adentro)' },
+  { action: 'fillet', label: 'Redondeo de esquina', icon: 'sketchFillet', desc: 'Redondear el vértice elegido (o la esquina entre dos líneas) con un arco tangente' },
+  { action: 'mirror', label: 'Simetría', key: 'M', icon: 'sketchMirror', desc: 'Reflejar la geometría elegida respecto de la última línea o eje elegido; la copia queda vinculada' },
+  { action: 'circular', label: 'Patrón circular', icon: 'patternCircular', desc: 'Repetir la geometría alrededor del último punto elegido (o del origen)' },
+  { action: 'linear', label: 'Patrón lineal', icon: 'patternLinear', desc: 'Repetir la geometría a lo largo del eje X, o de un eje o línea de construcción elegido al final' },
+];
+
 const CONSTRAINT_BUTTONS: { type: SketchConstraintType; icon: IconName }[] = [
   { type: 'coincident', icon: 'coincident' },
   { type: 'horizontal', icon: 'horizontal' },
@@ -45,10 +54,11 @@ const CONSTRAINT_BUTTONS: { type: SketchConstraintType; icon: IconName }[] = [
   { type: 'distance', icon: 'distance' },
   { type: 'radius', icon: 'radius' },
   { type: 'angle', icon: 'angle' },
+  { type: 'symmetric', icon: 'symmetric' },
 ];
 
 const GLYPH: Partial<Record<SketchConstraintType, string>> = {
-  coincident: '◉', horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⊥', tangent: 'T', equal: '=',
+  coincident: '◉', horizontal: 'H', vertical: 'V', parallel: '∥', perpendicular: '⊥', tangent: 'T', equal: '=', symmetric: '⇋',
 };
 
 /** Marca o cota dibujada en pantalla, seleccionable. */
@@ -218,6 +228,18 @@ export function SketchEditor(props: {
     return best ? (best as { id: string }).id : null;
   }
 
+  /** Curva bajo el cursor (para recortar). */
+  function curveHit(screen: Vec2): string | null {
+    const idx = index();
+    const p = toSketch(screen);
+    let best: { id: string; d: number } | null = null;
+    for (const c of idx.curves()) {
+      const d = curveDistance(idx, c, p) * view().scale;
+      if (d <= CURVE_HIT_PX && (!best || d < best.d)) best = { id: c.id, d };
+    }
+    return best ? (best as { id: string }).id : null;
+  }
+
   /** Posición para dibujar: se engancha a un punto existente si está cerca. */
   function snap(screen: Vec2): Anchor {
     const idx = index();
@@ -247,6 +269,11 @@ export function SketchEditor(props: {
       return;
     }
     if (e.button !== 0) return;
+    if (s.tool() === 'trim') {
+      s.trimAt(curveHit(sp), toSketch(sp));
+      setHover(curveHit(sp));
+      return;
+    }
     if (s.tool() !== 'select') {
       s.click(snap(sp));
       return;
@@ -259,6 +286,10 @@ export function SketchEditor(props: {
     if (pointer?.panFrom) {
       const v = pointer.panFrom;
       setView({ ...v, cx: v.cx - (sp[0] - pointer.start[0]) / v.scale, cy: v.cy + (sp[1] - pointer.start[1]) / v.scale });
+      return;
+    }
+    if (s.tool() === 'trim') {
+      setHover(curveHit(sp));
       return;
     }
     if (s.tool() !== 'select') {
@@ -325,6 +356,9 @@ export function SketchEditor(props: {
     else if (k === 'e') s.setTool('centerRect');
     else if (k === 'p') s.setTool('polygon');
     else if (k === 's') s.setTool('slot');
+    else if (k === 'x') s.setTool('trim');
+    else if (k === 'd') s.startEdit('offset');
+    else if (k === 'm') s.startEdit('mirror');
     else if (k === 'f') fit();
     else if (k === 'g') s.toggleConstruction();
   }
@@ -517,6 +551,18 @@ export function SketchEditor(props: {
           </button>
         </div>
         <div class="tool-group">
+          <button class="tb" classList={{ active: s.tool() === 'trim' }} {...tip('Recortar', 'X', 'Clic en el tramo de curva a borrar, hasta las intersecciones')} onClick={() => s.setTool('trim')}>
+            <Icon name="trim" />
+          </button>
+          <For each={EDIT_BUTTONS}>
+            {(b) => (
+              <button class="tb" classList={{ active: s.actionPrompt()?.action === b.action }} {...tip(b.label, b.key, b.desc)} onClick={() => s.startEdit(b.action)}>
+                <Icon name={b.icon} />
+              </button>
+            )}
+          </For>
+        </div>
+        <div class="tool-group">
           <For each={CONSTRAINT_BUTTONS}>
             {(c) => (
               <button class="tb" {...tip(CONSTRAINT_LABELS[c.type], undefined, 'Se aplica a la selección actual')} onClick={() => s.applyConstraint(c.type)}><Icon name={c.icon} /></button>
@@ -617,6 +663,37 @@ export function SketchEditor(props: {
             )}
           </For>
         </svg>
+
+        <Show when={s.actionPrompt()}>
+          {(p) => {
+            const inputs: HTMLInputElement[] = [];
+            const confirm = () => s.confirmAction(inputs.map((i) => i.value));
+            return (
+              <div class="dim-prompt">
+                <strong>{p().title}</strong>
+                <For each={p().fields}>
+                  {(f, i) => (
+                    <label>
+                      {f.label}
+                      <input
+                        ref={(el) => { inputs[i()] = el; if (i() === 0) queueMicrotask(() => { el.focus(); el.select(); }); }}
+                        value={String(f.value)}
+                        inputmode="decimal"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') confirm();
+                          if (e.key === 'Escape') s.setActionPrompt(null);
+                        }}
+                      />
+                      <Show when={f.unit}><span class="unit">{f.unit}</span></Show>
+                    </label>
+                  )}
+                </For>
+                <button onClick={confirm}>Aplicar</button>
+                <button onClick={() => s.setActionPrompt(null)}>Cancelar</button>
+              </div>
+            );
+          }}
+        </Show>
 
         <Show when={s.prompt()}>
           {(p) => (

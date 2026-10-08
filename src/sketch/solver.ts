@@ -197,5 +197,8 @@ function toGcs(index: SketchIndex, c: SketchConstraint): SketchPrimitive[] {
     case 'angle':
       if (kind(c.a) !== 'line' || kind(c.b) !== 'line') bad();
       return [{ id, type: 'l2l_angle_ll', l1_id: c.a, l2_id: c.b, angle: c.value * DEG }];
+    case 'symmetric':
+      if (kind(c.a) !== 'point' || kind(c.b) !== 'point' || kind(c.line) !== 'line') bad();
+      return [{ id, type: 'p2p_symmetric_ppl', p1_id: c.a, p2_id: c.b, l_id: c.line }];
   }
 }

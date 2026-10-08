@@ -64,6 +64,8 @@ export function constraintRefs(c: SketchConstraint): SketchEntityId[] {
       return [c.curve];
     case 'distance':
       return c.b ? [c.a, c.b] : [c.a];
+    case 'symmetric':
+      return [c.a, c.b, c.line];
     default:
       return [c.a, c.b];
   }

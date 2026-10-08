@@ -32,6 +32,13 @@ export const ICONS = {
   polygon: '<path d="M12 3.5 19.4 7.8v8.4L12 20.5l-7.4-4.3V7.8z"/>',
   slot: '<path d="M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7z"/><circle class="f" cx="8" cy="12" r="1.3"/><circle class="f" cx="16" cy="12" r="1.3"/>',
   construction: '<path class="d" d="M4 20 20 4"/>',
+  trim: '<path d="M3 12h5M16 12h5M12 3v18"/><path class="d" d="M8 12h8"/><path d="m7 8 2 2M9 8l-2 2"/>',
+  offset: '<path d="M4 20V9a5 5 0 0 1 5-5h11"/><path class="d" d="M8 20v-9a3 3 0 0 1 3-3h9"/>',
+  sketchFillet: '<path d="M5 20v-7a8 8 0 0 1 8-8h6"/><path class="d" d="M5 13V5h8"/><circle class="f" cx="5" cy="20" r="1.6"/><circle class="f" cx="19" cy="5" r="1.6"/>',
+  sketchMirror: '<path class="d" d="M12 2v20"/><path d="M9 6 4 12l5 6"/><path d="m15 6 5 6-5 6"/>',
+  patternCircular: '<circle class="d" cx="12" cy="12" r="7"/><circle cx="12" cy="5" r="2"/><circle cx="18.1" cy="15.5" r="2"/><circle cx="5.9" cy="15.5" r="2"/>',
+  patternLinear: '<rect x="2.5" y="9" width="5" height="6" rx="0.5"/><rect x="9.5" y="9" width="5" height="6" rx="0.5"/><rect class="d" x="16.5" y="9" width="5" height="6" rx="0.5"/>',
+  symmetric: '<path class="d" d="M12 3v18"/><circle class="f" cx="6" cy="12" r="2"/><circle class="f" cx="18" cy="12" r="2"/><path d="M8 9.5h8M8 14.5h8"/>',
   // Features
   extrude: '<path d="M3.5 16.5 12 20.5l8.5-4L12 12.5z"/><path d="M12 16V3M8.5 6.5 12 3l3.5 3.5"/>',
   revolve: '<path class="d" d="M12 2v20"/><path d="M17.5 9.4A8 3.6 0 1 1 6 8.8"/><path d="m14.2 6.6 3.6 2.8-3.4 2"/>',
