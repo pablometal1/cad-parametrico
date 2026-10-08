@@ -130,7 +130,7 @@ export function runShell(feature: ShellFeature, input: NamedShape | null): Named
       max === null
         ? `No se pudo vaciar con espesor ${t} mm quitando esas caras; probá con otras caras`
         : `No se pudo vaciar con espesor ${t} mm: entra hasta ≈ ${fmtMax(max)} mm ` +
-          '(tiene que ser menor que el radio de los redondeos y que las partes más finas de la pieza)';
+          '(tiene que ser menor que las partes más finas de la pieza)';
     throw new FeatureError(err instanceof Error && (err.message === 'not done' || err instanceof FeatureError) ? hint : `${hint} (${describeError(err)})`);
   } finally {
     run?.dispose();
@@ -347,7 +347,7 @@ export function runShellOver(feature: ShellFeature, input: NamedShape | null, so
       throw new FeatureError(
         max === null
           ? `No se pudo vaciar con espesor ${t} mm quitando esas caras; probá con otras caras`
-          : `No se pudo vaciar con espesor ${t} mm: entra hasta ≈ ${fmtMax(max)} mm (tiene que ser menor que el radio de los redondeos y que las partes más finas de la pieza)`,
+          : `No se pudo vaciar con espesor ${t} mm: entra hasta ≈ ${fmtMax(max)} mm (tiene que ser menor que las partes más finas de la pieza)`,
       );
     }
     const nb = new NameBuilder(r.result);

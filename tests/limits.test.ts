@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import twoBodiesShell from './fixtures/two-bodies-shell.json?raw';
 import { parseDocument } from '../src/document/serialize';
 import { volume } from '../src/kernel/features/measure';
-import { addFeature, makeFillet, makeShell } from '../src/document/ops';
+import { addFeature, makeChamfer, makeFillet, makeShell } from '../src/document/ops';
 import type { CadDocument, ShellFeature } from '../src/document/types';
 import { initOCCT } from '../src/kernel/occt';
 import { RecomputeEngine } from '../src/kernel/recompute';
@@ -83,22 +83,37 @@ describe('límites de redondeo y vaciado', () => {
     expect(run(addFeature(doc, makeFillet(doc, [rim], rimMax))).status).toBe('ok');
   });
 
-  it('vaciado después de un redondeo de 1 mm: el espesor tiene que ser menor que el radio', () => {
+  it('vaciado con espesor mayor que el radio de los redondeos: la pared interior queda en arista viva', () => {
     const base = build({ profile: rect(10, 10), distance: 20 });
     const verticals = withShape(base, (s) => [[5, 5], [-5, 5], [5, -5], [-5, -5]].map(([x, y]) => edgeRefOf(s, edgeIdx(s, [x, y, 10]))));
     const doc = addFeature(base, makeFillet(base, verticals, 1));
     const top = withShape(doc, topFace);
+    const outer = 2000 - 4 * (1 - Math.PI / 4) * 20;
 
-    const failed = run(addFeature(doc, makeShell(doc, [top], 1.5)));
-    expect(failed.status).toBe('error');
-    const max = suggested(failed.error);
-    expect(max).toBeGreaterThan(0.9);
-    expect(max).toBeLessThan(1);
-    expect(run(addFeature(doc, makeShell(doc, [top], max))).status).toBe('ok');
+    for (const t of [0.5, 1, 1.5, 3]) {
+      const shelled = addFeature(doc, makeShell(doc, [top], t));
+      expect(run(shelled).status, `espesor ${t}`).toBe('ok');
+      // Hueco: redondeos interiores de radio 1 − t, que desaparecen con t ≥ 1.
+      const r = Math.max(0, 1 - t);
+      const cavity = ((10 - 2 * t) ** 2 - 4 * (1 - Math.PI / 4) * r * r) * (20 - t);
+      expect(withShape(shelled, (s) => volume(s.shape)), `espesor ${t}`).toBeCloseTo(outer - cavity, 3);
+    }
 
-    // En el orden inverso (redondeo primero) un radio de 2 con pared de 0,2 sí funciona.
-    const doc2 = addFeature(base, makeFillet(base, verticals, 2));
-    expect(run(addFeature(doc2, makeShell(doc2, [withShape(doc2, topFace)], 0.2))).status).toBe('ok');
+    // Redondeos en el borde que se quita y en la base, con espesor mayor que el radio.
+    for (const z of [0, 20]) {
+      const rim = withShape(base, (s) =>
+        s.shape.edges.flatMap((e, i) => (Math.abs(e.pointAt(0.5).toTuple()[2] - z) < 1e-6 ? [edgeRefOf(s, i)] : [])));
+      const d = addFeature(base, makeFillet(base, rim, 1));
+      expect(run(addFeature(d, makeShell(d, [withShape(d, topFace)], 2))).status, `z = ${z}`).toBe('ok');
+    }
+  });
+
+  it('vaciado con espesor mayor que un chaflán', () => {
+    const base = build({ profile: rect(10, 10), distance: 20 });
+    const verticals = withShape(base, (s) => [[5, 5], [-5, 5], [5, -5], [-5, -5]].map(([x, y]) => edgeRefOf(s, edgeIdx(s, [x, y, 10]))));
+    const doc = addFeature(base, makeChamfer(base, verticals, 1));
+    const top = withShape(doc, topFace);
+    for (const t of [0.5, 1.5, 3]) expect(run(addFeature(doc, makeShell(doc, [top], t))).status, `espesor ${t}`).toBe('ok');
   });
 });
 

@@ -190,25 +190,34 @@ export class RecomputeEngine {
   }
 
   /**
-   * Vaciado. Si la pieza ya pasó por otro vaciado, primero se intenta sobre la versión maciza
-   * (sin los vaciados previos), para no volver a ahuecar las paredes que ya existen.
+   * Vaciado. El hueco se calcula sobre una versión "maciza" de la pieza y se resta de la real:
+   * - sin los vaciados previos, para no volver a ahuecar las paredes que ya existen;
+   * - sin los redondeos y chaflanes que el desplazamiento hace desaparecer. Hacia adentro, un
+   *   redondeo convexo de radio r desplazado t ≥ r se reduce a una arista viva (un chaflán de
+   *   distancia d en una arista a 90°, con t ≥ d·(1 + 1/√2)), y OCCT no sabe quitar esa cara
+   *   degenerada: por eso el vaciado fallaba con espesor ≥ radio. El hueco correcto en ese caso
+   *   es exactamente el de la pieza sin el redondeo; en los cóncavos la pared solo queda más
+   *   gruesa en el rincón.
    */
   private shell(feature: ShellFeature, ctx: Context): NamedShape {
     const input = ctx.input;
-    const prior = input
-      ? ctx.doc.features
-          .slice(0, ctx.index)
-          .filter((f) => f.type === 'shell' && !f.suppressed && input.names.some((ns) => ns.some((n) => n.startsWith(`${f.id}:`))))
-      : [];
-    if (prior.length === 0) return runShell(feature, input);
+    const inPart = (f: Feature) => !f.suppressed && !!input?.names.some((ns) => ns.some((n) => n.startsWith(`${f.id}:`)));
+    const before = ctx.doc.features.slice(0, ctx.index);
+    const prior = before.filter((f) => f.type === 'shell' && inPart(f));
+    // Margen relativo: con radio = espesor la cara también degenera.
+    const vanishes = (f: Feature) =>
+      (f.type === 'fillet' && f.radius <= feature.thickness * (1 + 1e-6)) ||
+      (f.type === 'chamfer' && f.distance * (1 + Math.SQRT1_2) <= feature.thickness * (1 + 1e-6));
+    const small = before.filter((f) => vanishes(f) && inPart(f));
+    if (prior.length === 0 && small.length === 0) return runShell(feature, input);
 
-    const ids = new Set(prior.map((f) => f.id));
+    const ids = new Set([...prior, ...small].map((f) => f.id));
     const sub = new RecomputeEngine();
     try {
       const solidDoc: CadDocument = {
         ...ctx.doc,
         rollback: null,
-        features: ctx.doc.features.slice(0, ctx.index).map((f) => (ids.has(f.id) ? { ...f, suppressed: true } : f)),
+        features: before.map((f) => (ids.has(f.id) ? { ...f, suppressed: true } : f)),
       };
       const out = sub.run(solidDoc);
       const usable = out.shape && out.results.every((r) => r.status === 'ok' || r.status === 'suppressed');
