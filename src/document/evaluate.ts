@@ -29,6 +29,7 @@ export function fieldLabel(path: string): string {
     radius2: 'el radio final',
     angle: 'el ángulo',
     thickness: 'el espesor',
+    thin: 'el espesor de la pared',
     count: 'la cantidad',
     spacing: 'la separación',
     'plane.offset': 'el desplazamiento',

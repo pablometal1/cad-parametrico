@@ -260,3 +260,62 @@ function segmentsCross(p: Vec2, p2: Vec2, q: Vec2, q2: Vec2): boolean {
   }
   return d1 * d2 <= eps * eps && d3 * d4 <= eps * eps;
 }
+
+/** Cadena de curvas conectadas (abierta o cerrada), en orden de recorrido. */
+export interface CurveChain {
+  edges: LoopEdge[];
+  closed: boolean;
+}
+
+/**
+ * Todas las cadenas de curvas (no de construcción), abiertas o cerradas: lo que se extruye como
+ * pared en una extrusión delgada. Lanza ProfileError si en un vértice se unen más de dos curvas.
+ */
+export function findChains(data: SketchData): CurveChain[] {
+  const index = new SketchIndex(data);
+  const curves = index.curves().filter((c) => !c.construction);
+  const chains: CurveChain[] = [];
+  const standalone = (c: SketchCurve) => c.type === 'circle' || (c.type === 'spline' && c.closed);
+  for (const c of curves) if (standalone(c)) chains.push({ edges: [{ curve: c, reversed: false }], closed: true });
+
+  const segs = curves.filter((c) => !standalone(c) && curveLength(index, c) > JOIN_TOL);
+  const ends = (c: SketchCurve): [SketchEntityId, SketchEntityId] =>
+    c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end] : c.type === 'spline' ? [c.points[0], c.points[c.points.length - 1]] : [c.center, c.center];
+  const node = clusterPoints(index, segs.flatMap(ends));
+  const adjacency: Adjacency = new Map();
+  for (const c of segs) {
+    const [a, b] = ends(c).map((p) => node.get(p)!);
+    for (const [n, at] of [[a, 0], [b, 1]] as const) {
+      if (!adjacency.has(n)) adjacency.set(n, []);
+      adjacency.get(n)!.push({ curve: c, at });
+    }
+  }
+  for (const [n, list] of adjacency) {
+    if (list.length > 2) {
+      const p = representative(index, node, n);
+      throw new ProfileError(`En (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) se unen ${list.length} curvas; las paredes deben ser cadenas simples`);
+    }
+  }
+  const visited = new Set<SketchEntityId>();
+  for (const seed of segs) {
+    if (visited.has(seed.id)) continue;
+    const component = collectComponent(seed, adjacency, node, ends);
+    // Abierta: se arranca por una curva con un extremo libre, saliendo por ese extremo.
+    const free = component.find((c) => ends(c).some((p) => adjacency.get(node.get(p)!)!.length === 1));
+    const start = free ?? component[0];
+    let reversed = free ? adjacency.get(node.get(ends(free)[1])!)!.length === 1 && adjacency.get(node.get(ends(free)[0])!)!.length !== 1 : false;
+    const edges: LoopEdge[] = [];
+    let curve: SketchCurve = start;
+    for (let guard = 0; guard <= component.length; guard++) {
+      edges.push({ curve, reversed });
+      visited.add(curve.id);
+      const exit = node.get(ends(curve)[reversed ? 0 : 1])!;
+      const next = adjacency.get(exit)!.find((x) => !visited.has(x.curve.id));
+      if (!next) break;
+      curve = next.curve;
+      reversed = next.at === 1;
+    }
+    chains.push({ edges, closed: !free });
+  }
+  return chains;
+}

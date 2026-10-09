@@ -469,7 +469,16 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     addExtrude(): string | null {
       const sketch = sketchForProfile();
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
-      addWithDialog(ops.makeExtrude(doc(), sketch.id));
+      // Solo curvas abiertas (un nervio, una pared): extrusión delgada de entrada.
+      let onlyOpen = false;
+      try {
+        const p = findProfiles(sketch);
+        onlyOpen = p.regions.length === 0 && p.openChains > 0;
+      } catch {
+        // Topología no soportada: el error lo muestra la extrusión.
+      }
+      const f = ops.makeExtrude(doc(), sketch.id);
+      addWithDialog(onlyOpen ? { ...f, thin: 2 } : f);
       return null;
     },
 

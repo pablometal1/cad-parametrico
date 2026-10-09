@@ -195,6 +195,7 @@ function validateFeature(raw: unknown, path: string): Feature {
         distance: num(o.distance, `${path}.distance`),
         direction: oneOf(o.direction, ['normal', 'reversed', 'symmetric'] as const, `${path}.direction`),
         operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
+        ...(o.thin !== undefined ? { thin: num(o.thin, `${path}.thin`) } : {}),
       };
       return f;
     }

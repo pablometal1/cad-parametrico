@@ -197,6 +197,11 @@ export interface ExtrudeFeature extends FeatureBase {
   distance: number;
   direction: ExtrudeDirection;
   operation: BooleanOperation;
+  /**
+   * Extrusión delgada: en lugar de las regiones cerradas, cada cadena del sketch (abierta o
+   * cerrada) se extruye como pared de este espesor (mm), centrada en la curva.
+   */
+  thin?: number;
 }
 
 /** Eje de revolución: un eje del propio sketch o una de sus líneas. */

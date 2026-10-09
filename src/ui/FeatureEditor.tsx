@@ -162,6 +162,22 @@ function ExtrudePanel(props: { store: CadStore; feature: ExtrudeFeature }) {
       }} />
       <Num store={props.store} id={f().id} path="distance" label="Distancia" unit="mm" />
       <SelectField label="Dirección" value={f().direction} options={DIRECTIONS} onChange={(direction) => update({ direction })} />
+      <label class="field">
+        <span class="field-label">Delgada</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().thin !== undefined} onChange={(e) => {
+            if (e.currentTarget.checked) return update({ thin: 2 });
+            // Sin espesor: se borra también su expresión (si no, la evaluación lo volvería a poner).
+            const { thin: _t, ...exprs } = f().exprs ?? {};
+            update({ thin: undefined, exprs });
+          }} />
+          <span class="muted">paredes de cada curva (nervios, tabiques)</span>
+        </span>
+      </label>
+      <Show when={f().thin !== undefined}>
+        <Num store={props.store} id={f().id} path="thin" label="Espesor" unit="mm" />
+        <p class="hint">Cada línea, arco o spline del sketch (abierta o cerrada) se extruye como pared de este espesor, centrada en la curva.</p>
+      </Show>
     </>
   );
 }
