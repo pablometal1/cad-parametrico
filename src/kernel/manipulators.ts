@@ -14,7 +14,7 @@ interface Ctx {
   planes?: Map<FeatureId, PlaneFrame>;
 }
 
-export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
+export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipulator[] | null {
   try {
     switch (feature.type) {
       case 'extrude': {
@@ -114,11 +114,55 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
           value: feature.depth, min: 0.01,
         };
       }
+      case 'move': {
+        // Flechas X/Y/Z desde el centro de los cuerpos que se mueven, y un aro para el giro.
+        const input = ctx.input;
+        if (!input) return null;
+        const faces = input.shape.faces;
+        const solids = input.shape.solids;
+        const chosen = feature.bodies.length
+          ? solids.filter((sol) => feature.bodies.some((ref) => {
+            const f = faces[resolveFace(input, ref)];
+            return sol.faces.some((x) => x.wrapped.IsSame(f.wrapped));
+          }))
+          : solids;
+        if (!chosen.length) return null;
+        let lo = [Infinity, Infinity, Infinity];
+        let hi = [-Infinity, -Infinity, -Infinity];
+        for (const sol of chosen) {
+          const [a, b] = sol.boundingBox.bounds;
+          lo = lo.map((v, i) => Math.min(v, a[i]));
+          hi = hi.map((v, i) => Math.max(v, b[i]));
+        }
+        const center = lo.map((v, i) => (v + hi[i]) / 2) as Vec3;
+        const size = Math.max(1, ...hi.map((v, i) => v - lo[i]));
+        const axes: [string, Vec3, number][] = [['dx', [1, 0, 0], 0xe05050], ['dy', [0, 1, 0], 0x50c060], ['dz', [0, 0, 1], 0x5090ff]];
+        const out: Manipulator[] = axes.map(([param, dir, color]) => ({
+          kind: 'linear', featureId: feature.id, param, label: param.toUpperCase().replace('D', 'Δ'),
+          origin: center, dir, factor: 1, value: feature[param as 'dx' | 'dy' | 'dz'], min: -1e6, color, offset: size * 0.6,
+        }));
+        // Giro alrededor del eje global por el origen: el aro pasa por el centro de los cuerpos.
+        const axis: Vec3 = feature.axis === 'X' ? [1, 0, 0] : feature.axis === 'Y' ? [0, 1, 0] : [0, 0, 1];
+        const along = dot(center, axis);
+        const hub = scale(axis, along);
+        let radial = sub(center, hub);
+        let radius = Math.hypot(...radial);
+        if (radius < size * 0.1) {
+          // Cuerpo sobre el eje: un aro de tamaño visible igual.
+          radial = Math.abs(axis[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+          radius = size * 0.75;
+        }
+        out.push({
+          kind: 'angular', featureId: feature.id, param: 'angle', label: `Giro ${feature.axis}`,
+          center: hub, axis, startDir: normalize(radial), radius, value: feature.angle,
+          axisLength: size * 2, min: 0, color: 0xc070ff,
+        });
+        return out;
+      }
       case 'thread':
       case 'draft':
       case 'combine':
       case 'split':
-      case 'move':
       case 'import':
       case 'sketch':
       case 'pattern':

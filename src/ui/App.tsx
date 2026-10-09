@@ -360,19 +360,19 @@ export function App() {
     const feature = id ? findFeature(store.doc(), id) : undefined;
     const req = ++manipulatorRequest;
     if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || !ready()) {
-      viewport?.setManipulator(null, null);
+      viewport?.setManipulator([], null);
       return;
     }
     kernel.manipulator(feature.id).then(
-      (m) => {
+      (ms) => {
         if (req !== manipulatorRequest) return;
-        viewport?.setManipulator(m, m && {
-          // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle…).
+        viewport?.setManipulator(ms, (m) => ({
+          // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle, dx…).
           onDrag: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
           onCommit: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
-        });
+        }));
       },
-      () => req === manipulatorRequest && viewport?.setManipulator(null, null),
+      () => req === manipulatorRequest && viewport?.setManipulator([], null),
     );
   });
 

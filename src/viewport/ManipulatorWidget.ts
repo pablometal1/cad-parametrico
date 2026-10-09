@@ -34,6 +34,9 @@ export class ManipulatorWidget {
   private shaft: THREE.Line | null = null;
   private axis: THREE.Line | null = null;
 
+  /** Distancia del último hitTest (para elegir el asa más cercana entre varias). */
+  lastHitDistance = Infinity;
+
   constructor(container: HTMLElement, private readonly requestRender: () => void) {
     this.group.renderOrder = 20;
     this.label = document.createElement('div');
@@ -61,8 +64,13 @@ export class ManipulatorWidget {
     this.spec = spec;
     this.handlers = handlers;
     this.value = spec?.value ?? 0;
+    this.baseColor = spec?.color ?? COLOR;
+    this.handleMat.color.set(this.baseColor);
+    this.lineMat.color.set(this.baseColor);
     this.rebuild();
   }
+
+  private baseColor = COLOR;
 
   /** Reubica el asa y la etiqueta según la cámara (tamaño constante en pantalla). */
   update(camera: THREE.Camera, worldPerPx: (p: THREE.Vector3) => number, size: { w: number; h: number }) {
@@ -93,13 +101,15 @@ export class ManipulatorWidget {
     if (!this.handle) return false;
     // Esfera de captura un poco más grande que el asa.
     const sphere = new THREE.Sphere(this.handle.position, this.handle.scale.x * 1.4);
-    return ray.ray.intersectsSphere(sphere);
+    const hit = ray.ray.intersectsSphere(sphere);
+    this.lastHitDistance = hit ? ray.ray.distanceSqToPoint(this.handle.position) : Infinity;
+    return hit;
   }
 
   setHover(on: boolean) {
     if (on === this.hovered) return;
     this.hovered = on;
-    this.handleMat.color.set(on || this.dragging ? COLOR_ACTIVE : COLOR);
+    this.handleMat.color.set(on || this.dragging ? COLOR_ACTIVE : this.baseColor);
     this.requestRender();
   }
 
@@ -124,7 +134,7 @@ export class ManipulatorWidget {
       const denom = 1 - b * b;
       if (denom < 1e-9) return; // rayo paralelo a la flecha
       const t = (b * rd.dot(w) - d.dot(w)) / denom;
-      value = t / m.factor;
+      value = (t - (m.offset ?? 0)) / m.factor;
       value = Math.max(m.min, roundTo(value, fine ? 0.01 : 0.1));
     } else {
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(v3(m.axis).normalize(), v3(m.center));
@@ -135,7 +145,7 @@ export class ManipulatorWidget {
       const wv = v3(m.axis).normalize().cross(u);
       let deg = (Math.atan2(r.dot(wv), r.dot(u)) * 180) / Math.PI;
       if (deg <= 0) deg += 360;
-      value = Math.min(360, Math.max(1, roundTo(deg, fine ? 0.1 : 1)));
+      value = Math.min(360, Math.max(m.min ?? 1, roundTo(deg, fine ? 0.1 : 1)));
     }
     if (value !== this.value) {
       this.value = value;
@@ -147,7 +157,7 @@ export class ManipulatorWidget {
   endDrag() {
     if (!this.dragging) return;
     this.dragging = false;
-    this.handleMat.color.set(this.hovered ? COLOR_ACTIVE : COLOR);
+    this.handleMat.color.set(this.hovered ? COLOR_ACTIVE : this.baseColor);
     this.handlers?.onCommit(this.value);
     if (this.pendingSpec) {
       const p = this.pendingSpec;
@@ -166,7 +176,7 @@ export class ManipulatorWidget {
 
   private handlePosition(): THREE.Vector3 {
     const m = this.spec!;
-    if (m.kind === 'linear') return v3(m.origin).addScaledVector(v3(m.dir).normalize(), this.value * m.factor);
+    if (m.kind === 'linear') return v3(m.origin).addScaledVector(v3(m.dir).normalize(), this.value * m.factor + (m.offset ?? 0));
     return this.arcPoint(this.value);
   }
 
@@ -239,7 +249,8 @@ export class ManipulatorWidget {
     input.select();
     const finish = (apply: boolean) => {
       const v = Number(input.value.trim().replace(',', '.'));
-      if (apply && Number.isFinite(v) && v > 0) {
+      const okSign = m.kind === 'linear' ? m.min < 0 || v > 0 : v >= (m.min ?? 1);
+      if (apply && Number.isFinite(v) && okSign) {
         this.value = m.kind === 'angular' ? Math.min(360, v) : Math.max(m.min, v);
         this.handlers?.onCommit(this.value);
       }
@@ -261,4 +272,68 @@ function roundTo(v: number, step: number) {
 
 function formatValue(v: number) {
   return String(Math.round(v * 1000) / 1000);
+}
+
+/** Varias asas a la vez (p. ej. flechas X/Y/Z y giro de Mover); se arrastra la que se tocó. */
+export class ManipulatorGroup {
+  readonly group = new THREE.Group();
+  private widgets: ManipulatorWidget[] = [];
+  private current: ManipulatorWidget | null = null;
+
+  constructor(private readonly container: HTMLElement, private readonly requestRender: () => void) {}
+
+  get active() {
+    return this.widgets.some((w) => w.active);
+  }
+
+  get isDragging() {
+    return this.widgets.some((w) => w.isDragging);
+  }
+
+  set(specs: Manipulator[], handlersFor: ((m: Manipulator) => ManipulatorHandlers) | null) {
+    while (this.widgets.length < specs.length) {
+      const w = new ManipulatorWidget(this.container, this.requestRender);
+      this.widgets.push(w);
+      this.group.add(w.group);
+    }
+    this.widgets.forEach((w, i) => {
+      const spec = specs[i] ?? null;
+      w.set(spec, spec && handlersFor ? handlersFor(spec) : null);
+    });
+  }
+
+  update(camera: THREE.Camera, worldPerPx: (p: THREE.Vector3) => number, size: { w: number; h: number }) {
+    for (const w of this.widgets) w.update(camera, worldPerPx, size);
+  }
+
+  /** ¿El rayo toca alguna asa? Recuerda la más cercana al rayo para arrastrarla. */
+  hitTest(ray: THREE.Raycaster): boolean {
+    let best: ManipulatorWidget | null = null;
+    for (const w of this.widgets) {
+      if (w.active && w.hitTest(ray) && (!best || w.lastHitDistance < best.lastHitDistance)) best = w;
+    }
+    this.current = best;
+    return best !== null;
+  }
+
+  setHover(on: boolean) {
+    for (const w of this.widgets) w.setHover(on && w === this.current);
+  }
+
+  beginDrag() {
+    this.current?.beginDrag();
+  }
+
+  drag(ray: THREE.Raycaster, fine: boolean) {
+    this.current?.drag(ray, fine);
+  }
+
+  endDrag() {
+    this.current?.endDrag();
+  }
+
+  dispose() {
+    for (const w of this.widgets) w.dispose();
+    this.widgets = [];
+  }
 }

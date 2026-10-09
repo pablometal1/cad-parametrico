@@ -56,7 +56,12 @@ export type Manipulator =
   | {
       kind: 'linear';
       featureId: string;
-      param: 'distance' | 'radius' | 'thickness' | 'depth';
+      /** Campo de la feature que cambia (distance, radius, dx…). */
+      param: string;
+      /** Color del asa (por defecto, naranja). Ejes: X rojo, Y verde, Z azul. */
+      color?: number;
+      /** Largo fijo del asa además del valor (mm): con valor 0 la flecha igual se ve. */
+      offset?: number;
       label: string;
       origin: V3;
       dir: V3;
@@ -68,6 +73,9 @@ export type Manipulator =
       kind: 'angular';
       featureId: string;
       param: 'angle';
+      color?: number;
+      /** Ángulo mínimo al arrastrar (por defecto 1°). */
+      min?: number;
       label: string;
       center: V3;
       axis: V3;
@@ -184,7 +192,8 @@ export interface KernelApi {
   /** Volumen, área, caja envolvente y centro de masa del sólido mostrado. */
   massProperties(): MassProperties;
   /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */
-  manipulator(featureId: string): Manipulator | null;
+  /** Asas de la feature (puede tener varias, como las flechas X/Y/Z de Mover). */
+  manipulator(featureId: string): Manipulator[];
 }
 
 export type KernelMethod = keyof KernelApi;

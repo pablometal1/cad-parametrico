@@ -239,10 +239,11 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     }
   }
 
-  manipulator(featureId: string): Manipulator | null {
+  manipulator(featureId: string): Manipulator[] {
     const ctx = this.engine.contextOf(featureId);
     const feature = ctx?.doc.features.find((f) => f.id === featureId);
-    return ctx && feature ? manipulatorFor(feature, ctx) : null;
+    const m = ctx && feature ? manipulatorFor(feature, ctx) : null;
+    return m === null ? [] : Array.isArray(m) ? m : [m];
   }
 
   dispose() {
