@@ -159,6 +159,18 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipu
         });
         return out;
       }
+      case 'dome': {
+        // Asa en el centro de la cara, sobre su normal: la altura del abombado.
+        const input = ctx.input;
+        if (!input) return null;
+        const face = input.shape.faces[resolveFace(input, feature.face)];
+        const c = face.center;
+        return {
+          kind: 'linear', featureId: feature.id, param: 'height', label: 'Altura',
+          origin: c.toTuple(), dir: unit(face.normalAt(c).toTuple()), factor: 1, value: feature.height, min: -1e6,
+        };
+      }
+      case 'patch':
       case 'thread':
       case 'draft':
       case 'combine':

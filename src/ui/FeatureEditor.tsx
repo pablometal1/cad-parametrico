@@ -4,7 +4,7 @@ import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
   RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature, ImportFeature,
-  PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature,
+  PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature, PatchFeature, DomeFeature,
 } from '../document/types';
 import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
 import { ExprField, NumberField, SelectField, TextField } from './fields';
@@ -92,6 +92,12 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'move'}>
                 <MovePanel store={store} feature={feature() as MoveFeature} />
+              </Match>
+              <Match when={feature().type === 'dome'}>
+                <DomePanel store={store} feature={feature() as DomeFeature} />
+              </Match>
+              <Match when={feature().type === 'patch'}>
+                <PatchPanel store={store} feature={feature() as PatchFeature} />
               </Match>
             </Switch>
           </div>
@@ -719,6 +725,39 @@ function MovePanel(props: { store: CadStore; feature: MoveFeature }) {
         {f().bodies.length ? plural(f().bodies.length, 'cuerpo', 'cuerpos') : 'Todos los cuerpos'}. Primero gira alrededor del eje (por el origen), después traslada.
       </p>
       <PickButton onClick={() => props.store.beginPick(f().id, false, 'bodies')}>Elegir cuerpos…</PickButton>
+    </>
+  );
+}
+
+function DomePanel(props: { store: CadStore; feature: DomeFeature }) {
+  const f = () => props.feature;
+  return (
+    <>
+      <h3>Abombar cara</h3>
+      <Num store={props.store} id={f().id} path="height" label="Altura" unit="mm" />
+      <p class="hint">El borde de la cara queda fijo y el centro sube (positiva) o se hunde (negativa) con una superficie suave.</p>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'face')}>Cambiar cara…</PickButton>
+    </>
+  );
+}
+
+const PATCH_OPS = [
+  { value: 'new', label: 'Cuerpo nuevo' },
+  { value: 'join', label: 'Unir' },
+  { value: 'cut', label: 'Cortar' },
+] as const satisfies readonly { value: PatchFeature['operation']; label: string }[];
+
+function PatchPanel(props: { store: CadStore; feature: PatchFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<PatchFeature>) => props.store.updateFeature<PatchFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Parche</h3>
+      <Num store={props.store} id={f().id} path="height" label="Abombado" unit="mm" />
+      <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
+      <SelectField label="Operación" value={f().operation} options={PATCH_OPS} onChange={(operation) => update({ operation })} />
+      <p class="hint">{plural(f().edges.length, 'arista', 'aristas')}. Tienen que formar un contorno cerrado; abombado 0 = la superficie más plana posible.</p>
+      <PickButton onClick={() => props.store.beginPick(f().id)}>Elegir aristas…</PickButton>
     </>
   );
 }

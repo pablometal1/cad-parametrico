@@ -15,6 +15,7 @@ import { runThread } from './features/thread';
 import { runImport } from './features/import';
 import { runDraft, runPushPull } from './features/direct';
 import { runCombine, runMove, runSplit } from './features/bodies';
+import { runDome, runPatch } from './features/surface';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -298,6 +299,10 @@ export class RecomputeEngine {
           return ok(runSplit(feature, ctx.input, ctx.planes));
         case 'move':
           return ok(runMove(feature, ctx.input));
+        case 'patch':
+          return ok(runPatch(feature, ctx.input));
+        case 'dome':
+          return ok(runDome(feature, ctx.input));
         case 'hole':
           return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
         case 'loft':

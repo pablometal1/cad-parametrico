@@ -46,6 +46,7 @@ export function fieldLabel(path: string): string {
     length: 'el largo',
     scale: 'la escala',
     offset: 'el desplazamiento',
+    height: 'la altura',
     dx: 'la traslación en X',
     dy: 'la traslación en Y',
     dz: 'la traslación en Z',

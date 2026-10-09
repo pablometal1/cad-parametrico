@@ -49,7 +49,12 @@ button:hover:not(:disabled) { background: #363d46; }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { border-color: #5a4630; background: #3a2f22; }
 button.primary:hover:not(:disabled) { background: #4a3b2a; }
-.toolbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+.toolbar .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+/* Con muchas herramientas, botones un poco más angostos para que la barra entre en una línea. */
+@media (max-width: 1700px) {
+  .toolbar > button.tb, .toolbar .tool-group > button.tb { width: 29px; }
+  .toolbar .sep { margin: 0 3px; }
+}
 .toolbar .spacer { flex: 1; }
 
 .viewport { grid-area: viewport; position: relative; overflow: hidden; outline: none; }

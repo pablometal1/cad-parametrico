@@ -415,10 +415,29 @@ export interface MoveFeature extends FeatureBase {
   copy: boolean;
 }
 
+/**
+ * Parche (superficie libre): rellena un contorno cerrado de aristas del modelo con una superficie
+ * suave, abombada `height` mm en el centro (0 = la más plana posible), engrosada `thickness` mm.
+ */
+export interface PatchFeature extends FeatureBase {
+  type: 'patch';
+  edges: EdgeRef[];
+  height: number;
+  thickness: number;
+  operation: 'new' | 'join' | 'cut';
+}
+
+/** Abombar una cara plana: el borde queda fijo y el centro sube (o baja) `height` mm. */
+export interface DomeFeature extends FeatureBase {
+  type: 'dome';
+  face: FaceRef;
+  height: number;
+}
+
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
   | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature | ImportFeature
-  | PushPullFeature | DraftFeature | CombineFeature | SplitFeature | MoveFeature;
+  | PushPullFeature | DraftFeature | CombineFeature | SplitFeature | MoveFeature | PatchFeature | DomeFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */
