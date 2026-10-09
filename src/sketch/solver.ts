@@ -81,7 +81,8 @@ export function solveSketch(data: SketchData, drag: DragTarget[] = []): SolveRes
       }
     }
   }
-  for (const c of data.constraints) prims.push(...toGcs(index, c));
+  const joined = coincidentPairs(data);
+  for (const c of data.constraints) prims.push(...toGcs(index, c, joined));
   for (const d of drag) {
     prims.push({ id: `__drag_x_${d.point}`, type: 'coordinate_x', p_id: d.point, x: d.to[0], temporary: true });
     prims.push({ id: `__drag_y_${d.point}`, type: 'coordinate_y', p_id: d.point, y: d.to[1], temporary: true });
@@ -112,7 +113,26 @@ function userIds(ids: string[]) {
 
 const DEG = Math.PI / 180;
 
-function toGcs(index: SketchIndex, c: SketchConstraint): SketchPrimitive[] {
+/** Pares de puntos unidos por una restricción de coincidencia (en los dos órdenes). */
+function coincidentPairs(data: SketchData): Set<string> {
+  const out = new Set<string>();
+  for (const c of data.constraints) {
+    if (c.type === 'coincident') out.add(`${c.a}|${c.b}`).add(`${c.b}|${c.a}`);
+  }
+  return out;
+}
+
+/** Extremos de una línea y un arco (o de dos arcos) que coinciden: [punto de x, punto de y]. */
+function sharedEnd(index: SketchIndex, x: SketchEntityId, y: SketchEntityId, joined: Set<string>): [SketchEntityId, SketchEntityId] | null {
+  const ends = (id: SketchEntityId): SketchEntityId[] => {
+    const e = index.get(id);
+    return e?.type === 'line' ? [e.p1, e.p2] : e?.type === 'arc' ? [e.start, e.end] : [];
+  };
+  for (const p of ends(x)) for (const q of ends(y)) if (p === q || joined.has(`${p}|${q}`)) return [p, q];
+  return null;
+}
+
+function toGcs(index: SketchIndex, c: SketchConstraint, joined: Set<string> = new Set()): SketchPrimitive[] {
   const kind = (id: SketchEntityId) => {
     const k = index.kind(id);
     if (!k) throw new Error(`La restricción ${c.id} referencia ${id}, que no existe`);
@@ -150,6 +170,19 @@ function toGcs(index: SketchIndex, c: SketchConstraint): SketchPrimitive[] {
       const order = { line: 0, circle: 1, arc: 2, point: 9, text: 9 } as const;
       const [x, y] = order[ka] <= order[kb] ? [c.a, c.b] : [c.b, c.a];
       const pair = `${kind(x)}-${kind(y)}`;
+      // Tangencia en un extremo compartido: la forma general es degenerada ahí (el solver converge
+      // mal y la marca redundante). Como en FreeCAD: la línea es perpendicular al radio en ese punto,
+      // o los dos centros quedan alineados con él.
+      const shared = pair === 'line-arc' || pair === 'arc-arc' ? sharedEnd(index, x, y, joined) : null;
+      if (shared && pair === 'line-arc') {
+        const l = index.get(x) as { p1: string; p2: string };
+        const a = index.get(y) as { center: string };
+        return [{ id, type: 'perpendicular_pppp', l1p1_id: l.p1, l1p2_id: l.p2, l2p1_id: a.center, l2p2_id: shared[1] }];
+      }
+      if (shared && pair === 'arc-arc') {
+        const [a1, a2] = [index.get(x) as { center: string }, index.get(y) as { center: string }];
+        return [{ id, type: 'point_on_line_ppp', p_id: shared[0], lp1_id: a1.center, lp2_id: a2.center }];
+      }
       if (pair === 'line-circle') return [{ id, type: 'tangent_lc', l_id: x, c_id: y }];
       if (pair === 'line-arc') return [{ id, type: 'tangent_la', l_id: x, a_id: y }];
       if (pair === 'circle-circle') return [{ id, type: 'tangent_cc', c1_id: x, c2_id: y }];
