@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-244%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-310%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -43,8 +43,9 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 
 ### ✏️ Sketch 2D con restricciones
 
-- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura y **texto**.
-- Restricciones geométricas: coincidente, horizontal, vertical, paralela, perpendicular, tangente e igual.
+- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura, **spline** y **texto**.
+- Herramientas de edición como las de Fusion: **recortar**, **desfase** (paralelo, vinculado al original), **redondeo de esquina**, **simetría** y **patrones** circular y lineal.
+- Restricciones geométricas: coincidente, horizontal, vertical, paralela, perpendicular, tangente, igual y simétrica.
 - Cotas: distancia, radio y ángulo. Se editan con doble clic.
 - Contador de grados de libertad, con un indicador de *totalmente definido*.
 - Geometría de construcción y grilla con snap.
@@ -65,13 +66,17 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 
 | | |
 |---|---|
-| **Extrusión · Revolución** | Cuerpo nuevo, unir o cortar |
+| **Extrusión · Revolución** | Cuerpo nuevo, unir, cortar o intersección; extrusión delgada (paredes y nervios) |
 | **Barrido · Solevación** | Perfil por una trayectoria; o entre secciones |
 | **Agujero** | Simple, cajeado o avellanado, con presets de tornillos e insertos |
 | **Rosca modelada** | ISO de 60°, interna o externa, imprimible |
-| **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas |
+| **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas; redondeo de radio variable |
 | **Patrón · Simetría** | Lineal, circular o respecto de un plano |
 | **Planos de construcción** | Desplazados o girados sobre un eje o una arista |
+| **Empujar/tirar** | Modelado directo: la cara plana avanza o retrocede |
+| **Desmoldeo** | Inclinar caras respecto de una cara neutra |
+| **Combinar · Dividir** | Unir, cortar o intersectar cuerpos; partirlos con un plano |
+| **Mover/copiar cuerpos** | Traslación y giro, con o sin copia |
 
 </td>
 </tr>
@@ -242,7 +247,10 @@ Si la malla es cerrada, se convierte en sólido y se puede usar en booleanas.
 | **Sketch** | | `Shift+V` | Vaciado |
 | `K` | Nuevo sketch | `Shift+P` / `Shift+M` | Patrón / simetría |
 | `L` `R` `C` `A` `T` | Línea, rectángulo, círculo, arco, texto | `Shift+N` | Plano de construcción |
-| `Enter` | Terminar | `Alt+↑` / `Alt+↓` | Mover en el historial |
+| `Enter` | Terminar | `Shift+Q` / `Shift+D` | Empujar/tirar / desmoldeo |
+| **Editor de sketch** | | `Shift+J` / `Shift+S` | Combinar / dividir |
+| `X` `D` `M` | Recortar, desfase, simetría | `Shift+G` | Mover/copiar cuerpos |
+| | | `Alt+↑` / `Alt+↓` | Mover en el historial |
 
 ## Licencias de terceros
 

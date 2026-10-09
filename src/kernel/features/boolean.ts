@@ -24,24 +24,30 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
   if (!input && op === 'join') return tool;
   if (!input) {
     tool.shape.delete();
-    throw new FeatureError('No hay un sólido previo para cortar');
+    throw new FeatureError(op === 'cut' ? 'No hay un sólido previo para cortar' : 'No hay un sólido previo con el cual intersectar');
   }
 
   const oc = getOC();
   const range = new oc.Message_ProgressRange();
   const algo = op === 'join'
     ? new oc.BRepAlgoAPI_Fuse(input.shape.wrapped, tool.shape.wrapped, range)
-    : new oc.BRepAlgoAPI_Cut(input.shape.wrapped, tool.shape.wrapped, range);
+    : op === 'intersect'
+      ? new oc.BRepAlgoAPI_Common(input.shape.wrapped, tool.shape.wrapped, range)
+      : new oc.BRepAlgoAPI_Cut(input.shape.wrapped, tool.shape.wrapped, range);
   try {
     if (!algo.IsDone() || algo.HasErrors()) {
-      throw new FeatureError(op === 'join' ? 'Falló la unión con el sólido previo' : 'Falló el corte del sólido previo');
+      throw new FeatureError(
+        op === 'join' ? 'Falló la unión con el sólido previo' : op === 'intersect' ? 'Falló la intersección con el sólido previo' : 'Falló el corte del sólido previo',
+      );
     }
     // Unifica caras coplanares y aristas colineales que deja la booleana (conserva la historia).
     algo.SimplifyResult(true, true, 1e-6);
     const result = cast(algo.Shape());
     if (result.solids.length === 0) {
       result.delete();
-      throw new FeatureError(op === 'cut' ? 'El corte elimina todo el sólido' : 'La unión no produjo un sólido');
+      throw new FeatureError(
+        op === 'cut' ? 'El corte elimina todo el sólido' : op === 'intersect' ? 'El cuerpo no se superpone con el sólido previo' : 'La unión no produjo un sólido',
+      );
     }
     if (!isValidShape(result)) {
       result.delete();

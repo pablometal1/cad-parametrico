@@ -26,8 +26,10 @@ export function fieldLabel(path: string): string {
   const labels: Record<string, string> = {
     distance: 'la distancia',
     radius: 'el radio',
+    radius2: 'el radio final',
     angle: 'el ángulo',
     thickness: 'el espesor',
+    thin: 'el espesor de la pared',
     count: 'la cantidad',
     spacing: 'la separación',
     'plane.offset': 'el desplazamiento',
@@ -43,6 +45,10 @@ export function fieldLabel(path: string): string {
     clearance: 'la holgura',
     length: 'el largo',
     scale: 'la escala',
+    offset: 'el desplazamiento',
+    dx: 'la traslación en X',
+    dy: 'la traslación en Y',
+    dz: 'la traslación en Z',
   };
   if (path.startsWith('constraint:')) return `la cota ${path.slice(11)}`;
   return labels[path] ?? path;

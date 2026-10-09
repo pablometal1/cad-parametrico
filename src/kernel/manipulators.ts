@@ -81,6 +81,17 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
           origin: c.toTuple(), dir: scale(n, -1), factor: 1, value: feature.thickness, min: 0.01,
         };
       }
+      case 'pushpull': {
+        // Asa sobre la cara (en el sólido antes de empujar/tirar), a lo largo de su normal.
+        const input = ctx.input;
+        if (!input || feature.faces.length === 0) return null;
+        const face = input.shape.faces[resolveFace(input, feature.faces[0])];
+        const c = face.center;
+        return {
+          kind: 'linear', featureId: feature.id, param: 'distance', label: 'Distancia',
+          origin: c.toTuple(), dir: unit(face.normalAt(c).toTuple()), factor: 1, value: feature.distance, min: -1e6,
+        };
+      }
       case 'plane': {
         const f = ctx.planes?.get(feature.id);
         if (!f) return null;
@@ -104,6 +115,10 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | null {
         };
       }
       case 'thread':
+      case 'draft':
+      case 'combine':
+      case 'split':
+      case 'move':
       case 'import':
       case 'sketch':
       case 'pattern':

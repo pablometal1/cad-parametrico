@@ -20,6 +20,7 @@ export const CONSTRAINT_LABELS: Record<SketchConstraintType, string> = {
   distance: 'Distancia',
   radius: 'Radio',
   angle: 'Ángulo',
+  symmetric: 'Simétrico',
 };
 
 export const DIMENSIONAL: ReadonlySet<SketchConstraintType> = new Set(['distance', 'radius', 'angle']);
@@ -59,7 +60,7 @@ export function constraintFromSelection(
       return hint('Elegí dos líneas');
 
     case 'tangent':
-      if (n === 2 && (isCurve(0) || isCurve(1)) && kinds.every((k) => k !== 'point')) return ok({ type, a, b });
+      if (n === 2 && (isCurve(0) || isCurve(1)) && kinds.every((k) => k === 'line' || k === 'circle' || k === 'arc')) return ok({ type, a, b });
       return hint('Elegí una línea y un círculo/arco, o dos círculos/arcos');
 
     case 'equal':
@@ -96,6 +97,10 @@ export function constraintFromSelection(
       }
       return hint('Elegí un círculo o un arco');
     }
+
+    case 'symmetric':
+      if (n === 3 && is(0, 'point') && is(1, 'point') && is(2, 'line')) return ok({ type, a, b, line: selection[2] });
+      return hint('Elegí dos puntos y después la línea de simetría');
 
     case 'angle': {
       if (n === 2 && is(0, 'line') && is(1, 'line')) {

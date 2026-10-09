@@ -117,6 +117,24 @@ describe('solver: restricciones', () => {
     expect(ap.radius).toBeCloseTo(6, 9);
     expect(dist(r.index.point(arc.end), ap.center)).toBeCloseTo(6, 9);
     expect(pointLineDistance(ap.center, ...lineEnds(r.index, l))).toBeCloseTo(6, 6);
+    // Tangencia en el extremo compartido: no es redundante.
+    expect(r.redundant).toEqual([]);
+  });
+
+  it('dos arcos tangentes en un extremo compartido: centros alineados con el punto', () => {
+    const b = new SketchBuilder({ entities: [], constraints: [] });
+    const a1 = b.arc([0, 0], [5, 0], [0, 5]);
+    const end = (b.data.entities.find((e) => e.id === a1) as { end: string }).end;
+    const a2 = b.arc([1, 9], end, [-4, 9]);
+    b.constrain({ type: 'tangent', a: a1, b: a2 });
+    b.constrain({ type: 'radius', curve: a1, value: 5 });
+    b.constrain({ type: 'radius', curve: a2, value: 3 });
+    const r = solve(b);
+    expect(r.ok).toBe(true);
+    expect(r.redundant).toEqual([]);
+    const [p, q] = [a1, a2].map((id) => arcParams(r.index, r.data.entities.find((e) => e.id === id) as never));
+    const shared = r.index.point(end);
+    expect(dist(p.center, shared) + dist(shared, q.center)).toBeCloseTo(dist(p.center, q.center), 6);
   });
 
   it('detecta redundancias y conflictos', () => {

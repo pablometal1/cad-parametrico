@@ -13,6 +13,8 @@ import { runLoft, runSweep } from './features/sweep';
 import { runHole } from './features/hole';
 import { runThread } from './features/thread';
 import { runImport } from './features/import';
+import { runDraft, runPushPull } from './features/direct';
+import { runCombine, runMove, runSplit } from './features/bodies';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -286,6 +288,16 @@ export class RecomputeEngine {
             ? { key, output: ctx.input, owned: false, reference: r.reference, status: 'ok', info: feature.fileName, timeMs: elapsed(t0) }
             : { ...ok(r.output!), info: feature.fileName };
         }
+        case 'pushpull':
+          return ok(runPushPull(feature, ctx.input));
+        case 'draft':
+          return ok(runDraft(feature, ctx.input));
+        case 'combine':
+          return ok(runCombine(feature, ctx.input));
+        case 'split':
+          return ok(runSplit(feature, ctx.input, ctx.planes));
+        case 'move':
+          return ok(runMove(feature, ctx.input));
         case 'hole':
           return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
         case 'loft':

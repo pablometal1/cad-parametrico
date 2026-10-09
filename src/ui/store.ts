@@ -54,10 +54,15 @@ export interface ToolDialog {
   depth: number;
 }
 
+/** Campos de caras de las features de modelado directo y de cuerpos. */
+export type PickSlot = 'faces' | 'neutral' | 'target' | 'tools' | 'body' | 'plane' | 'bodies';
+
 /** Modo "elegir referencias": el historial se retrocede hasta la feature para elegir sobre su entrada. */
 export interface Picking {
   featureId: FeatureId;
   kind: 'edges' | 'faces' | 'face';
+  /** Campo de la feature que se está eligiendo (cuando tiene más de uno: caras, cara neutra…). */
+  slot?: PickSlot;
   /** Documento antes de entrar al modo: el cambio final se deshace de una vez hasta acá. */
   before: CadDocument;
 }
@@ -464,7 +469,16 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     addExtrude(): string | null {
       const sketch = sketchForProfile();
       if (!sketch) return 'Primero creá un sketch con un perfil cerrado (o elegí uno en el historial)';
-      addWithDialog(ops.makeExtrude(doc(), sketch.id));
+      // Solo curvas abiertas (un nervio, una pared): extrusión delgada de entrada.
+      let onlyOpen = false;
+      try {
+        const p = findProfiles(sketch);
+        onlyOpen = p.regions.length === 0 && p.openChains > 0;
+      } catch {
+        // Topología no soportada: el error lo muestra la extrusión.
+      }
+      const f = ops.makeExtrude(doc(), sketch.id);
+      addWithDialog(onlyOpen ? { ...f, thin: 2 } : f);
       return null;
     },
 
@@ -608,6 +622,54 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       addWithDialog(type === 'fillet' ? ops.makeFillet(doc(), refs) : ops.makeChamfer(doc(), refs));
     },
 
+    /** Empujar/tirar las caras planas elegidas. */
+    async addPushPull(faces: number[]) {
+      if (faces.length === 0) return setNotice('Seleccioná las caras planas a empujar o tirar y volvé a tocar Empujar/tirar');
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      if (refs.some((r) => r.type !== 'PLANE')) return setNotice('Empujar/tirar solo funciona con caras planas');
+      addWithDialog(ops.makePushPull(doc(), refs));
+    },
+
+    /** Desmoldeo: las caras a inclinar y, al final, la cara neutra (plana). */
+    async addDraft(faces: number[]) {
+      if (faces.length < 2) return setNotice('Seleccioná las caras a inclinar y, al final, la cara plana neutra (la que no cambia, p. ej. la base)');
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      const neutral = refs[refs.length - 1];
+      if (neutral.type !== 'PLANE') return setNotice('La última cara elegida (la neutra) tiene que ser plana');
+      addWithDialog(ops.makeDraft(doc(), refs.slice(0, -1), neutral));
+    },
+
+    /** Combinar: el cuerpo de la primera cara elegida es el destino; los demás, herramientas. */
+    async addCombine(faces: number[]) {
+      if (faces.length < 2) return setNotice('Seleccioná una cara del cuerpo de destino y después una de cada cuerpo herramienta');
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      addWithDialog(ops.makeCombine(doc(), refs[0], refs.slice(1)));
+    },
+
+    /** Dividir: con una cara plana elegida, por su plano; si no, por XY. */
+    async addSplit(faces: number[]) {
+      if (faces.length > 1) return setNotice('Seleccioná una sola cara plana como plano de corte (o ninguna para cortar por XY)');
+      if (faces.length === 1) {
+        const refs = await withRefs(() => kernel.faceRefs(faces));
+        if (!refs) return;
+        if (refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
+        addWithDialog(ops.makeSplit(doc(), { kind: 'face', face: refs[0] }));
+        return;
+      }
+      const sel = selectedFeature();
+      addWithDialog(ops.makeSplit(doc(), sel?.type === 'plane' ? { kind: 'plane', plane: sel.id } : { kind: 'base', plane: 'XY' }));
+    },
+
+    /** Mover o copiar: los cuerpos de las caras elegidas (ninguna: todos). */
+    async addMove(faces: number[]) {
+      const refs = faces.length ? await withRefs(() => kernel.faceRefs(faces)) : [];
+      if (!refs) return;
+      addWithDialog(ops.makeMove(doc(), refs));
+    },
+
     async addShell(faces: number[]) {
       if (faces.length === 0) return setNotice('Seleccioná las caras a quitar (p. ej. la superior) y volvé a tocar Vaciado');
       const refs = await withRefs(() => kernel.faceRefs(faces));
@@ -632,14 +694,15 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
     /** Entra al modo elegir referencias para una feature existente (retrocede el historial hasta ella). */
     /** `edgeAxis`: para un plano, elegir la arista que hace de eje de giro (en vez de la cara). */
-    beginPick(featureId: FeatureId, edgeAxis = false) {
+    beginPick(featureId: FeatureId, edgeAxis = false, slot?: PickSlot) {
       const d = doc();
       const i = d.features.findIndex((f) => f.id === featureId);
       const f = d.features[i];
       if (!f) return;
-      const kind = f.type === 'fillet' || f.type === 'chamfer' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      const multi = slot === 'faces' || slot === 'tools' || slot === 'bodies';
+      const kind = slot ? (multi ? 'faces' : 'face') : f.type === 'fillet' || f.type === 'chamfer' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
       // Para un sketch o un plano: el modelo hasta antes de la feature (la cara tiene que existir antes).
-      setPicking({ featureId, kind, before: d });
+      setPicking({ featureId, kind, slot, before: d });
       apply((x) => ops.setRollback(x, i), { history: false });
     },
 
@@ -649,6 +712,26 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!p) return;
       const restore = (d: CadDocument) => ops.setRollback(d, p.before.rollback);
       const opts: CommitOptions = { base: p.before };
+      if (p.slot) {
+        // Campos de caras de las features de modelado directo y de cuerpos.
+        const optional = p.slot === 'bodies' || p.slot === 'body';
+        if (!optional && sel.faces.length === 0) return setNotice('Seleccioná al menos una cara');
+        if (!p.slot.endsWith('s') && sel.faces.length > 1) return setNotice('Seleccioná una sola cara');
+        const refs = sel.faces.length ? await withRefs(() => kernel.faceRefs(sel.faces)) : [];
+        if (!refs) return;
+        if ((p.slot === 'neutral' || p.slot === 'plane') && refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
+        const patch: Record<string, unknown> = {
+          faces: { faces: refs }, tools: { tools: refs }, bodies: { bodies: refs },
+          neutral: { neutral: refs[0] }, target: { target: refs[0] },
+          body: { body: refs[0] }, plane: { plane: { kind: 'face', face: refs[0] } },
+        }[p.slot];
+        apply((d) => restore(ops.updateFeature(d, p.featureId, patch as never)), opts);
+        batch(() => {
+          setPicking(null);
+          setNotice(null);
+        });
+        return;
+      }
       if (p.kind === 'edges' && ops.findFeature(doc(), p.featureId)?.type === 'plane') {
         if (sel.edges.length !== 1) return setNotice('Seleccioná una arista recta como eje');
         const info = await withRefs(() => kernel.edgeInfo(sel.edges[0]));

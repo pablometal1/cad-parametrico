@@ -7,7 +7,7 @@ import { Viewport, type PickItem, type ViewportSelection } from '../viewport/Vie
 import { FeatureEditor } from './FeatureEditor';
 import { createSketchSession } from './sketch/session';
 import { SketchEditor } from './sketch/SketchEditor';
-import { createCadStore } from './store';
+import { createCadStore, type PickSlot } from './store';
 import { Timeline } from './Timeline';
 import { FEATURE_ICONS, Icon, tip } from './icons';
 import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, PLANE_TOOL, type FeatureTool } from './tools';
@@ -27,7 +27,18 @@ const PLANE_MENU: { plane: BasePlane; label: string }[] = [
 ];
 
 
-function pickText(kind: keyof typeof PICK_TEXT, type: string | undefined) {
+const SLOT_TEXT: Record<PickSlot, string> = {
+  faces: 'Elegí las caras (Shift + clic para varias)',
+  neutral: 'Elegí la cara plana neutra (la que no cambia)',
+  target: 'Elegí una cara del cuerpo de destino',
+  tools: 'Elegí una cara de cada cuerpo herramienta (Shift + clic para varios)',
+  body: 'Elegí una cara del cuerpo a dividir (ninguna: todos)',
+  plane: 'Elegí la cara plana que hace de plano de corte',
+  bodies: 'Elegí una cara de cada cuerpo (ninguna: todos)',
+};
+
+function pickText(kind: keyof typeof PICK_TEXT, type: string | undefined, slot?: PickSlot) {
+  if (slot) return SLOT_TEXT[slot];
   if (type === 'thread') return 'Elegí la cara cilíndrica a roscar (pared de un agujero o una barra)';
   if (type === 'plane') return kind === 'edges' ? 'Elegí la arista recta que hace de eje de giro' : 'Elegí una cara plana como referencia del plano';
   return PICK_TEXT[kind];
@@ -102,6 +113,11 @@ export function App() {
     }
     else if (id === 'pattern' || id === 'mirror') store.setNotice(store.addCopy(id));
     else if (id === 'fillet' || id === 'chamfer') store.addEdgeFeature(id, sel.edges);
+    else if (id === 'pushpull') void store.addPushPull(sel.faces);
+    else if (id === 'draft') void store.addDraft(sel.faces);
+    else if (id === 'combine') void store.addCombine(sel.faces);
+    else if (id === 'split') void store.addSplit(sel.faces);
+    else if (id === 'move') void store.addMove(sel.faces);
     else store.addShell(sel.faces);
   };
   const newProject = () => {
@@ -586,7 +602,7 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole'].includes(f().type)}>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole', 'pushpull'].includes(f().type)}>
                   <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
                 </Show>
               </div>
@@ -669,7 +685,7 @@ export function App() {
           {(p) => (
             <div class="pick-banner">
               <span>
-                <b>{findFeature(store.doc(), p().featureId)?.name}:</b> {pickText(p().kind, findFeature(store.doc(), p().featureId)?.type)}
+                <b>{findFeature(store.doc(), p().featureId)?.name}:</b> {pickText(p().kind, findFeature(store.doc(), p().featureId)?.type, p().slot)}
                 {' · '}{p().kind === 'edges' ? `${viewSel().edges.length} elegidas` : `${viewSel().faces.length} elegidas`}
               </span>
               <button class="primary" onClick={() => void store.finishPick(viewport?.getSelection() ?? { faces: [], edges: [] })}>Aplicar</button>
@@ -780,7 +796,7 @@ function sketchPlaneLabel(f: SketchFeature) {
 
 /** "Nueva extrusión", "Nuevo redondeo"… */
 function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
-  const feminine = type === 'extrude' || type === 'revolve' || type === 'loft' || type === 'thread';
+  const feminine = type === 'extrude' || type === 'revolve' || type === 'loft' || type === 'thread' || type === 'split';
   return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
 }
 

@@ -34,7 +34,7 @@ export class SketchIndex {
     return this.byId.get(id)?.type;
   }
   curves(): SketchCurve[] {
-    return this.data.entities.filter((e): e is SketchCurve => e.type === 'line' || e.type === 'circle' || e.type === 'arc');
+    return this.data.entities.filter((e): e is SketchCurve => e.type === 'line' || e.type === 'circle' || e.type === 'arc' || e.type === 'spline');
   }
   texts(): SketchText[] {
     return this.data.entities.filter((e): e is SketchText => e.type === 'text');
@@ -50,6 +50,7 @@ export function curvePoints(c: SketchCurve | SketchText): SketchEntityId[] {
     case 'line': return [c.p1, c.p2];
     case 'circle': return [c.center];
     case 'arc': return [c.center, c.start, c.end];
+    case 'spline': return c.points.slice();
     case 'text': return [c.point];
   }
 }
@@ -64,6 +65,8 @@ export function constraintRefs(c: SketchConstraint): SketchEntityId[] {
       return [c.curve];
     case 'distance':
       return c.b ? [c.a, c.b] : [c.a];
+    case 'symmetric':
+      return [c.a, c.b, c.line];
     default:
       return [c.a, c.b];
   }

@@ -78,11 +78,14 @@ function validateFeature(raw: unknown, path: string): Feature {
       return {
         ...base, type: 'revolve', sketch: str(o.sketch, `${path}.sketch`), axis,
         angle: num(o.angle, `${path}.angle`),
-        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
       };
     }
     case 'fillet':
-      return { ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`) };
+      return {
+        ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`),
+        ...(o.radius2 !== undefined ? { radius2: num(o.radius2, `${path}.radius2`) } : {}),
+      };
     case 'chamfer':
       return { ...base, type: 'chamfer', edges: list(o.edges, `${path}.edges`, edgeRef), distance: num(o.distance, `${path}.distance`) };
     case 'pattern':
@@ -104,18 +107,35 @@ function validateFeature(raw: unknown, path: string): Feature {
     case 'sweep':
       return {
         ...base, type: 'sweep', profile: str(o.profile, `${path}.profile`), path: str(o.path, `${path}.path`),
-        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
+      };
+    case 'pushpull':
+      return { ...base, type: 'pushpull', faces: list(o.faces, `${path}.faces`, faceRef), distance: num(o.distance, `${path}.distance`) };
+    case 'draft':
+      return {
+        ...base, type: 'draft', faces: list(o.faces, `${path}.faces`, faceRef), neutral: faceRef(o.neutral, `${path}.neutral`),
+        angle: num(o.angle, `${path}.angle`),
+      };
+    case 'combine':
+      return {
+        ...base, type: 'combine', target: faceRef(o.target, `${path}.target`), tools: list(o.tools, `${path}.tools`, faceRef),
+        operation: oneOf(o.operation, ['join', 'cut', 'intersect'] as const, `${path}.operation`),
+        keepTools: bool(o.keepTools, `${path}.keepTools`),
+      };
+    case 'split':
+      return {
+        ...base, type: 'split', plane: planeReference(o.plane, `${path}.plane`), offset: num(o.offset, `${path}.offset`),
+        ...(o.body !== undefined ? { body: faceRef(o.body, `${path}.body`) } : {}),
+      };
+    case 'move':
+      return {
+        ...base, type: 'move', bodies: list(o.bodies, `${path}.bodies`, faceRef),
+        dx: num(o.dx, `${path}.dx`), dy: num(o.dy, `${path}.dy`), dz: num(o.dz, `${path}.dz`),
+        axis: oneOf(o.axis, ['X', 'Y', 'Z'] as const, `${path}.axis`), angle: num(o.angle, `${path}.angle`),
+        copy: bool(o.copy, `${path}.copy`),
       };
     case 'plane': {
-      const r = obj(o.reference, `${path}.reference`);
-      const reference: PlaneReference =
-        r.kind === 'base'
-          ? { kind: 'base', plane: oneOf(r.plane, ['XY', 'XZ', 'YZ'] as const, `${path}.reference.plane`) }
-          : r.kind === 'plane'
-            ? { kind: 'plane', plane: str(r.plane, `${path}.reference.plane`) }
-            : r.kind === 'face'
-              ? { kind: 'face', face: faceRef(r.face, `${path}.reference.face`) }
-              : (() => { throw new DocumentFormatError(`${path}.reference.kind`, 'debe ser base, plane o face'); })();
+      const reference = planeReference(o.reference, `${path}.reference`);
       return {
         ...base, type: 'plane', reference,
         axis: oneOf(o.axis, ['none', 'X', 'Y', 'Z', 'edge'] as const, `${path}.axis`),
@@ -151,7 +171,7 @@ function validateFeature(raw: unknown, path: string): Feature {
       return {
         ...base, type: 'import', fileName: str(o.fileName, `${path}.fileName`),
         format: oneOf(o.format, ['stl', 'step'] as const, `${path}.format`), data: str(o.data, `${path}.data`),
-        operation: oneOf(o.operation, ['reference', 'new', 'join', 'cut'] as const, `${path}.operation`),
+        operation: oneOf(o.operation, ['reference', 'new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
         position: v3(o.position, `${path}.position`), rotation: v3(o.rotation, `${path}.rotation`), scale: num(o.scale, `${path}.scale`),
       };
     }
@@ -165,7 +185,7 @@ function validateFeature(raw: unknown, path: string): Feature {
       return {
         ...base, type: 'loft', sections: list(o.sections, `${path}.sections`, str),
         ruled: bool(o.ruled, `${path}.ruled`),
-        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
       };
     case 'extrude': {
       const f: ExtrudeFeature = {
@@ -174,13 +194,22 @@ function validateFeature(raw: unknown, path: string): Feature {
         sketch: str(o.sketch, `${path}.sketch`),
         distance: num(o.distance, `${path}.distance`),
         direction: oneOf(o.direction, ['normal', 'reversed', 'symmetric'] as const, `${path}.direction`),
-        operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+        operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
+        ...(o.thin !== undefined ? { thin: num(o.thin, `${path}.thin`) } : {}),
       };
       return f;
     }
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de feature desconocido: ${String(o.type)}`);
   }
+}
+
+function planeReference(raw: unknown, path: string): PlaneReference {
+  const r = obj(raw, path);
+  if (r.kind === 'base') return { kind: 'base', plane: oneOf(r.plane, ['XY', 'XZ', 'YZ'] as const, `${path}.plane`) };
+  if (r.kind === 'plane') return { kind: 'plane', plane: str(r.plane, `${path}.plane`) };
+  if (r.kind === 'face') return { kind: 'face', face: faceRef(r.face, `${path}.face`) };
+  throw new DocumentFormatError(`${path}.kind`, 'debe ser base, plane o face');
 }
 
 function validateSketch(
@@ -213,7 +242,8 @@ function validateSketch(
     kinds.set(e.id, e.type);
   });
   entities.forEach((e, i) => {
-    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end] : e.type === 'text' ? [e.point] : [];
+    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end]
+      : e.type === 'spline' ? e.points : e.type === 'text' ? [e.point] : [];
     for (const r of refs) {
       if (kinds.get(r) !== 'point') throw new DocumentFormatError(`${path}.entities[${i}]`, `referencia a un punto inexistente "${r}"`);
     }
@@ -221,7 +251,8 @@ function validateSketch(
   const constraints = o.constraints.map((c, i) => validateConstraint(c, `${path}.constraints[${i}]`));
   constraints.forEach((c, i) => {
     if (kinds.has(c.id)) throw new DocumentFormatError(`${path}.constraints[${i}].id`, `ID duplicado "${c.id}"`);
-    const refs = 'line' in c ? [c.line] : 'curve' in c ? [c.curve] : 'b' in c && c.b !== undefined ? [c.a, c.b] : [c.a];
+    const refs = c.type === 'symmetric' ? [c.a, c.b, c.line]
+      : 'line' in c ? [c.line] : 'curve' in c ? [c.curve] : 'b' in c && c.b !== undefined ? [c.a, c.b] : [c.a];
     for (const r of refs) {
       if (!kinds.has(r)) throw new DocumentFormatError(`${path}.constraints[${i}]`, `referencia a una entidad inexistente "${r}"`);
     }
@@ -246,6 +277,11 @@ function validateEntity(raw: unknown, path: string): SketchEntity {
         id, type: 'arc', center: str(o.center, `${path}.center`), start: str(o.start, `${path}.start`),
         end: str(o.end, `${path}.end`), construction: construction(),
       };
+    case 'spline': {
+      const points = list(o.points, `${path}.points`, str);
+      if (points.length < 2) throw new DocumentFormatError(`${path}.points`, 'una spline necesita al menos 2 puntos');
+      return { id, type: 'spline', points, closed: bool(o.closed, `${path}.closed`), construction: construction() };
+    }
     case 'text':
       return {
         id, type: 'text', point: str(o.point, `${path}.point`), text: typeof o.text === 'string' ? o.text : str(o.text, `${path}.text`),
@@ -279,6 +315,8 @@ function validateConstraint(raw: unknown, path: string): SketchConstraint {
       return { id, type: 'radius', curve: str(o.curve, `${path}.curve`), value: num(o.value, `${path}.value`) };
     case 'angle':
       return { id, type: 'angle', a: a(), b: b(), value: num(o.value, `${path}.value`) };
+    case 'symmetric':
+      return { id, type: 'symmetric', a: a(), b: b(), line: str(o.line, `${path}.line`) };
     default:
       throw new DocumentFormatError(`${path}.type`, `tipo de restricción desconocido: ${String(o.type)}`);
   }
