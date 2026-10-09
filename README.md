@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-291%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-293%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -70,7 +70,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | **Barrido · Solevación** | Perfil por una trayectoria; o entre secciones |
 | **Agujero** | Simple, cajeado o avellanado, con presets de tornillos e insertos |
 | **Rosca modelada** | ISO de 60°, interna o externa, imprimible |
-| **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas |
+| **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas; redondeo de radio variable |
 | **Patrón · Simetría** | Lineal, circular o respecto de un plano |
 | **Planos de construcción** | Desplazados o girados sobre un eje o una arista |
 | **Empujar/tirar** | Modelado directo: la cara plana avanza o retrocede |

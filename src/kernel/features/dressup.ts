@@ -14,6 +14,9 @@ export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: N
   if (!input) throw new FeatureError(`No hay un sólido para ${what}`);
   if (feature.edges.length === 0) throw new FeatureError('Elegí al menos una arista');
   if (!(size > 0)) throw new FeatureError(`${isFillet ? 'El radio' : 'La distancia'} debe ser mayor que 0 (es ${size})`);
+  const size2 = isFillet ? feature.radius2 : undefined;
+  if (size2 !== undefined && !(size2 > 0)) throw new FeatureError(`El radio final debe ser mayor que 0 (es ${size2})`);
+  const variable = size2 !== undefined && Math.abs(size2 - size) > 1e-12;
 
   const table = ShapeTable.edges(input.shape);
   const indices = [...new Set(feature.edges.map((ref) => resolveEdge(input, ref)))];
@@ -23,7 +26,11 @@ export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: N
     : new oc.BRepFilletAPI_MakeChamfer(input.shape.wrapped);
   const range = new oc.Message_ProgressRange();
   try {
-    for (const i of indices) builder.Add(size, table.items[i].wrapped);
+    for (const i of indices) {
+      const edge = oc.TopoDS.Edge(table.items[i].wrapped);
+      if (variable) (builder as InstanceType<typeof oc.BRepFilletAPI_MakeFillet>).Add(size, size2!, edge);
+      else builder.Add(size, edge);
+    }
     builder.Build(range);
     if (!builder.IsDone()) throw new Error('not done');
     const result = cast(builder.Shape());
@@ -37,6 +44,11 @@ export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: N
     return nb.finish(feature.id);
   } catch (err) {
     if (err instanceof FeatureError && !err.message.endsWith('no es un sólido válido')) throw err;
+    if (variable) {
+      throw new FeatureError(
+        `No se pudo redondear con radio de ${fmtNum(size)} a ${fmtNum(size2!)} mm: ningún radio puede superar el ancho de las caras que toca`,
+      );
+    }
     // Busca el valor más grande que sí entra, para que el mensaje diga cuánto probar.
     const max = largestThatWorks(size, (v) => edgeFeatureWorks(input, indices, isFillet, v));
     const what = isFillet ? `redondear con radio ${fmtNum(size)} mm` : `achaflanar con ${fmtNum(size)} mm`;

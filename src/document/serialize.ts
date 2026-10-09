@@ -82,7 +82,10 @@ function validateFeature(raw: unknown, path: string): Feature {
       };
     }
     case 'fillet':
-      return { ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`) };
+      return {
+        ...base, type: 'fillet', edges: list(o.edges, `${path}.edges`, edgeRef), radius: num(o.radius, `${path}.radius`),
+        ...(o.radius2 !== undefined ? { radius2: num(o.radius2, `${path}.radius2`) } : {}),
+      };
     case 'chamfer':
       return { ...base, type: 'chamfer', edges: list(o.edges, `${path}.edges`, edgeRef), distance: num(o.distance, `${path}.distance`) };
     case 'pattern':

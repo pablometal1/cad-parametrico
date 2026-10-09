@@ -26,6 +26,7 @@ export function fieldLabel(path: string): string {
   const labels: Record<string, string> = {
     distance: 'la distancia',
     radius: 'el radio',
+    radius2: 'el radio final',
     angle: 'el ángulo',
     thickness: 'el espesor',
     count: 'la cantidad',

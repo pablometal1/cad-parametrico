@@ -237,3 +237,24 @@ describe('archivo', () => {
     expect(parseDocument(serializeDocument(d))).toEqual(d);
   });
 });
+
+describe('redondeo de radio variable', () => {
+  it('una arista vertical de 1 a 3 mm: quita el volumen de un tronco de cono "cuadrado"', () => {
+    const base = box();
+    const edge = run(base, (s) => {
+      const i = s.shape.edges.findIndex((e) => {
+        const m = e.pointAt(0.5).toTuple();
+        return Math.abs(m[0] - 5) < 1e-6 && Math.abs(m[1] - 5) < 1e-6;
+      });
+      return edgeRefOf(s, i);
+    });
+    const doc = addFeature(base, { ...makeFillet(base, [edge], 1), radius2: 3 });
+    // Sección quitada (1 − π/4)·r², con r lineal de 1 a 3 en 20 mm: ∫ r² = 20·(1 + 3 + 9)/3.
+    // Las secciones del redondeo variable de OCCT no son exactamente circulares: margen del 3 %.
+    const removed = (1 - Math.PI / 4) * (20 * 13) / 3;
+    expect(Math.abs(2000 - vol(doc) - removed) / removed).toBeLessThan(0.03);
+    // Con los dos radios iguales es un redondeo común.
+    const same = addFeature(base, { ...makeFillet(base, [edge], 2), radius2: 2 });
+    expect(vol(same)).toBeCloseTo(2000 - (1 - Math.PI / 4) * 4 * 20, 6);
+  });
+});

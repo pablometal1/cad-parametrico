@@ -197,10 +197,30 @@ function RevolvePanel(props: { store: CadStore; feature: RevolveFeature }) {
 function EdgeFeaturePanel(props: { store: CadStore; feature: FilletFeature | ChamferFeature }) {
   const f = () => props.feature;
   const isFillet = () => f().type === 'fillet';
+  const variable = () => f().type === 'fillet' && (f() as FilletFeature).radius2 !== undefined;
+  const setVariable = (on: boolean) => {
+    const fl = f() as FilletFeature;
+    if (on) return props.store.updateFeature<FilletFeature>(fl.id, { radius2: fl.radius * 2 });
+    // Sin radio final: se borra también su expresión (si no, la evaluación lo volvería a poner).
+    const { radius2: _r, ...exprs } = fl.exprs ?? {};
+    props.store.updateFeature<FilletFeature>(fl.id, { radius2: undefined, exprs });
+  };
   return (
     <>
       <h3>{isFillet() ? 'Redondeo' : 'Chaflán'}</h3>
-      <Num store={props.store} id={f().id} path={isFillet() ? 'radius' : 'distance'} label={isFillet() ? 'Radio' : 'Distancia'} unit="mm" />
+      <Num store={props.store} id={f().id} path={isFillet() ? 'radius' : 'distance'} label={isFillet() ? (variable() ? 'Radio inicial' : 'Radio') : 'Distancia'} unit="mm" />
+      <Show when={isFillet()}>
+        <label class="field">
+          <span class="field-label">Variable</span>
+          <span class="field-input">
+            <input type="checkbox" checked={variable()} onChange={(e) => setVariable(e.currentTarget.checked)} />
+            <span class="muted">cambia a lo largo de la arista</span>
+          </span>
+        </label>
+        <Show when={variable()}>
+          <Num store={props.store} id={f().id} path="radius2" label="Radio final" unit="mm" />
+        </Show>
+      </Show>
       <p class="hint">{f().edges.length} arista{f().edges.length === 1 ? '' : 's'}</p>
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Elegir aristas…</button>
     </>

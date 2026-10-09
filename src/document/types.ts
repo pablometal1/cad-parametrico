@@ -207,6 +207,8 @@ export interface FilletFeature extends FeatureBase {
   type: 'fillet';
   edges: EdgeRef[];
   radius: number;
+  /** Radio variable: `radius` al inicio de cada arista y `radius2` al final (lineal en el medio). */
+  radius2?: number;
 }
 
 export interface ChamferFeature extends FeatureBase {
