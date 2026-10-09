@@ -3,7 +3,8 @@ import { flattenContour, fontsLoaded, textContours } from '../../sketch/text';
 import { Icon, tip, type IconName } from '../icons';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchCurve, type SketchData } from '../../document/types';
-import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, sub, type ArcParams } from '../../sketch/geometry';
+import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, splinePolyline, sub, type ArcParams } from '../../sketch/geometry';
+import { sampleSpline } from '../../sketch/spline';
 import { SketchIndex, type Vec2 } from '../../sketch/model';
 import { CONSTRAINT_LABELS, dimensionText } from '../../sketch/rules';
 import { previewSegments2D } from '../draw3d/preview';
@@ -32,6 +33,7 @@ const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
   { id: 'centerRect', label: 'Rectángulo desde el centro', key: 'E', icon: 'centerRect' },
   { id: 'polygon', label: 'Polígono regular', key: 'P', icon: 'polygon' },
   { id: 'slot', label: 'Ranura', key: 'S', icon: 'slot' },
+  { id: 'spline', label: 'Spline', key: 'B', icon: 'spline' },
 ];
 
 /** Herramientas de edición (como en Fusion): se aplican a la selección. */
@@ -357,6 +359,8 @@ export function SketchEditor(props: {
     else if (k === 'p') s.setTool('polygon');
     else if (k === 's') s.setTool('slot');
     else if (k === 'x') s.setTool('trim');
+    else if (k === 'b') s.setTool('spline');
+    else if (e.key === 'Enter') s.finishPending();
     else if (k === 'd') s.startEdit('offset');
     else if (k === 'm') s.startEdit('mirror');
     else if (k === 'f') fit();
@@ -431,6 +435,9 @@ export function SketchEditor(props: {
       const ctr = toScreen(idx.point(c.center));
       return <circle cx={ctr[0]} cy={ctr[1]} r={c.radius * view().scale} {...common} />;
     }
+    if (c.type === 'spline') {
+      return <path d={'M' + splinePolyline(idx, c).map((q) => toScreen(q).join(' ')).join('L') + (c.closed ? 'Z' : '')} {...common} />;
+    }
     return <path d={arcPath(arcParams(idx, c), toScreen, view().scale)} {...common} />;
   };
 
@@ -463,6 +470,10 @@ export function SketchEditor(props: {
         let a1 = Math.atan2(cur.pos[1] - p.center.pos[1], cur.pos[0] - p.center.pos[0]);
         while (a1 <= a0) a1 += Math.PI * 2;
         return <path d={arcPath({ center: p.center.pos, radius: r, startAngle: a0, endAngle: a1 }, toScreen, view().scale)} {...style} />;
+      }
+      case 'spline': {
+        const pts = sampleSpline([...p.points.map((a) => a.pos), cur.pos], false);
+        return <path d={'M' + pts.map((q) => toScreen(q).join(' ')).join('L')} {...style} />;
       }
       default: {
         // Rectángulo desde el centro, polígono y ranura: misma vista previa que el dibujo en 3D.

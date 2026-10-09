@@ -75,6 +75,15 @@ export class SketchBuilder {
     return id;
   }
 
+  /** Spline que pasa por los puntos dados (existentes o nuevos), en orden. */
+  spline(points: PointInput[], closed = false, construction = false): SketchEntityId {
+    const ids = points.map((p) => this.point(p));
+    const id = this.alloc('s');
+    this.entities.push({ id, type: 'spline', points: ids, closed, construction });
+    this.created.push(id);
+    return id;
+  }
+
   /** Rectángulo alineado a los ejes: 4 líneas con extremos compartidos, 2 horizontales y 2 verticales. */
   rectangle(c1: Vec2, c2: Vec2, construction = false): SketchEntityId[] {
     const [x0, x1] = [Math.min(c1[0], c2[0]), Math.max(c1[0], c2[0])];

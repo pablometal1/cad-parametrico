@@ -69,6 +69,9 @@ export function solveSketch(data: SketchData, drag: DragTarget[] = []): SolveRes
       case 'circle':
         prims.push({ id: c.id, type: 'circle', c_id: c.center, radius: c.radius });
         break;
+      case 'spline':
+        // Su forma sale de sus puntos: no agrega incógnitas ni ecuaciones.
+        break;
       case 'arc': {
         const ap = arcParams(index, c);
         prims.push({
@@ -167,7 +170,7 @@ function toGcs(index: SketchIndex, c: SketchConstraint, joined: Set<string> = ne
     case 'tangent': {
       const [ka, kb] = [kind(c.a), kind(c.b)];
       // Se normaliza el orden: línea primero, luego círculo, luego arco.
-      const order = { line: 0, circle: 1, arc: 2, point: 9, text: 9 } as const;
+      const order = { line: 0, circle: 1, arc: 2, point: 9, text: 9, spline: 9 } as const;
       const [x, y] = order[ka] <= order[kb] ? [c.a, c.b] : [c.b, c.a];
       const pair = `${kind(x)}-${kind(y)}`;
       // Tangencia en un extremo compartido: la forma general es degenerada ahí (el solver converge

@@ -8,6 +8,7 @@ import { arcParams, curveDistance } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
 import { findProfiles, ProfileError, type ProfileLoop, type ProfileRegion } from '../../sketch/profiles';
 import { solveSketch } from '../../sketch/solver';
+import { splineBeziers } from '../../sketch/spline';
 import { resolveFace, type History, type NameBuilder, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 
@@ -213,8 +214,14 @@ function buildWire(index: SketchIndex, frame: PlaneFrame, loop: ProfileLoop) {
     const [u, v] = index.point(id);
     return toWorld(frame, u, v);
   };
-  const edges: Edge[] = loop.edges.map(({ curve, reversed }) => {
+  const edges: Edge[] = loop.edges.flatMap(({ curve, reversed }): Edge | Edge[] => {
     switch (curve.type) {
+      case 'spline': {
+        // Los mismos tramos de Bézier que dibuja el editor.
+        const segs = splineBeziers(curve.points.map((id) => index.point(id)), curve.closed);
+        const ordered = reversed ? segs.slice().reverse().map((sg) => sg.slice().reverse()) : segs;
+        return ordered.map((sg) => makeBezierCurve(sg.map(([u, v]) => toWorld(frame, u, v))));
+      }
       case 'line':
         return reversed ? makeLine(P(curve.p2), P(curve.p1)) : makeLine(P(curve.p1), P(curve.p2));
       case 'circle': {

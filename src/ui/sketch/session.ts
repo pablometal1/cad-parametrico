@@ -10,7 +10,7 @@ import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot' | 'trim';
+export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot' | 'trim' | 'spline';
 
 /** Herramientas de edición que piden valores antes de aplicarse. */
 export type EditAction = 'offset' | 'fillet' | 'circular' | 'linear';
@@ -42,7 +42,8 @@ export type Pending =
   | { tool: 'arc'; center: Anchor; start?: Anchor }
   | { tool: 'centerRect'; center: Anchor }
   | { tool: 'polygon'; center: Anchor }
-  | { tool: 'slot'; c1: Anchor; c2?: Anchor };
+  | { tool: 'slot'; c1: Anchor; c2?: Anchor }
+  | { tool: 'spline'; points: Anchor[] };
 
 export interface SolveInfo {
   ok: boolean;
@@ -279,6 +280,20 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
         if (commit(b.data)) setPending(null);
         return;
       }
+      case 'spline': {
+        if (!p || p.tool !== 'spline') {
+          setPending({ tool: 'spline', points: [at] });
+          return;
+        }
+        const first = p.points[0];
+        const last = p.points[p.points.length - 1];
+        const same = (a: Anchor, b: Anchor) => (a.pointId && a.pointId === b.pointId) || dist(a.pos, b.pos) < 1e-9;
+        // Clic en el primer punto: cierra. Clic otra vez en el último: termina abierta.
+        if (p.points.length >= 3 && same(at, first)) return finishSpline(true);
+        if (same(at, last)) return finishSpline(false);
+        setPending({ tool: 'spline', points: [...p.points, at] });
+        return;
+      }
       case 'slot': {
         if (!p || p.tool !== 'slot') {
           setPending({ tool: 'slot', c1: at });
@@ -300,10 +315,31 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     }
   }
 
+  /** Termina la spline en curso (con al menos 2 puntos). */
+  function finishSpline(closed: boolean) {
+    const p = pending();
+    if (!p || p.tool !== 'spline') return;
+    if (p.points.length < 2) return setPending(null);
+    const b = new SketchBuilder(data());
+    const id = b.spline(p.points.map((a) => a.pointId ?? a.pos), closed && p.points.length >= 3, construction());
+    if (commit(b.data)) {
+      setPending(null);
+      setSelection([id]);
+    }
+  }
+
+  /** Enter: termina lo que se está dibujando (la spline queda abierta). */
+  function finishPending() {
+    if (pending()?.tool === 'spline') finishSpline(false);
+    else setPending(null);
+  }
+
   /** Esc: cancela el dibujo en curso; si no hay, limpia la selección; si no, vuelve a seleccionar. */
   function escape() {
     if (prompt()) return setPrompt(null);
     if (actionPrompt()) return setActionPrompt(null);
+    const sp = pending();
+    if (sp?.tool === 'spline' && sp.points.length >= 2) return finishSpline(false);
     if (pending()) return setPending(null);
     if (selection().length) return setSelection([]);
     if (tool() !== 'select') setTool('select');
@@ -585,7 +621,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
     applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,
-    trimAt, startEdit, confirmAction, setActionPrompt,
+    trimAt, startEdit, confirmAction, setActionPrompt, finishPending,
   };
 }
 
@@ -602,6 +638,7 @@ const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
   polygon: 'Polígono regular: clic en el centro y luego en un vértice.',
   slot: 'Ranura: clic en los dos centros y luego para el ancho.',
   trim: 'Recortar: clic en el tramo a borrar; se corta hasta las intersecciones más cercanas.',
+  spline: 'Spline: clic en cada punto por donde pasa. Enter, Esc o clic otra vez en el último punto termina; clic en el primero la cierra.',
 };
 
 const EDIT_HINTS: Record<EditAction, string> = {

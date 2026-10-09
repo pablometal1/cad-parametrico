@@ -2,7 +2,7 @@
 import { flattenContour } from '../sketch/text';
 import { toWorld } from '../document/planes';
 import { sampleCurve } from '../sketch/geometry';
-import { SketchIndex } from '../sketch/model';
+import { curvePoints, SketchIndex } from '../sketch/model';
 import type { EvaluatedSketch } from './features/sketch';
 
 export function sketchSegments(s: EvaluatedSketch): { segments: Float32Array; construction: Float32Array } {
@@ -23,7 +23,7 @@ export function sketchSegments(s: EvaluatedSketch): { segments: Float32Array; co
   }
   // Puntos sueltos (centros de agujero): una cruz chica para que se vean en 3D.
   const used = new Set([
-    ...index.curves().flatMap((c) => (c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.center, c.start, c.end] : [c.center])),
+    ...index.curves().flatMap(curvePoints),
     ...index.texts().map((t) => t.point),
   ]);
   const k = 0.75;

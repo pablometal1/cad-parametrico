@@ -1,6 +1,6 @@
 // Herramientas de edición del sketch (como las de Fusion): recortar, desfasar, redondear esquinas,
 // simetría y patrones. Son funciones puras sobre SketchData; la sesión las aplica con `commit`.
-import { AXIS_X, AXIS_Y, ORIGIN, type SketchArc, type SketchConstraint, type SketchCurve, type SketchData, type SketchEntityId, type SketchLine } from '../document/types';
+import { AXIS_X, AXIS_Y, ORIGIN, type SketchArc, type SketchCircle, type SketchConstraint, type SketchCurve, type SketchData, type SketchEntityId, type SketchLine } from '../document/types';
 import { SketchBuilder } from './builders';
 import { add, arcParams, cross, dist, dot, len, lineEnds, mul, normAngle, sampleCurve, signedArea, sub } from './geometry';
 import { removeItems, SketchIndex, type Vec2 } from './model';
@@ -14,7 +14,7 @@ const TAU = Math.PI * 2;
 
 type Carrier = { kind: 'line'; a: Vec2; b: Vec2 } | { kind: 'circle'; c: Vec2; r: number };
 
-function carrier(index: SketchIndex, c: SketchCurve): Carrier {
+function carrier(index: SketchIndex, c: SketchLine | SketchCircle | SketchArc): Carrier {
   if (c.type === 'line') return { kind: 'line', a: index.point(c.p1), b: index.point(c.p2) };
   if (c.type === 'circle') return { kind: 'circle', c: index.point(c.center), r: c.radius };
   const ap = arcParams(index, c);
@@ -60,7 +60,7 @@ function carrierHits(x: Carrier, y: Carrier): Vec2[] {
 }
 
 /** ¿El punto (que está sobre la recta/circunferencia de la curva) cae dentro de la curva? */
-function withinCurve(index: SketchIndex, c: SketchCurve, p: Vec2, tol: number): boolean {
+function withinCurve(index: SketchIndex, c: SketchLine | SketchCircle | SketchArc, p: Vec2, tol: number): boolean {
   if (c.type === 'circle') return true;
   if (c.type === 'line') {
     const a = index.point(c.p1);
@@ -77,11 +77,12 @@ function withinCurve(index: SketchIndex, c: SketchCurve, p: Vec2, tol: number): 
 }
 
 /** Puntos donde otras curvas cortan (o tocan) a `target`, con la curva que corta. */
-function hitsOn(index: SketchIndex, target: SketchCurve, tol: number): { p: Vec2; by: SketchEntityId }[] {
+function hitsOn(index: SketchIndex, target: SketchLine | SketchCircle | SketchArc, tol: number): { p: Vec2; by: SketchEntityId }[] {
   const out: { p: Vec2; by: SketchEntityId }[] = [];
   const tc = carrier(index, target);
   for (const other of index.curves()) {
-    if (other.id === target.id) continue;
+    // Las splines todavía no cortan (no hay intersección exacta con ellas).
+    if (other.id === target.id || other.type === 'spline') continue;
     for (const p of carrierHits(tc, carrier(index, other))) {
       if (withinCurve(index, target, p, tol) && withinCurve(index, other, p, tol)) out.push({ p, by: other.id });
     }
@@ -142,6 +143,7 @@ function directionConstraints(d: SketchData, line: SketchEntityId) {
 export function trimCurve(data: SketchData, curveId: SketchEntityId, at: Vec2): EditResult {
   const index = new SketchIndex(data);
   const curve = index.get(curveId);
+  if (curve?.type === 'spline') return fail('Recortar todavía no funciona con splines: borrala o mové sus puntos');
   if (!curve || (curve.type !== 'line' && curve.type !== 'circle' && curve.type !== 'arc')) return fail('Elegí una línea, un círculo o un arco');
   const tol = lengthTol(data);
   const hits = hitsOn(index, curve, tol);
@@ -504,7 +506,7 @@ export function filletCorner(data: SketchData, selection: SketchEntityId[], radi
   let corner: SketchEntityId | null = null;
   let lines: SketchLine[] = [];
   const usesOf = (p: SketchEntityId) =>
-    index.curves().filter((c) => (c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end, c.center] : [c.center]).includes(p));
+    index.curves().filter((c) => curvePointIds(c).includes(p));
   // Las líneas de construcción (por ejemplo, de una esquina virtual vecina) no cuentan como lados.
   const sides = (p: SketchEntityId) => {
     const all = usesOf(p);
@@ -648,6 +650,7 @@ function copyGeometry(
     if (e.type === 'point') pt(e.id);
     else if (e.type === 'line') curves.set(e.id, b.line(pt(e.p1), pt(e.p2), e.construction));
     else if (e.type === 'circle') curves.set(e.id, b.circle(pt(e.center), e.radius, e.construction));
+    else if (e.type === 'spline') curves.set(e.id, b.spline(e.points.map(pt), e.closed, e.construction));
     else if (e.type === 'arc') {
       const [c, s, en] = [pt(e.center), pt(e.start), pt(e.end)];
       // Reflejar invierte el sentido: el arco nuevo va del reflejo del final al del inicio.
@@ -659,7 +662,7 @@ function copyGeometry(
 
 const isGeometry = (index: SketchIndex, id: SketchEntityId) => {
   const k = index.get(id)?.type;
-  return k === 'line' || k === 'circle' || k === 'arc' || k === 'point';
+  return k === 'line' || k === 'circle' || k === 'arc' || k === 'spline' || k === 'point';
 };
 
 /**
@@ -722,7 +725,7 @@ export function mirrorCurves(data: SketchData, ids: SketchEntityId[], axis: Sket
 }
 
 function curvePointIds(e: SketchCurve): SketchEntityId[] {
-  return e.type === 'line' ? [e.p1, e.p2] : e.type === 'arc' ? [e.center, e.start, e.end] : [e.center];
+  return e.type === 'line' ? [e.p1, e.p2] : e.type === 'arc' ? [e.center, e.start, e.end] : e.type === 'spline' ? e.points : [e.center];
 }
 
 function alreadyOn(data: SketchData, point: SketchEntityId, line: SketchEntityId) {

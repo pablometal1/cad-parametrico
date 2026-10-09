@@ -104,7 +104,17 @@ export interface SketchArc extends CurveBase {
   end: SketchEntityId;
 }
 
-export type SketchCurve = SketchLine | SketchCircle | SketchArc;
+/**
+ * Spline que pasa por sus puntos (en orden). Abierta: va del primero al último; cerrada: vuelve
+ * al primero. Los puntos son puntos comunes del sketch (se acotan y se arrastran como cualquiera).
+ */
+export interface SketchSpline extends CurveBase {
+  type: 'spline';
+  points: SketchEntityId[];
+  closed: boolean;
+}
+
+export type SketchCurve = SketchLine | SketchCircle | SketchArc | SketchSpline;
 /**
  * Texto: su punto `point` es la esquina inferior izquierda (sobre la línea de base); se puede
  * acotar o restringir como cualquier punto. `height` es la altura de las mayúsculas (mm).

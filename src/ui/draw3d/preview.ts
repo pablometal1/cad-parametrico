@@ -1,6 +1,7 @@
 // Geometría de la vista previa del dibujo directo en 3D (pura: se prueba sin navegador).
 import { toWorld, type PlaneFrame, type Vec3 } from '../../document/planes';
 import { dist } from '../../sketch/geometry';
+import { sampleSpline } from '../../sketch/spline';
 import type { Vec2 } from '../../sketch/model';
 import { slotRadius, type Pending } from '../sketch/session';
 
@@ -46,6 +47,8 @@ export function previewSegments2D(pending: Pending | null, cursor: Vec2 | null, 
       while (a1 <= a0) a1 += Math.PI * 2;
       return [c, pending.start.pos, ...polyline(circlePoints(c, r, a0, a1))];
     }
+    case 'spline':
+      return polyline(sampleSpline([...pending.points.map((a) => a.pos), cursor], false));
   }
 }
 
@@ -75,6 +78,8 @@ export function previewLabel(pending: Pending | null, cursor: Vec2 | null): stri
       while (a1 <= a0) a1 += Math.PI * 2;
       return `${f(((a1 - a0) * 180) / Math.PI)}°`;
     }
+    case 'spline':
+      return `${pending.points.length + 1} puntos`;
   }
 }
 

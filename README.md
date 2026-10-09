@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-293%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-303%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 
 ### ✏️ Sketch 2D con restricciones
 
-- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura y **texto**.
+- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura, **spline** y **texto**.
 - Herramientas de edición como las de Fusion: **recortar**, **desfase** (paralelo, vinculado al original), **redondeo de esquina**, **simetría** y **patrones** circular y lineal.
 - Restricciones geométricas: coincidente, horizontal, vertical, paralela, perpendicular, tangente, igual y simétrica.
 - Cotas: distancia, radio y ángulo. Se editan con doble clic.

@@ -1,5 +1,6 @@
 // Geometría 2D del sketch: medidas, muestreo de curvas y distancias para selección.
-import type { SketchArc, SketchCurve, SketchEntityId } from '../document/types';
+import type { SketchArc, SketchCurve, SketchEntityId, SketchSpline } from '../document/types';
+import { sampleSpline } from './spline';
 import { AXIS_X, AXIS_Y } from '../document/types';
 import type { SketchIndex, Vec2 } from './model';
 
@@ -143,7 +144,18 @@ export function curveDistance(index: SketchIndex, c: SketchCurve, p: Vec2): numb
       if (angleInArc(theta, ap)) return Math.abs(dist(p, ap.center) - ap.radius);
       return Math.min(dist(p, index.point(c.start)), dist(p, index.point(c.end)));
     }
+    case 'spline': {
+      const pts = splinePolyline(index, c);
+      let best = Infinity;
+      for (let i = 0; i + 1 < pts.length; i++) best = Math.min(best, pointSegmentDistance(p, pts[i], pts[i + 1]));
+      return best;
+    }
   }
+}
+
+/** Polilínea de una spline del sketch. */
+export function splinePolyline(index: SketchIndex, c: SketchSpline): Vec2[] {
+  return sampleSpline(c.points.map((id) => index.point(id)), c.closed);
 }
 
 /** Polilínea que aproxima una curva (para dibujar y para detectar contención de perfiles). */
@@ -159,6 +171,8 @@ export function sampleCurve(index: SketchIndex, c: SketchCurve, maxSegmentAngle 
       const ap = arcParams(index, c);
       return sampleArc(ap.center, ap.radius, ap.startAngle, ap.endAngle, maxSegmentAngle);
     }
+    case 'spline':
+      return splinePolyline(index, c);
   }
 }
 
@@ -185,6 +199,10 @@ export function curveMidpoint(index: SketchIndex, c: SketchCurve): Vec2 {
       const ap = arcParams(index, c);
       const m = (ap.startAngle + ap.endAngle) / 2;
       return [ap.center[0] + ap.radius * Math.cos(m), ap.center[1] + ap.radius * Math.sin(m)];
+    }
+    case 'spline': {
+      const pts = splinePolyline(index, c);
+      return pts[Math.floor(pts.length / 2)];
     }
   }
 }

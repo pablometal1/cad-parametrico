@@ -1,5 +1,5 @@
 // Detección de perfiles cerrados en un sketch: contornos (lazos) y regiones con agujeros.
-import type { SketchCircle, SketchCurve, SketchData, SketchEntityId } from '../document/types';
+import type { SketchCircle, SketchCurve, SketchData, SketchEntityId, SketchSpline } from '../document/types';
 import { dist, pointInPolygon, sampleCurve, signedArea } from './geometry';
 import { SketchIndex, type Vec2 } from './model';
 
@@ -46,11 +46,14 @@ export function findProfiles(data: SketchData): ProfileAnalysis {
   const curves = index.curves().filter((c) => !c.construction);
 
   const loops: ProfileLoop[] = [];
-  for (const c of curves) if (c.type === 'circle') loops.push(circleLoop(index, c));
+  // Círculos y splines cerradas: cada una es un contorno por sí sola.
+  const standalone = (c: SketchCurve) => c.type === 'circle' || (c.type === 'spline' && c.closed);
+  for (const c of curves) if (standalone(c)) loops.push(circleLoop(index, c as SketchCircle | SketchSpline));
 
-  const segs = curves.filter((c) => c.type !== 'circle' && curveLength(index, c) > JOIN_TOL);
+  const segs = curves.filter((c) => !standalone(c) && curveLength(index, c) > JOIN_TOL);
   const ends = (c: SketchCurve): [SketchEntityId, SketchEntityId] =>
-    c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end] : [c.center, c.center];
+    c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end]
+      : c.type === 'spline' ? [c.points[0], c.points[c.points.length - 1]] : [c.center, c.center];
 
   // Agrupa extremos por posición: puntos distintos en el mismo lugar son el mismo vértice.
   const node = clusterPoints(index, segs.flatMap(ends));
@@ -94,10 +97,14 @@ export function findProfiles(data: SketchData): ProfileAnalysis {
 function curveLength(index: SketchIndex, c: SketchCurve): number {
   if (c.type === 'line') return dist(index.point(c.p1), index.point(c.p2));
   if (c.type === 'circle') return 2 * Math.PI * c.radius;
+  if (c.type === 'spline') {
+    const pts = sampleCurve(index, c);
+    return pts.slice(1).reduce((acc, p, i) => acc + dist(pts[i], p), 0);
+  }
   return dist(index.point(c.start), index.point(c.end)) + dist(index.point(c.center), index.point(c.start));
 }
 
-function circleLoop(index: SketchIndex, c: SketchCircle): ProfileLoop {
+function circleLoop(index: SketchIndex, c: SketchCircle | SketchSpline): ProfileLoop {
   const polygon = sampleCurve(index, c).slice(0, -1);
   return { edges: [{ curve: c, reversed: false }], polygon, area: signedArea(polygon) };
 }

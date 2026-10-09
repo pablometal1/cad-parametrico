@@ -60,7 +60,7 @@ export function constraintFromSelection(
       return hint('Elegí dos líneas');
 
     case 'tangent':
-      if (n === 2 && (isCurve(0) || isCurve(1)) && kinds.every((k) => k !== 'point')) return ok({ type, a, b });
+      if (n === 2 && (isCurve(0) || isCurve(1)) && kinds.every((k) => k === 'line' || k === 'circle' || k === 'arc')) return ok({ type, a, b });
       return hint('Elegí una línea y un círculo/arco, o dos círculos/arcos');
 
     case 'equal':

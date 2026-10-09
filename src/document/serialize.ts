@@ -241,7 +241,8 @@ function validateSketch(
     kinds.set(e.id, e.type);
   });
   entities.forEach((e, i) => {
-    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end] : e.type === 'text' ? [e.point] : [];
+    const refs = e.type === 'line' ? [e.p1, e.p2] : e.type === 'circle' ? [e.center] : e.type === 'arc' ? [e.center, e.start, e.end]
+      : e.type === 'spline' ? e.points : e.type === 'text' ? [e.point] : [];
     for (const r of refs) {
       if (kinds.get(r) !== 'point') throw new DocumentFormatError(`${path}.entities[${i}]`, `referencia a un punto inexistente "${r}"`);
     }
@@ -275,6 +276,11 @@ function validateEntity(raw: unknown, path: string): SketchEntity {
         id, type: 'arc', center: str(o.center, `${path}.center`), start: str(o.start, `${path}.start`),
         end: str(o.end, `${path}.end`), construction: construction(),
       };
+    case 'spline': {
+      const points = list(o.points, `${path}.points`, str);
+      if (points.length < 2) throw new DocumentFormatError(`${path}.points`, 'una spline necesita al menos 2 puntos');
+      return { id, type: 'spline', points, closed: bool(o.closed, `${path}.closed`), construction: construction() };
+    }
     case 'text':
       return {
         id, type: 'text', point: str(o.point, `${path}.point`), text: typeof o.text === 'string' ? o.text : str(o.text, `${path}.text`),
