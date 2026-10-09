@@ -34,6 +34,7 @@ const SLOT_TEXT: Record<PickSlot, string> = {
   tools: 'Elegí una cara de cada cuerpo herramienta (Shift + clic para varios)',
   body: 'Elegí una cara del cuerpo a dividir (ninguna: todos)',
   plane: 'Elegí la cara plana que hace de plano de corte',
+  face: 'Elegí la cara plana a abombar',
   bodies: 'Elegí una cara de cada cuerpo (ninguna: todos)',
 };
 
@@ -118,6 +119,8 @@ export function App() {
     else if (id === 'combine') void store.addCombine(sel.faces);
     else if (id === 'split') void store.addSplit(sel.faces);
     else if (id === 'move') void store.addMove(sel.faces);
+    else if (id === 'dome') void store.addDome(sel.faces);
+    else if (id === 'patch') void store.addPatch(sel.edges);
     else store.addShell(sel.faces);
   };
   const newProject = () => {
@@ -360,19 +363,19 @@ export function App() {
     const feature = id ? findFeature(store.doc(), id) : undefined;
     const req = ++manipulatorRequest;
     if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || !ready()) {
-      viewport?.setManipulator(null, null);
+      viewport?.setManipulator([], null);
       return;
     }
     kernel.manipulator(feature.id).then(
-      (m) => {
+      (ms) => {
         if (req !== manipulatorRequest) return;
-        viewport?.setManipulator(m, m && {
-          // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle…).
+        viewport?.setManipulator(ms, (m) => ({
+          // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle, dx…).
           onDrag: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
           onCommit: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
-        });
+        }));
       },
-      () => req === manipulatorRequest && viewport?.setManipulator(null, null),
+      () => req === manipulatorRequest && viewport?.setManipulator([], null),
     );
   });
 
@@ -602,7 +605,7 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole', 'pushpull'].includes(f().type)}>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole', 'pushpull', 'dome', 'move'].includes(f().type)}>
                   <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
                 </Show>
               </div>

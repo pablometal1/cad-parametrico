@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { addFeature, makeFillet, makeRevolve, makeShell, makeSketch, updateFeature } from '../src/document/ops';
+import { addFeature, makeMove, makeFillet, makeRevolve, makeShell, makeSketch, updateFeature } from '../src/document/ops';
 import type { ExtrudeFeature } from '../src/document/types';
 import { KernelService } from '../src/kernel/service';
 import { initOCCT } from '../src/kernel/occt';
@@ -29,7 +29,7 @@ describe('manipuladores 3D', () => {
     const doc = build({ profile: rect(40, 30, [10, 5]), distance: 20 });
     k.recompute(doc);
     const ext = doc.features[1] as ExtrudeFeature;
-    const m = k.manipulator(ext.id)!;
+    const m = k.manipulator(ext.id)[0];
     expect(m.kind).toBe('linear');
     if (m.kind !== 'linear') return;
     expect(m.param).toBe('distance');
@@ -38,10 +38,10 @@ describe('manipuladores 3D', () => {
     // Invertida: apunta hacia -Z. Simétrica: el asa queda en la mitad de la distancia.
     const rev = updateFeature<ExtrudeFeature>(doc, ext.id, { direction: 'reversed' });
     k.recompute(rev);
-    expect(handle(k.manipulator(ext.id) as never)[2]).toBeCloseTo(-20, 6);
+    expect(handle(k.manipulator(ext.id)[0] as never)[2]).toBeCloseTo(-20, 6);
     const sym = updateFeature<ExtrudeFeature>(doc, ext.id, { direction: 'symmetric' });
     k.recompute(sym);
-    expect(handle(k.manipulator(ext.id) as never)[2]).toBeCloseTo(10, 6);
+    expect(handle(k.manipulator(ext.id)[0] as never)[2]).toBeCloseTo(10, 6);
     k.dispose();
   });
 
@@ -58,7 +58,7 @@ describe('manipuladores 3D', () => {
     doc = addFeature(doc, fillet);
     e.dispose();
     k.recompute(doc);
-    const m = k.manipulator(fillet.id)!;
+    const m = k.manipulator(fillet.id)[0];
     if (m.kind !== 'linear') throw new Error('se esperaba lineal');
     expect(m.param).toBe('radius');
     expect(m.value).toBe(3);
@@ -78,7 +78,7 @@ describe('manipuladores 3D', () => {
     doc = addFeature(doc, shell);
     e.dispose();
     k.recompute(doc);
-    const m = k.manipulator(shell.id)!;
+    const m = k.manipulator(shell.id)[0];
     if (m.kind !== 'linear') throw new Error('se esperaba lineal');
     expect(handle(m)[2]).toBeCloseTo(18, 6);
     k.dispose();
@@ -94,7 +94,7 @@ describe('manipuladores 3D', () => {
     const rev = makeRevolve(doc, sk, { angle: 90 });
     doc = addFeature(doc, rev);
     k.recompute(doc);
-    const m = k.manipulator(rev.id)!;
+    const m = k.manipulator(rev.id)[0];
     if (m.kind !== 'angular') throw new Error('se esperaba angular');
     expect(m.value).toBe(90);
     expect(m.axis.map(Math.abs)).toEqual([0, 1, 0]); // eje v del plano XY = Y
@@ -106,8 +106,26 @@ describe('manipuladores 3D', () => {
     const k = await service();
     const doc = build({ profile: rect(10, 10), distance: 5 });
     k.recompute({ ...doc, rollback: 1 });
-    expect(k.manipulator(doc.features[0].id)).toBeNull();
-    expect(k.manipulator(doc.features[1].id)).toBeNull();
+    expect(k.manipulator(doc.features[0].id)).toEqual([]);
+    expect(k.manipulator(doc.features[1].id)).toEqual([]);
     k.dispose();
+  });
+
+  it('mover: flechas X/Y/Z desde el centro del cuerpo y un aro de giro', async () => {
+    const k = await service();
+    const base = build({ profile: rect(10, 10, [20, 0]), distance: 6 });
+    const doc = addFeature(base, makeMove(base, [], { dx: 5, dy: 0, dz: 0, axis: 'Z', angle: 30 }));
+    k.recompute(doc);
+    const ms = k.manipulator(doc.features[doc.features.length - 1].id);
+    expect(ms.map((m) => m.param)).toEqual(['dx', 'dy', 'dz', 'angle']);
+    const x = ms[0] as { origin: number[]; dir: number[]; value: number; factor: number };
+    expect(x.origin[0]).toBeCloseTo(20, 6);
+    expect(x.origin[2]).toBeCloseTo(3, 6);
+    // Flecha con largo base (0,6 del tamaño): con dx = 5 queda en 20 + 6 + 5.
+    expect(handle(x)[0] + (x as { offset?: number }).offset!).toBeCloseTo(31, 6);
+    const ring = ms[3] as { center: number[]; radius: number; value: number };
+    expect(ring.radius).toBeCloseTo(20, 6);
+    expect(ring.center[2]).toBeCloseTo(3, 6);
+    expect(ring.value).toBe(30);
   });
 });

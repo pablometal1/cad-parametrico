@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-310%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-320%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -76,7 +76,8 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | **Empujar/tirar** | Modelado directo: la cara plana avanza o retrocede |
 | **Desmoldeo** | Inclinar caras respecto de una cara neutra |
 | **Combinar · Dividir** | Unir, cortar o intersectar cuerpos; partirlos con un plano |
-| **Mover/copiar cuerpos** | Traslación y giro, con o sin copia |
+| **Mover/copiar cuerpos** | Traslación y giro, con o sin copia; flechas X/Y/Z y aro de giro en el modelo |
+| **Abombar cara · Parche** | Superficies libres: abombar una cara plana o rellenar un contorno de aristas y engrosarlo |
 
 </td>
 </tr>
@@ -250,6 +251,7 @@ Si la malla es cerrada, se convierte en sólido y se puede usar en booleanas.
 | `Enter` | Terminar | `Shift+Q` / `Shift+D` | Empujar/tirar / desmoldeo |
 | **Editor de sketch** | | `Shift+J` / `Shift+S` | Combinar / dividir |
 | `X` `D` `M` | Recortar, desfase, simetría | `Shift+G` | Mover/copiar cuerpos |
+| | | `Shift+A` / `Shift+K` | Abombar cara / parche |
 | | | `Alt+↑` / `Alt+↓` | Mover en el historial |
 
 ## Licencias de terceros

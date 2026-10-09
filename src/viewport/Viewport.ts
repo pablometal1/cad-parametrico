@@ -12,7 +12,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import type { Manipulator, MeshPayload, SketchLines } from '../kernel/protocol';
-import { ManipulatorWidget, type ManipulatorHandlers } from './ManipulatorWidget';
+import { ManipulatorGroup, type ManipulatorHandlers } from './ManipulatorWidget';
 import { VIEW_DIRECTIONS, ViewCube, type StandardView } from './ViewCube';
 import { DrawPlane, type DrawOverlay } from './DrawPlane';
 import type { PlaneFrame } from '../document/planes';
@@ -67,7 +67,7 @@ export class Viewport {
   private readonly orthoCamera: THREE.OrthographicCamera;
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly viewCube: ViewCube;
-  private readonly manipulator: ManipulatorWidget;
+  private readonly manipulator: ManipulatorGroup;
   private readonly drawPlane: DrawPlane;
   /** Medición: línea punteada entre los puntos más cercanos y etiqueta con la distancia. */
   private measureLine: THREE.Line | null = null;
@@ -148,7 +148,7 @@ export class Viewport {
     this.scene.add(this.constructionGroup);
     this.scene.add(this.referenceGroup);
 
-    this.manipulator = new ManipulatorWidget(container, () => (this.needsRender = true));
+    this.manipulator = new ManipulatorGroup(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
     this.drawPlane = new DrawPlane(container);
     this.scene.add(this.drawPlane.group);
@@ -341,8 +341,8 @@ export class Viewport {
   }
 
   /** Manipulador 3D de la feature seleccionada (null para ocultarlo). */
-  setManipulator(spec: Manipulator | null, handlers: ManipulatorHandlers | null) {
-    this.manipulator.set(spec, handlers);
+  setManipulator(specs: Manipulator[], handlersFor: ((m: Manipulator) => ManipulatorHandlers) | null) {
+    this.manipulator.set(specs, handlersFor);
     this.needsRender = true;
   }
 
@@ -355,7 +355,7 @@ export class Viewport {
     this.drawHandlers = frame ? handlers : null;
     if (frame) {
       this.setHovered(null);
-      this.manipulator.set(null, null);
+      this.manipulator.set([], null);
     }
     this.renderer.domElement.style.cursor = frame ? 'crosshair' : '';
     this.needsRender = true;

@@ -134,6 +134,13 @@ function validateFeature(raw: unknown, path: string): Feature {
         axis: oneOf(o.axis, ['X', 'Y', 'Z'] as const, `${path}.axis`), angle: num(o.angle, `${path}.angle`),
         copy: bool(o.copy, `${path}.copy`),
       };
+    case 'patch':
+      return {
+        ...base, type: 'patch', edges: list(o.edges, `${path}.edges`, edgeRef), height: num(o.height, `${path}.height`),
+        thickness: num(o.thickness, `${path}.thickness`), operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+      };
+    case 'dome':
+      return { ...base, type: 'dome', face: faceRef(o.face, `${path}.face`), height: num(o.height, `${path}.height`) };
     case 'plane': {
       const reference = planeReference(o.reference, `${path}.reference`);
       return {

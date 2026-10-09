@@ -4,7 +4,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
   type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
-  type PushPullFeature, type DraftFeature, type CombineFeature, type SplitFeature, type MoveFeature,
+  type PushPullFeature, type DraftFeature, type PatchFeature, type DomeFeature, type CombineFeature, type SplitFeature, type MoveFeature,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -111,6 +111,8 @@ export const TYPE_LABELS: Record<FeatureType, string> = {
   combine: 'Combinar',
   split: 'División',
   move: 'Mover',
+  patch: 'Parche',
+  dome: 'Abombado',
 };
 
 /** Nombre libre con numeración incremental por tipo: Extrusión1, Extrusión2… */
@@ -239,6 +241,8 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
     if (f.plane.kind === 'plane') req.add(f.plane.plane);
   }
   if (f.type === 'move') names.push(...f.bodies.map((x) => x.name));
+  if (f.type === 'patch') names.push(...f.edges.map((x) => x.name));
+  if (f.type === 'dome') names.push(f.face.name);
   for (const n of names) for (const id of idsInRefName(n)) req.add(id);
   req.delete(f.id);
   return req;
@@ -348,6 +352,14 @@ export function makeSplit(doc: CadDocument, plane: PlaneReference = { kind: 'bas
 
 export function makeMove(doc: CadDocument, bodies: FaceRef[] = [], overrides: Partial<Omit<MoveFeature, 'type'>> = {}): MoveFeature {
   return { ...base(doc, 'move'), bodies, dx: 10, dy: 0, dz: 0, axis: 'Z', angle: 0, copy: false, ...overrides };
+}
+
+export function makePatch(doc: CadDocument, edges: EdgeRef[], overrides: Partial<Omit<PatchFeature, 'type'>> = {}): PatchFeature {
+  return { ...base(doc, 'patch'), edges, height: 0, thickness: 2, operation: hasSolidBefore(doc) ? 'join' : 'new', ...overrides };
+}
+
+export function makeDome(doc: CadDocument, face: FaceRef, height = 3): DomeFeature {
+  return { ...base(doc, 'dome'), face, height };
 }
 
 /** Plano de construcción: por defecto, XY desplazado 20 mm. */

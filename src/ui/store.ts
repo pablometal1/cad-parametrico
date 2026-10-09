@@ -55,7 +55,7 @@ export interface ToolDialog {
 }
 
 /** Campos de caras de las features de modelado directo y de cuerpos. */
-export type PickSlot = 'faces' | 'neutral' | 'target' | 'tools' | 'body' | 'plane' | 'bodies';
+export type PickSlot = 'faces' | 'neutral' | 'target' | 'tools' | 'body' | 'plane' | 'bodies' | 'face';
 
 /** Modo "elegir referencias": el historial se retrocede hasta la feature para elegir sobre su entrada. */
 export interface Picking {
@@ -663,6 +663,23 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       addWithDialog(ops.makeSplit(doc(), sel?.type === 'plane' ? { kind: 'plane', plane: sel.id } : { kind: 'base', plane: 'XY' }));
     },
 
+    /** Abombar la cara plana elegida. */
+    async addDome(faces: number[]) {
+      if (faces.length !== 1) return setNotice('Seleccioná una cara plana para abombar');
+      const refs = await withRefs(() => kernel.faceRefs(faces));
+      if (!refs) return;
+      if (refs[0].type !== 'PLANE') return setNotice('Abombar funciona con caras planas');
+      addWithDialog(ops.makeDome(doc(), refs[0]));
+    },
+
+    /** Parche sobre las aristas elegidas (un contorno cerrado). */
+    async addPatch(edges: number[]) {
+      if (edges.length < 2) return setNotice('Seleccioná las aristas de un contorno cerrado (Shift + clic) y volvé a tocar Parche');
+      const refs = await withRefs(() => kernel.edgeRefs(edges));
+      if (!refs) return;
+      addWithDialog(ops.makePatch(doc(), refs));
+    },
+
     /** Mover o copiar: los cuerpos de las caras elegidas (ninguna: todos). */
     async addMove(faces: number[]) {
       const refs = faces.length ? await withRefs(() => kernel.faceRefs(faces)) : [];
@@ -700,7 +717,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const f = d.features[i];
       if (!f) return;
       const multi = slot === 'faces' || slot === 'tools' || slot === 'bodies';
-      const kind = slot ? (multi ? 'faces' : 'face') : f.type === 'fillet' || f.type === 'chamfer' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      const kind = slot ? (multi ? 'faces' : 'face') : f.type === 'fillet' || f.type === 'chamfer' || f.type === 'patch' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
       // Para un sketch o un plano: el modelo hasta antes de la feature (la cara tiene que existir antes).
       setPicking({ featureId, kind, slot, before: d });
       apply((x) => ops.setRollback(x, i), { history: false });
@@ -719,8 +736,9 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         if (!p.slot.endsWith('s') && sel.faces.length > 1) return setNotice('Seleccioná una sola cara');
         const refs = sel.faces.length ? await withRefs(() => kernel.faceRefs(sel.faces)) : [];
         if (!refs) return;
-        if ((p.slot === 'neutral' || p.slot === 'plane') && refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
+        if ((p.slot === 'neutral' || p.slot === 'plane' || p.slot === 'face') && refs[0].type !== 'PLANE') return setNotice('La cara elegida no es plana');
         const patch: Record<string, unknown> = {
+          face: { face: refs[0] },
           faces: { faces: refs }, tools: { tools: refs }, bodies: { bodies: refs },
           neutral: { neutral: refs[0] }, target: { target: refs[0] },
           body: { body: refs[0] }, plane: { plane: { kind: 'face', face: refs[0] } },
