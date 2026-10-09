@@ -78,7 +78,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | **Combinar · Dividir** | Unir, cortar o intersectar cuerpos; partirlos con un plano |
 | **Mover/copiar cuerpos** | Traslación y giro, con o sin copia; flechas X/Y/Z y aro de giro en el modelo |
 | **Abombar cara · Parche** | Superficies libres: abombar una cara plana o rellenar un contorno de aristas y engrosarlo |
-| **Línea 3D** | Unir vértices del modelo con líneas en el espacio (clic en cada vértice; clic en el primero cierra). La curva sigue al modelo si cambian sus cotas y, cerrada, sirve de borde para un parche |
+| **Línea 3D** | Unir vértices del modelo con líneas en el espacio (clic en cada vértice; clic en el primero cierra). Una línea que va por una cara la parte en dos (después se puede empujar/tirar cada parte). La curva sigue al modelo si cambian sus cotas y, cerrada, sirve de borde para un parche |
 
 </td>
 </tr>

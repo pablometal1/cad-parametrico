@@ -779,8 +779,8 @@ function Curve3dPanel(props: { store: CadStore; feature: Curve3dFeature }) {
         </span>
       </label>
       <p class="hint">
-        {plural(f().points.length, 'vértice', 'vértices')} del modelo, unidos con líneas rectas. Siguen al modelo si cambian sus cotas.
-        Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie.
+        {plural(f().points.length, 'vértice', 'vértices')} del modelo, unidos con líneas rectas. Un tramo que va por una cara la parte en dos (después
+        podés empujar/tirar, inclinar o redondear cada parte). Siguen al modelo si cambian sus cotas. Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie.
       </p>
     </>
   );
