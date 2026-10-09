@@ -1,5 +1,5 @@
 // Tipos compartidos entre el hilo principal y el worker del kernel.
-import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
+import type { CadDocument, EdgeRef, FaceRef, VertexRef } from '../document/types';
 
 /** Malla lista para Three.js. Los buffers se transfieren (sin copia) desde el worker. */
 export interface MeshPayload {
@@ -185,6 +185,10 @@ export interface KernelApi {
   faceRefs(indices: number[]): FaceRef[];
   /** Referencias topológicas de aristas del sólido mostrado. */
   edgeRefs(indices: number[]): EdgeRef[];
+  /** Vértices del sólido actual (xyz consecutivos), para enganchar líneas 3D. */
+  vertices(): Float32Array;
+  /** Referencias estables a vértices (índices de `vertices()`). */
+  vertexRefs(indices: number[]): VertexRef[];
   /** Exporta el sólido mostrado. */
   exportModel(format: ExportFormat, quality: ExportQuality): ExportResult;
   /** Mide entre dos elementos del sólido mostrado (índices de caras y aristas, dos en total). */

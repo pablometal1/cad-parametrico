@@ -3,13 +3,13 @@ import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
 import { loadFonts } from '../sketch/text';
 import { measureArea } from 'replicad';
-import type { CadDocument, EdgeRef, FaceRef } from '../document/types';
+import type { CadDocument, EdgeRef, FaceRef, Vec3, VertexRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
 import { evaluateDocument } from '../document/evaluate';
 import { initOCCT } from './occt';
 import { copyMesh, displayMeshOptions, shapeToMesh } from './mesh';
-import { describeError } from './occtUtils';
-import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, type NamedShape } from './naming';
+import { describeError, FeatureError } from './occtUtils';
+import { EDGE_NORMAL, EDGE_SEAM, EDGE_TANGENT, edgeKinds, edgeRefOf, faceRefOf, vertexRefOf, type NamedShape } from './naming';
 import { RecomputeEngine } from './recompute';
 import { sketchSegments } from './sketchLines';
 import type {
@@ -47,7 +47,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   recompute(doc: CadDocument): RecomputeResult {
     const t0 = performance.now();
     const evaluated = evaluateDocument(doc);
-    const { results, shape, sketches, planes, references } = this.engine.run(evaluated.doc, evaluated.errors);
+    const { results, shape, sketches, planes, curves, references } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
     // El motor devuelve el mismo objeto si el sólido no cambió (o al deshacer): no se vuelve a mallar.
     const mesh = shape ? copyMesh(memo(this.meshes, shape, () => meshForDisplay(shape))) : null;
@@ -60,7 +60,15 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         reference: new Float32Array(s.reference),
         plane: { origin: s.frame.origin, xDir: s.frame.xDir, yDir: s.frame.yDir, normal: s.frame.normal },
         bounds: sketchBounds(s),
-      })),
+      })).concat([...curves].map(([id, pts]) => ({
+        // Las curvas 3D se dibujan como las líneas de un sketch (sin plano).
+        id,
+        segments: new Float32Array(pts.slice(1).flatMap((p, i) => [...pts[i], ...p])),
+        construction: new Float32Array(0),
+        reference: new Float32Array(0),
+        plane: { origin: [0, 0, 0], xDir: [1, 0, 0], yDir: [0, 1, 0], normal: [0, 0, 1] },
+        bounds: [0, 0, 0, 0],
+      }))),
       parameters: evaluated.parameters,
       planes: [...planes].map(([id, f]) => ({ id, frame: { origin: f.origin, xDir: f.xDir, yDir: f.yDir, normal: f.normal } })),
       references: references.flatMap((r) => {
@@ -107,6 +115,41 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const shape = this.requireShape();
     return indices.map((i) => faceRefOf(shape, i));
   }
+
+  vertices(): Float32Array {
+    return new Float32Array(this.vertexTable().flatMap((v) => v.point));
+  }
+
+  vertexRefs(indices: number[]): VertexRef[] {
+    const shape = this.requireShape();
+    const table = this.vertexTable();
+    return indices.map((i) => {
+      const v = table[i];
+      if (!v) throw new FeatureError(`El vértice ${i} no existe`);
+      return vertexRefOf(shape, v.edges, v.point);
+    });
+  }
+
+  /** Vértices únicos del sólido actual, cada uno con una arista real que lo toca. */
+  private vertexTable(): { point: Vec3; edges: number[] }[] {
+    const shape = this.requireShape();
+    if (this.vertexCache?.shape === shape) return this.vertexCache.items;
+    const kinds = edgeKinds(shape);
+    const items: { point: Vec3; edges: number[] }[] = [];
+    shape.shape.edges.forEach((e, i) => {
+      if (kinds[i] === EDGE_SEAM) return;
+      for (const p of [e.startPoint.toTuple() as Vec3, e.endPoint.toTuple() as Vec3]) {
+        const v = items.find((x) => Math.hypot(x.point[0] - p[0], x.point[1] - p[1], x.point[2] - p[2]) < 1e-6);
+        if (v) {
+          if (!v.edges.includes(i)) v.edges.push(i);
+        } else items.push({ point: p, edges: [i] });
+      }
+    });
+    this.vertexCache = { shape, items };
+    return items;
+  }
+
+  private vertexCache: { shape: NamedShape; items: { point: Vec3; edges: number[] }[] } | null = null;
 
   edgeRefs(indices: number[]): EdgeRef[] {
     const shape = this.requireShape();

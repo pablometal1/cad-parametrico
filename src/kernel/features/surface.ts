@@ -1,8 +1,8 @@
 // Superficies libres (estilo hard surface): parche que rellena un contorno de aristas y abombado
 // de una cara plana. La superficie se arma con BRepOffsetAPI_MakeFilling.
-import { cast, getOC, type AnyShape, type Edge, type Face } from 'replicad';
-import type { DomeFeature, PatchFeature, Vec3 } from '../../document/types';
-import { NameBuilder, resolveEdge, resolveFace, ShapeTable, type NamedShape } from '../naming';
+import { cast, getOC, makeLine, type AnyShape, type Edge, type Face } from 'replicad';
+import type { Curve3dFeature, DomeFeature, PatchFeature, Vec3 } from '../../document/types';
+import { NameBuilder, resolveEdge, resolveFace, resolveVertex, ShapeTable, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 import { combine } from './boolean';
 import { volume } from './measure';
@@ -58,15 +58,17 @@ function loopFrame(edges: Edge[]): { center: Vec3; normal: Vec3 } {
  * Parche: superficie que rellena un contorno cerrado de aristas del modelo (abombada `height` mm
  * en el centro si no es 0), engrosada `thickness` mm y combinada con el sólido.
  */
-export function runPatch(feature: PatchFeature, input: NamedShape | null): NamedShape {
+export function runPatch(feature: PatchFeature, input: NamedShape | null, curves: Vec3[][] = []): NamedShape {
   const oc = getOC();
-  if (!input) throw new FeatureError('No hay un modelo con aristas para el parche');
-  if (feature.edges.length < 2) throw new FeatureError('Elegí las aristas de un contorno cerrado (al menos 2)');
+  const curveEdges = curves.flatMap((pts) => pts.slice(1).map((p, i) => makeLine(pts[i], p)));
+  if (!input && !curveEdges.length) throw new FeatureError('No hay aristas ni curvas para el parche');
+  if (feature.edges.length + curveEdges.length < 2) throw new FeatureError('Elegí las aristas o curvas de un contorno cerrado (al menos 2)');
   if (!(feature.thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${feature.thickness})`);
   if (!Number.isFinite(feature.height)) throw new FeatureError('La altura no es un número válido');
-  const table = ShapeTable.edges(input.shape);
-  const edges = [...new Set(feature.edges.map((r) => resolveEdge(input, r)))].map((i) => table.items[i]);
-  const keep: Keep[] = [];
+  const table = input ? ShapeTable.edges(input.shape) : null;
+  const modelEdges = input ? [...new Set(feature.edges.map((r) => resolveEdge(input, r)))].map((i) => table!.items[i]) : [];
+  const edges = [...modelEdges, ...curveEdges];
+  const keep: Keep[] = [...curveEdges];
   try {
     const { center, normal } = loopFrame(edges);
     const point = Math.abs(feature.height) > 1e-9 ? (center.map((v, k) => v + normal[k] * feature.height) as Vec3) : null;
@@ -100,6 +102,20 @@ export function runPatch(feature: PatchFeature, input: NamedShape | null): Named
   } finally {
     keep.forEach((k) => k.delete());
   }
+}
+
+/** Puntos de una curva 3D en el sólido de entrada (cerrada: el último repite el primero). */
+export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | null): Vec3[] {
+  if (feature.points.length < 2) throw new FeatureError('Una curva 3D necesita al menos 2 vértices');
+  if (!input) throw new FeatureError('No hay un modelo con vértices para la curva');
+  const pts = feature.points.map((v) => resolveVertex(input, v));
+  for (let i = 1; i < pts.length; i++) {
+    if (Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]) < 1e-6) {
+      throw new FeatureError(`Los vértices ${i} y ${i + 1} de la curva coinciden`);
+    }
+  }
+  if (feature.closed && pts.length < 3) throw new FeatureError('Una curva cerrada necesita al menos 3 vértices');
+  return feature.closed ? [...pts, pts[0]] : pts;
 }
 
 /**

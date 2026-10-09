@@ -422,9 +422,30 @@ export interface MoveFeature extends FeatureBase {
 export interface PatchFeature extends FeatureBase {
   type: 'patch';
   edges: EdgeRef[];
+  /** Curvas 3D que también forman el borde (anteriores en el historial). */
+  curves?: FeatureId[];
   height: number;
   thickness: number;
   operation: 'new' | 'join' | 'cut';
+}
+
+/**
+ * Vértice del modelo: el punto común de las aristas nombradas que llegan a él. `point` es dónde
+ * estaba al elegirlo (desempata si queda una sola arista).
+ */
+export interface VertexRef {
+  edges: EdgeRef[];
+  point: Vec3;
+}
+
+/**
+ * Curva 3D: líneas rectas que unen vértices del modelo, en orden (cerrada: vuelve al primero).
+ * No cambia el sólido; sirve de borde para un parche.
+ */
+export interface Curve3dFeature extends FeatureBase {
+  type: 'curve3d';
+  points: VertexRef[];
+  closed: boolean;
 }
 
 /** Abombar una cara plana: el borde queda fijo y el centro sube (o baja) `height` mm. */
@@ -437,7 +458,7 @@ export interface DomeFeature extends FeatureBase {
 export type Feature =
   | SketchFeature | ExtrudeFeature | RevolveFeature | FilletFeature | ChamferFeature | ShellFeature
   | PatternFeature | MirrorFeature | SweepFeature | LoftFeature | PlaneFeature | HoleFeature | ThreadFeature | ImportFeature
-  | PushPullFeature | DraftFeature | CombineFeature | SplitFeature | MoveFeature | PatchFeature | DomeFeature;
+  | PushPullFeature | DraftFeature | CombineFeature | SplitFeature | MoveFeature | PatchFeature | DomeFeature | Curve3dFeature;
 /** Features que repiten o reflejan otra. */
 export type CopyFeature = PatternFeature | MirrorFeature;
 /** Features que consumen un sketch. */

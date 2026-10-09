@@ -10,7 +10,7 @@
 //   cuando varias entidades comparten nombre (una cara partida en dos) y permite un último recurso
 //   puramente geométrico si el nombre desaparece pero la geometría es idéntica.
 import { getOC, measureArea, type AnyShape, type Edge, type Face } from 'replicad';
-import type { EdgeRef, FaceRef, Vec3 } from '../document/types';
+import type { EdgeRef, FaceRef, Vec3, VertexRef } from '../document/types';
 import { FeatureError } from './occtUtils';
 
 /** Nombres por cara, en el orden de `shape.faces`. */
@@ -231,6 +231,33 @@ function faceFingerprint(face: Face): Omit<FaceRef, 'name'> {
 
 function edgeFingerprint(edge: Edge): Omit<EdgeRef, 'name'> {
   return { center: round3(edge.pointAt(0.5).toTuple()), length: round(edge.length) };
+}
+
+/** Referencia a un vértice: las aristas que llegan a él y su posición. */
+export function vertexRefOf(named: NamedShape, edgeIndices: number[], point: Vec3): VertexRef {
+  return { edges: edgeIndices.map((i) => edgeRefOf(named, i)), point: round3(point) };
+}
+
+/**
+ * Posición actual de un vértice: el extremo común de sus aristas (las que todavía existen). Con una
+ * sola arista, el extremo más cercano a donde estaba.
+ */
+export function resolveVertex(named: NamedShape, ref: VertexRef): Vec3 {
+  const { table } = edgeNames(named);
+  const ends: [Vec3, Vec3][] = [];
+  for (const er of ref.edges) {
+    try {
+      const e = table.items[resolveEdge(named, er)];
+      ends.push([e.startPoint.toTuple() as Vec3, e.endPoint.toTuple() as Vec3]);
+    } catch {
+      // Una arista que ya no existe no impide ubicar el vértice con las demás.
+    }
+  }
+  if (!ends.length) throw new FeatureError('Referencia perdida: un vértice de la curva ya no existe');
+  const tol = 1e-6;
+  const candidates = ends[0].filter((p) => ends.every((pair) => pair.some((q) => dist3(p, q) < tol)));
+  const pool = candidates.length ? candidates : ends[0];
+  return pool.reduce((best, p) => (dist3(p, ref.point) < dist3(best, ref.point) ? p : best));
 }
 
 /** Resuelve una referencia a cara: por nombre, desempatando por huella; si no, por geometría idéntica. */

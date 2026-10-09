@@ -55,7 +55,7 @@ export function createKernelClient(): KernelClient {
   return client as KernelClient;
 }
 
-const KERNEL_METHODS = ['init', 'recompute', 'faceInfo', 'edgeInfo', 'faceRefs', 'edgeRefs', 'manipulator', 'exportModel', 'massProperties', 'measure'] as const satisfies readonly KernelMethod[];
+const KERNEL_METHODS = ['init', 'recompute', 'faceInfo', 'edgeInfo', 'faceRefs', 'edgeRefs', 'vertices', 'vertexRefs', 'manipulator', 'exportModel', 'massProperties', 'measure'] as const satisfies readonly KernelMethod[];
 // Error de compilación si se agrega un método a KernelApi y no a la lista.
 type _AllListed = Exclude<KernelMethod, (typeof KERNEL_METHODS)[number]> extends never ? true : never;
 const _check: _AllListed = true;
