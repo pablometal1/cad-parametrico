@@ -26,6 +26,7 @@ export const FEATURE_ICONS: Record<Feature['type'], IconName> = {
   move: 'move',
   patch: 'patch',
   dome: 'dome',
+  curve3d: 'curve3d',
 };
 
 export function Icon(props: { name: IconName; size?: number; class?: string }) {

@@ -4,7 +4,7 @@ import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
   RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature, ImportFeature,
-  PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature, PatchFeature, DomeFeature,
+  PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature, PatchFeature, DomeFeature, Curve3dFeature,
 } from '../document/types';
 import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
 import { ExprField, NumberField, SelectField, TextField } from './fields';
@@ -98,6 +98,9 @@ export function FeatureEditor(props: { store: CadStore }) {
               </Match>
               <Match when={feature().type === 'patch'}>
                 <PatchPanel store={store} feature={feature() as PatchFeature} />
+              </Match>
+              <Match when={feature().type === 'curve3d'}>
+                <Curve3dPanel store={store} feature={feature() as Curve3dFeature} />
               </Match>
             </Switch>
           </div>
@@ -756,8 +759,29 @@ function PatchPanel(props: { store: CadStore; feature: PatchFeature }) {
       <Num store={props.store} id={f().id} path="height" label="Abombado" unit="mm" />
       <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
       <SelectField label="Operación" value={f().operation} options={PATCH_OPS} onChange={(operation) => update({ operation })} />
-      <p class="hint">{plural(f().edges.length, 'arista', 'aristas')}. Tienen que formar un contorno cerrado; abombado 0 = la superficie más plana posible.</p>
+      <p class="hint">{plural(f().edges.length, 'arista', 'aristas')}{f().curves?.length ? ` + ${plural(f().curves!.length, 'curva 3D', 'curvas 3D')}` : ''}. Tienen que formar un contorno cerrado; abombado 0 = la superficie más plana posible.</p>
       <PickButton onClick={() => props.store.beginPick(f().id)}>Elegir aristas…</PickButton>
+    </>
+  );
+}
+
+function Curve3dPanel(props: { store: CadStore; feature: Curve3dFeature }) {
+  const f = () => props.feature;
+  const update = (patch: Partial<Curve3dFeature>) => props.store.updateFeature<Curve3dFeature>(f().id, patch);
+  return (
+    <>
+      <h3>Curva 3D</h3>
+      <label class="field">
+        <span class="field-label">Cerrada</span>
+        <span class="field-input">
+          <input type="checkbox" checked={f().closed} disabled={f().points.length < 3} onChange={(e) => update({ closed: e.currentTarget.checked })} />
+          <span class="muted">une el último vértice con el primero</span>
+        </span>
+      </label>
+      <p class="hint">
+        {plural(f().points.length, 'vértice', 'vértices')} del modelo, unidos con líneas rectas. Siguen al modelo si cambian sus cotas.
+        Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie.
+      </p>
     </>
   );
 }

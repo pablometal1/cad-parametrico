@@ -1,7 +1,7 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
 import { activeCount } from '../document/ops';
 import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, ShellFeature } from '../document/types';
-import type { PlaneFrame } from '../document/planes';
+import type { PlaneFrame, Vec3 } from '../document/planes';
 import { describePlane, evaluatePlane } from './features/plane';
 import { describeError, FeatureError, hashString } from './occtUtils';
 import type { NamedShape } from './naming';
@@ -15,7 +15,7 @@ import { runThread } from './features/thread';
 import { runImport } from './features/import';
 import { runDraft, runPushPull } from './features/direct';
 import { runCombine, runMove, runSplit } from './features/bodies';
-import { runDome, runPatch } from './features/surface';
+import { evaluateCurve3d, runDome, runPatch } from './features/surface';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -29,6 +29,8 @@ interface CacheEntry {
   sketch?: EvaluatedSketch;
   /** Para planos de construcción: su sistema de coordenadas. */
   plane?: PlaneFrame;
+  /** Para curvas 3D: los puntos de la polilínea (cerrada: el último repite el primero). */
+  curve?: Vec3[];
   /** Importación como referencia: el cuerpo que se muestra aparte (propiedad de la entrada). */
   reference?: NamedShape;
   status: Extract<FeatureStatus, 'ok' | 'error'>;
@@ -45,6 +47,8 @@ export interface RecomputeOutput {
   sketches: Map<FeatureId, EvaluatedSketch>;
   /** Planos de construcción evaluados en este recálculo. */
   planes: Map<FeatureId, PlaneFrame>;
+  /** Curvas 3D evaluadas en este recálculo. */
+  curves: Map<FeatureId, Vec3[]>;
   /** Piezas importadas como referencia (se muestran, no se exportan). */
   references: { id: FeatureId; shape: NamedShape }[];
 }
@@ -76,6 +80,7 @@ interface Context {
   input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
   planes: Map<FeatureId, PlaneFrame>;
+  curves: Map<FeatureId, Vec3[]>;
   doc: CadDocument;
   index: number;
 }
@@ -110,6 +115,7 @@ export class RecomputeEngine {
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
     const planes = new Map<FeatureId, PlaneFrame>();
+    const curves = new Map<FeatureId, Vec3[]>();
     const references: RecomputeOutput['references'] = [];
     /** Clave de cada plano de construcción calculado (para sketches/planos que dependen de él). */
     const planeKeys = new Map<FeatureId, string>();
@@ -131,7 +137,7 @@ export class RecomputeEngine {
         return;
       }
 
-      const ctx: Context = { input: current, sketches, planes, doc, index };
+      const ctx: Context = { input: current, sketches, planes, curves, doc, index };
       this.lastInputs.set(feature.id, current);
       const exprError = exprErrors.get(feature.id);
       if (exprError) {
@@ -166,6 +172,7 @@ export class RecomputeEngine {
         planeKeys.set(feature.id, key);
       }
       if (e.reference) references.push({ id: feature.id, shape: e.reference });
+      if (e.curve) curves.set(feature.id, e.curve);
       results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, timeMs: e.timeMs, cached });
       // Las features que no cambian el sólido (sketch, plano, referencia, error) lo dejan pasar tal
       // como llegó: su `output` guardado puede ser de otro recálculo.
@@ -176,7 +183,7 @@ export class RecomputeEngine {
     });
 
     this.evictMissing(doc);
-    return { results, shape: current, sketches, planes, references };
+    return { results, shape: current, sketches, planes, curves, references };
   }
 
   dispose() {
@@ -257,6 +264,12 @@ export class RecomputeEngine {
           const plane = evaluatePlane(feature, ctx.input, ctx.planes);
           return { key, output: ctx.input, owned: false, plane, status: 'ok', info: describePlane(feature), timeMs: elapsed(t0) };
         }
+        case 'curve3d': {
+          // Una curva no modifica el sólido.
+          const curve = evaluateCurve3d(feature, ctx.input);
+          const n = feature.closed ? feature.points.length : feature.points.length - 1;
+          return { key, output: ctx.input, owned: false, curve, status: 'ok', info: `${n} tramo${n === 1 ? '' : 's'}`, timeMs: elapsed(t0) };
+        }
         case 'extrude':
           return ok(runExtrude(feature, resolveSketch(feature, ctx), ctx.input));
         case 'revolve':
@@ -300,7 +313,7 @@ export class RecomputeEngine {
         case 'move':
           return ok(runMove(feature, ctx.input));
         case 'patch':
-          return ok(runPatch(feature, ctx.input));
+          return ok(runPatch(feature, ctx.input, resolveCurves(feature.curves ?? [], ctx)));
         case 'dome':
           return ok(runDome(feature, ctx.input));
         case 'hole':
@@ -418,4 +431,15 @@ function stableStringify(value: unknown): string {
 
 function elapsed(t0: number) {
   return Math.round((performance.now() - t0) * 10) / 10;
+}
+
+/** Polilíneas de las curvas 3D que usa una feature, con errores claros si no están disponibles. */
+function resolveCurves(ids: FeatureId[], ctx: Context): Vec3[][] {
+  return ids.map((id) => {
+    const c = ctx.curves.get(id);
+    if (c) return c;
+    const f = ctx.doc.features.find((x) => x.id === id);
+    if (!f) throw new FeatureError('Una curva 3D del borde fue borrada');
+    throw new FeatureError(`La curva "${f.name}" no está disponible (suprimida, con error o más abajo en el historial)`);
+  });
 }

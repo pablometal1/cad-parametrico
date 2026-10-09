@@ -171,6 +171,7 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipu
         };
       }
       case 'patch':
+      case 'curve3d':
       case 'thread':
       case 'draft':
       case 'combine':

@@ -134,9 +134,21 @@ function validateFeature(raw: unknown, path: string): Feature {
         axis: oneOf(o.axis, ['X', 'Y', 'Z'] as const, `${path}.axis`), angle: num(o.angle, `${path}.angle`),
         copy: bool(o.copy, `${path}.copy`),
       };
+    case 'curve3d': {
+      const points = list(o.points, `${path}.points`, (v, p) => {
+        const r = obj(v, p);
+        const pt = list(r.point, `${p}.point`, num);
+        if (pt.length !== 3) throw new DocumentFormatError(`${p}.point`, 'debe tener 3 números');
+        const edges = list(r.edges, `${p}.edges`, edgeRef);
+        if (!edges.length) throw new DocumentFormatError(`${p}.edges`, 'un vértice necesita al menos una arista');
+        return { edges, point: pt as [number, number, number] };
+      });
+      return { ...base, type: 'curve3d', points, closed: bool(o.closed, `${path}.closed`) };
+    }
     case 'patch':
       return {
         ...base, type: 'patch', edges: list(o.edges, `${path}.edges`, edgeRef), height: num(o.height, `${path}.height`),
+        ...(o.curves !== undefined ? { curves: list(o.curves, `${path}.curves`, str) } : {}),
         thickness: num(o.thickness, `${path}.thickness`), operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
       };
     case 'dome':

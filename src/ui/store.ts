@@ -10,7 +10,7 @@ import { History, type RecordOptions } from '../document/history';
 import * as ops from '../document/ops';
 import { parseDocument } from '../document/serialize';
 import type {
-  BasePlane, CadDocument, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature } from '../document/types';
+  BasePlane, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -98,6 +98,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   const [dialog, setDialog] = createSignal<ToolDialog | null>(null);
   /** Dibujo directo en 3D activo (sobre un plano o cara, sin abrir el editor de sketch). */
   const [drawing, setDrawing] = createSignal(false);
+  /** Herramienta Línea 3D activa: vértices del modelo (xyz) y los elegidos en orden. */
+  const [lining, setLining] = createSignal<{ vertices: Float32Array; chain: number[] } | null>(null);
   const [fileName, setFileName] = createSignal(draft?.fileName ?? 'pieza');
   /** Documento tal como está en el último archivo guardado/abierto (para saber si hay cambios). */
   const [savedDoc, setSavedDoc] = createSignal<CadDocument | null>(draft && !draft.dirty ? draft.doc : draft ? null : doc());
@@ -269,6 +271,20 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     });
   }
 
+  /** Termina la Línea 3D y la guarda como curva (necesita al menos 2 vértices). */
+  async function finishLine3d(closed = false) {
+    const l = lining();
+    if (!l) return;
+    if (l.chain.length < 2) {
+      setLining(null);
+      return;
+    }
+    setLining(null);
+    const refs = await withRefs(() => kernel.vertexRefs(l.chain));
+    if (!refs) return;
+    addWithDialog(ops.makeCurve3d(doc(), refs, closed && l.chain.length >= 3));
+  }
+
   /** Agrega una feature nueva y abre su panel; la creación y los ajustes del panel son un solo paso. */
   function addWithDialog(f: Feature) {
     apply((d) => ops.addFeature(d, f), { coalesce: `dialog:${f.id}`, sticky: true });
@@ -313,6 +329,41 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
     drawing,
     setDrawing,
+    lining,
+
+    /** Empieza a unir vértices del modelo con líneas 3D. */
+    async startLine3d() {
+      const vertices = await withRefs(() => kernel.vertices());
+      if (!vertices) return;
+      if (vertices.length === 0) return setNotice('No hay vértices en el modelo para unir: creá primero un sólido');
+      batch(() => {
+        setSelectedId(null);
+        setNotice(null);
+        setLining({ vertices, chain: [] });
+      });
+    },
+
+    /** Clic en un vértice: lo suma a la cadena; el primero la cierra y repetir el último la termina. */
+    pickVertex(index: number) {
+      const l = lining();
+      if (!l) return;
+      const chain = l.chain;
+      if (chain.length >= 3 && index === chain[0]) return void finishLine3d(true);
+      if (index === chain.at(-1)) return void finishLine3d(false);
+      setLining({ ...l, chain: [...chain, index] });
+    },
+
+    finishLine3d,
+
+    /** Quita el último vértice elegido. */
+    undoVertex() {
+      const l = lining();
+      if (l?.chain.length) setLining({ ...l, chain: l.chain.slice(0, -1) });
+    },
+
+    cancelLine3d() {
+      setLining(null);
+    },
 
     /**
      * Guarda lo dibujado directamente en 3D: crea el sketch la primera vez y después lo actualiza.
@@ -674,6 +725,15 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
     /** Parche sobre las aristas elegidas (un contorno cerrado). */
     async addPatch(edges: number[]) {
+      // Sin aristas elegidas: la curva 3D seleccionada o, si no, la última cerrada que no usa ningún parche.
+      const used = new Set(doc().features.flatMap((f) => (f.type === 'patch' ? f.curves ?? [] : [])));
+      const selected = selectedFeature();
+      const sel = selected?.type === 'curve3d' ? selected
+        : doc().features.filter((f): f is Curve3dFeature => f.type === 'curve3d' && f.closed && !used.has(f.id)).at(-1);
+      if (sel && edges.length === 0) {
+        if (!sel.closed) return setNotice('La curva 3D tiene que estar cerrada para hacer un parche (activá «Cerrada» en su panel)');
+        return addWithDialog(ops.makePatch(doc(), [], { curves: [sel.id] }));
+      }
       if (edges.length < 2) return setNotice('Seleccioná las aristas de un contorno cerrado (Shift + clic) y volvé a tocar Parche');
       const refs = await withRefs(() => kernel.edgeRefs(edges));
       if (!refs) return;

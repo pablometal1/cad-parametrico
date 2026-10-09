@@ -16,7 +16,7 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
 
 export type FeatureTool =
   | 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'thread' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell'
-  | 'pushpull' | 'draft' | 'combine' | 'split' | 'move' | 'dome' | 'patch';
+  | 'pushpull' | 'draft' | 'combine' | 'split' | 'move' | 'dome' | 'patch' | 'line3d';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
@@ -37,6 +37,7 @@ export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; ke
   { id: 'move', label: 'Mover/copiar', icon: 'move', key: 'Shift+G', desc: 'Trasladar y girar los cuerpos de las caras elegidas (ninguna: todos), o copiarlos' },
   { id: 'dome', label: 'Abombar cara', icon: 'dome', key: 'Shift+A', desc: 'La cara plana elegida se abomba con una superficie suave: el borde queda fijo y el centro sube (o baja)', sepBefore: true },
   { id: 'patch', label: 'Parche', icon: 'patch', key: 'Shift+K', desc: 'Superficie que rellena las aristas elegidas (un contorno cerrado), engrosada como sólido' },
+  { id: 'line3d', label: 'Línea 3D', icon: 'curve3d', key: 'Shift+W', desc: 'Unir vértices del modelo con líneas en el espacio (bordes para un parche)' },
 ];
 
 /** Plano de construcción (va junto al menú de sketch, no entre las operaciones). */
