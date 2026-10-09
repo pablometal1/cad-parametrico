@@ -15,7 +15,7 @@ import { runThread } from './features/thread';
 import { runImport } from './features/import';
 import { runDraft, runPushPull } from './features/direct';
 import { runCombine, runMove, runSplit } from './features/bodies';
-import { evaluateCurve3d, runDome, runPatch } from './features/surface';
+import { evaluateCurve3d, imprintCurve, runDome, runPatch } from './features/surface';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -265,10 +265,14 @@ export class RecomputeEngine {
           return { key, output: ctx.input, owned: false, plane, status: 'ok', info: describePlane(feature), timeMs: elapsed(t0) };
         }
         case 'curve3d': {
-          // Una curva no modifica el sólido.
+          // Los tramos que van por una cara la parten; los que cruzan el aire solo quedan como curva.
           const curve = evaluateCurve3d(feature, ctx.input);
           const n = feature.closed ? feature.points.length : feature.points.length - 1;
-          return { key, output: ctx.input, owned: false, curve, status: 'ok', info: `${n} tramo${n === 1 ? '' : 's'}`, timeMs: elapsed(t0) };
+          const imprinted = ctx.input ? imprintCurve(feature, ctx.input, curve) : null;
+          const added = imprinted ? imprinted.shape.faces.length - ctx.input!.shape.faces.length : 0;
+          const info = `${n} tramo${n === 1 ? '' : 's'}` + (added ? ` · ${added === 1 ? 'parte 1 cara' : `${added} caras nuevas`}` : '');
+          if (imprinted) return { key, output: imprinted, owned: true, curve, status: 'ok', info, timeMs: elapsed(t0) };
+          return { key, output: ctx.input, owned: false, curve, status: 'ok', info, timeMs: elapsed(t0) };
         }
         case 'extrude':
           return ok(runExtrude(feature, resolveSketch(feature, ctx), ctx.input));

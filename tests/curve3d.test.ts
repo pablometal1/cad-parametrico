@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { addFeature, makeCurve3d, makePatch, updateFeature } from '../src/document/ops';
+import { addFeature, makeCurve3d, makePatch, makePushPull, updateFeature } from '../src/document/ops';
 import { parseDocument, serializeDocument } from '../src/document/serialize';
 import type { CadDocument, ExtrudeFeature, VertexRef } from '../src/document/types';
 import { initOCCT } from '../src/kernel/occt';
@@ -88,5 +88,40 @@ describe('curvas 3D', () => {
     let d: CadDocument = addFeature(doc, makeCurve3d(doc, refs as VertexRef[], true));
     d = addFeature(d, makePatch(d, [], { curves: [d.features[d.features.length - 1].id] }));
     expect(parseDocument(serializeDocument(d))).toEqual(d);
+  });
+
+  /** Centros de las caras del modelo actual. */
+  function faceCenters(k: KernelService) {
+    const out: [number, number, number][] = [];
+    for (let i = 0; ; i++) {
+      try {
+        out.push(k.faceInfo(i).center);
+      } catch {
+        return out;
+      }
+    }
+  }
+
+  it('una línea entre dos vértices de una cara la parte en dos, y cada parte se puede tirar', async () => {
+    const { k, doc, refs } = await boxWith([[-10, -10, 10], [10, 10, 10]]);
+    const d = addFeature(doc, makeCurve3d(doc, refs));
+    const r = k.recompute(d);
+    expect(r.features.at(-1)!.status).toBe('ok');
+    expect(r.features.at(-1)!.info).toMatch(/parte 1 cara/);
+    const centers = faceCenters(k);
+    expect(centers.length).toBe(7);
+    const tri = centers.findIndex((c) => Math.hypot(c[0] - 10 / 3, c[1] + 10 / 3, c[2] - 10) < 1e-6);
+    expect(tri).toBeGreaterThanOrEqual(0);
+    const pulled = addFeature(d, makePushPull(d, k.faceRefs([tri]), 5));
+    const r2 = k.recompute(pulled);
+    expect(r2.features.at(-1)!.status).toBe('ok');
+    expect(k.massProperties().volume).toBeCloseTo(4000 + 1000, 4);
+  });
+
+  it('una línea por el aire no cambia el sólido', async () => {
+    const { k, doc, refs } = await boxWith([[-10, -10, 10], [10, 10, 0]]);
+    const d = addFeature(doc, makeCurve3d(doc, refs));
+    k.recompute(d);
+    expect(faceCenters(k).length).toBe(6);
   });
 });

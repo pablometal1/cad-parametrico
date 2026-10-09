@@ -2,7 +2,7 @@
 // de una cara plana. La superficie se arma con BRepOffsetAPI_MakeFilling.
 import { cast, getOC, makeLine, type AnyShape, type Edge, type Face } from 'replicad';
 import type { Curve3dFeature, DomeFeature, PatchFeature, Vec3 } from '../../document/types';
-import { NameBuilder, resolveEdge, resolveFace, resolveVertex, ShapeTable, type NamedShape } from '../naming';
+import { historyOf, NameBuilder, resolveEdge, resolveFace, resolveVertex, ShapeTable, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 import { combine } from './boolean';
 import { volume } from './measure';
@@ -116,6 +116,43 @@ export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | nul
   }
   if (feature.closed && pts.length < 3) throw new FeatureError('Una curva cerrada necesita al menos 3 vértices');
   return feature.closed ? [...pts, pts[0]] : pts;
+}
+
+/**
+ * Marca la curva sobre el modelo: los tramos que van por una cara la parten en dos (como dibujar una
+ * línea sobre una cara en SketchUp), así cada parte se puede empujar, inclinar o redondear aparte.
+ * Devuelve null si ningún tramo toca una cara (el modelo queda igual).
+ */
+export function imprintCurve(feature: Curve3dFeature, input: NamedShape, pts: Vec3[]): NamedShape | null {
+  const oc = getOC();
+  const keep: Keep[] = [];
+  try {
+    const lines = pts.slice(1).map((p, i) => makeLine(pts[i], p));
+    keep.push(...lines);
+    const args = new oc.NCollection_List_TopoDS_Shape();
+    const tools = new oc.NCollection_List_TopoDS_Shape();
+    const splitter = new oc.BRepAlgoAPI_Splitter();
+    const range = new oc.Message_ProgressRange();
+    keep.push(args, tools, splitter, range);
+    args.Append(input.shape.wrapped);
+    for (const l of lines) tools.Append(l.wrapped);
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
+    splitter.Build(range);
+    if (!splitter.IsDone() || splitter.HasErrors()) throw new FeatureError('No se pudo marcar la curva sobre el modelo');
+    const result = cast(splitter.Shape());
+    if (result.faces.length <= input.shape.faces.length || result.solids.length !== input.shape.solids.length || !isValidShape(result)) {
+      result.delete();
+      return null;
+    }
+    const history = historyOf(splitter);
+    const nb = new NameBuilder(result);
+    // Las dos partes de una cara partida heredan su nombre; se distinguen por la huella geométrica.
+    nb.carry(input, history);
+    return nb.finish(feature.id);
+  } finally {
+    keep.forEach((k) => k.delete());
+  }
 }
 
 /**
