@@ -121,6 +121,7 @@ export function App() {
     else if (id === 'move') void store.addMove(sel.faces);
     else if (id === 'dome') void store.addDome(sel.faces);
     else if (id === 'patch') void store.addPatch(sel.edges);
+    else if (id === 'line3d') void store.startLine3d();
     else store.addShell(sel.faces);
   };
   const newProject = () => {
@@ -170,12 +171,23 @@ export function App() {
       else if (fileMenu() || planeMenu()) {
         setFileMenu(false);
         setPlaneMenu(false);
-      } else if (store.picking()) store.cancelPick();
+      } else if (store.lining()) store.cancelLine3d();
+      else if (store.picking()) store.cancelPick();
       else if (!store.dialog()) viewport?.setSelection({ faces: [], edges: [] });
       return;
     }
     if (k === 'f' && !e.shiftKey) {
       if (ready()) viewport?.fitView();
+      return;
+    }
+    if (store.lining()) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void store.finishLine3d();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        store.undoVertex();
+      }
       return;
     }
     if (busy()) return;
@@ -320,7 +332,7 @@ export function App() {
   // (las aristas de un redondeo, la cara de un vaciado…).
   let wasBusy = false;
   createEffect(() => {
-    const busyNow = !!store.dialog() || !!store.editing() || store.drawing();
+    const busyNow = !!store.dialog() || !!store.editing() || store.drawing() || !!store.lining();
     if (wasBusy && !busyNow && !store.picking()) viewport?.setSelection({ faces: [], edges: [] });
     wasBusy = busyNow;
   });
@@ -331,6 +343,10 @@ export function App() {
     const visible = new Set(unusedSketches(store.doc()).map((s) => s.id));
     const planes = new Set<string>();
     const sel = store.selectedFeature();
+    // Curvas 3D: siempre a la vista salvo las que ya usa un parche (como los sketches).
+    const usedCurves = new Set(store.doc().features.flatMap((f) => (f.type === 'patch' ? f.curves ?? [] : [])));
+    for (const f of store.doc().features) if (f.type === 'curve3d' && !usedCurves.has(f.id)) visible.add(f.id);
+    if (sel?.type === 'curve3d') visible.add(sel.id);
     if (sel?.type === 'sketch') {
       visible.add(sel.id);
       planes.add(sel.id);
@@ -362,7 +378,7 @@ export function App() {
     store.results(); // re-evaluar tras cada recálculo
     const feature = id ? findFeature(store.doc(), id) : undefined;
     const req = ++manipulatorRequest;
-    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || !ready()) {
+    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || store.lining() || !ready()) {
       viewport?.setManipulator([], null);
       return;
     }
@@ -407,11 +423,11 @@ export function App() {
     viewport = new Viewport(viewportEl, {
       // Elegir sketches y planos haciendo clic en 3D; clic en el vacío deselecciona.
       onFeaturePick: (id) => {
-        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
+        if (store.dialog() || store.picking() || store.editing() || store.drawing() || store.lining()) return;
         store.selectFeature(id);
       },
       onEmptyClick: () => {
-        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
+        if (store.dialog() || store.picking() || store.editing() || store.drawing() || store.lining()) return;
         store.selectFeature(null);
       },
       onHoverChange: setHovered,
@@ -454,7 +470,17 @@ export function App() {
   onCleanup(() => viewport?.dispose());
 
   const ready = () => store.kernelState().state === 'ready';
-  const busy = () => !ready() || !!store.editing() || !!store.picking() || store.drawing();
+  const busy = () => !ready() || !!store.editing() || !!store.picking() || store.drawing() || !!store.lining();
+
+  // Línea 3D: el visor muestra los vértices y la cadena elegida.
+  createEffect(() => {
+    const l = store.lining();
+    viewport?.setVertexMode(l?.vertices ?? null, l ? { onPick: (i) => store.pickVertex(i) } : null);
+  });
+  createEffect(() => {
+    const l = store.lining();
+    if (l) viewport?.setVertexChain(l.chain);
+  });
   const singleFace = () => viewSel().faces.length === 1 && viewSel().edges.length === 0;
 
   return (
@@ -675,6 +701,17 @@ export function App() {
             </div>
           )}
         </Show>
+        <Show when={store.lining()}>
+          {(l) => (
+            <div class="draw-bar">
+              <span class="draw-title with-icon"><Icon name="curve3d" size={16} /> Línea 3D · {l().chain.length} vértices</span>
+              <button class="primary with-icon" disabled={l().chain.length < 2} onClick={() => void store.finishLine3d()} {...tip('Terminar', 'Enter')}><Icon name="check" size={16} />Terminar</button>
+              <button disabled={l().chain.length < 3} onClick={() => void store.finishLine3d(true)} {...tip('Cerrar', undefined, 'Une el último vértice con el primero (o hacé clic en el primero)')}>Cerrar</button>
+              <button onClick={() => store.cancelLine3d()} {...tip('Cancelar', 'Esc')}>Cancelar</button>
+              <span class="muted draw-hint">Clic en los vértices del modelo · clic en el primero cierra · Backspace quita el último · arrastrar: orbitar</span>
+            </div>
+          )}
+        </Show>
         <Show when={helpOpen()}>
           <ShortcutHelp onClose={() => setHelpOpen(false)} />
         </Show>
@@ -799,6 +836,7 @@ function sketchPlaneLabel(f: SketchFeature) {
 
 /** "Nueva extrusión", "Nuevo redondeo"… */
 function newFeatureTitle(type: keyof typeof TYPE_LABELS) {
+  if (type === 'curve3d') return 'Nueva curva 3D';
   const feminine = type === 'extrude' || type === 'revolve' || type === 'loft' || type === 'thread' || type === 'split';
   return `${feminine ? 'Nueva' : 'Nuevo'} ${TYPE_LABELS[type].toLowerCase()}`;
 }

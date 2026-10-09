@@ -13,6 +13,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import type { Manipulator, MeshPayload, SketchLines } from '../kernel/protocol';
 import { ManipulatorGroup, type ManipulatorHandlers } from './ManipulatorWidget';
+import { VertexPicker } from './VertexPicker';
 import { VIEW_DIRECTIONS, ViewCube, type StandardView } from './ViewCube';
 import { DrawPlane, type DrawOverlay } from './DrawPlane';
 import type { PlaneFrame } from '../document/planes';
@@ -68,6 +69,9 @@ export class Viewport {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly viewCube: ViewCube;
   private readonly manipulator: ManipulatorGroup;
+  private readonly vertexPicker: VertexPicker;
+  /** Modo enganchar vértices (líneas 3D): clic en un vértice → `onPick(índice)`. */
+  private vertexHandlers: { onPick: (index: number) => void } | null = null;
   private readonly drawPlane: DrawPlane;
   /** Medición: línea punteada entre los puntos más cercanos y etiqueta con la distancia. */
   private measureLine: THREE.Line | null = null;
@@ -150,6 +154,8 @@ export class Viewport {
 
     this.manipulator = new ManipulatorGroup(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
+    this.vertexPicker = new VertexPicker(() => (this.needsRender = true));
+    this.scene.add(this.vertexPicker.group);
     this.drawPlane = new DrawPlane(container);
     this.scene.add(this.drawPlane.group);
     this.measureLabel = document.createElement('div');
@@ -340,6 +346,25 @@ export class Viewport {
     this.needsRender = true;
   }
 
+  /**
+   * Modo enganchar vértices: se muestran los vértices dados (xyz consecutivos) y un clic sobre uno
+   * llama a `onPick`. null lo apaga.
+   */
+  setVertexMode(positions: Float32Array | null, handlers: { onPick: (index: number) => void } | null) {
+    this.vertexPicker.setVertices(positions ?? new Float32Array(0));
+    this.vertexHandlers = positions ? handlers : null;
+    if (positions) {
+      this.setHovered(null);
+      this.manipulator.set([], null);
+    }
+    this.renderer.domElement.style.cursor = positions ? 'crosshair' : '';
+  }
+
+  /** Vértices ya unidos en el modo enganchar vértices. */
+  setVertexChain(indices: number[]) {
+    this.vertexPicker.setChain(indices);
+  }
+
   /** Manipulador 3D de la feature seleccionada (null para ocultarlo). */
   setManipulator(specs: Manipulator[], handlersFor: ((m: Manipulator) => ManipulatorHandlers) | null) {
     this.manipulator.set(specs, handlersFor);
@@ -518,6 +543,7 @@ export class Viewport {
     this.renderer.setAnimationLoop(null);
     this.viewCube.dispose();
     this.manipulator.dispose();
+    this.vertexPicker.dispose();
     this.drawPlane.dispose();
     this.resizeObserver.disconnect();
     this.controls.dispose();
@@ -826,7 +852,7 @@ export class Viewport {
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
     // El asa del manipulador tiene prioridad sobre la órbita y la selección.
-    if (!this.drawHandlers && this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
+    if (!this.drawHandlers && !this.vertexHandlers && this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
       this.manipulator.beginDrag();
       this.controls.enabled = false;
       this.renderer.domElement.setPointerCapture(ev.pointerId);
@@ -846,6 +872,11 @@ export class Viewport {
     this.pointerDown = null;
     if (ev.button !== 0 || !down) return;
     if (Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > CLICK_TOLERANCE_PX) return; // fue órbita
+    if (this.vertexHandlers) {
+      const i = this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size());
+      if (i >= 0) this.vertexHandlers.onPick(i);
+      return;
+    }
     if (this.drawHandlers) {
       const uv = this.drawPlane.intersect(this.rayFrom(ev).ray);
       if (uv) this.drawHandlers.click(uv, this.screenOf(ev), ev);
@@ -882,6 +913,10 @@ export class Viewport {
       return;
     }
     if (ev.buttons !== 0) return; // no resaltar mientras se orbita
+    if (this.vertexHandlers) {
+      this.vertexPicker.setHover(this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size()));
+      return;
+    }
     if (this.drawHandlers) {
       const uv = this.drawPlane.intersect(this.rayFrom(ev).ray);
       if (uv) this.drawHandlers.move(uv, this.screenOf(ev), ev);
