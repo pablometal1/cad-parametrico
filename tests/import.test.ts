@@ -6,7 +6,7 @@ import { KernelService } from '../src/kernel/service';
 import { RecomputeEngine } from '../src/kernel/recompute';
 import { volume } from '../src/kernel/features/measure';
 import { checkPart } from '../src/kernel/features/check';
-import { build, rect } from './helpers';
+import { addSketchExtrude, build, circle, rect } from './helpers';
 
 let k: KernelService;
 let stepB64 = '';
@@ -142,4 +142,50 @@ describe('importar', () => {
     expect(parseDocument(serializeDocument(d))).toEqual(d);
     void updateFeature;
   });
+
+  it('booleanas sobre una malla de otro programa (caras casi coplanares, esfera facetada)', () => {
+    const tri = (pts: number[][]) => pts.flat();
+    // Caja de 40 subdividida 4×4 por cara, con ruido de 1e-5 por vértice (redondeo de otro programa).
+    const P = new Map<string, number[]>();
+    let seed = 1;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 1e-5;
+    const pt = (x: number, y: number, z: number) => {
+      const key = `${x},${y},${z}`;
+      if (!P.has(key)) P.set(key, [x + rnd(), y + rnd(), z + rnd()]);
+      return P.get(key)!;
+    };
+    const box: number[][] = [];
+    const g = (i: number) => -20 + i * 10;
+    const face = (f: (u: number, v: number) => [number, number, number], flip: boolean) => {
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+        const a = pt(...f(i, j)), b = pt(...f(i + 1, j)), c = pt(...f(i + 1, j + 1)), d = pt(...f(i, j + 1));
+        box.push(...(flip ? [tri([a, c, b]), tri([a, d, c])] : [tri([a, b, c]), tri([a, c, d])]));
+      }
+    };
+    face((i, j) => [g(i), g(j), -20], true); face((i, j) => [g(i), g(j), 20], false);
+    face((i, j) => [g(i), -20, g(j)], false); face((i, j) => [g(i), 20, g(j)], true);
+    face((i, j) => [-20, g(i), g(j)], true); face((i, j) => [20, g(i), g(j)], false);
+    // Esfera UV de radio 20.
+    const sphere: number[][] = [];
+    const S = (i: number, j: number) => {
+      const th = (Math.PI * i) / 12, ph = (2 * Math.PI * (j % 24)) / 24;
+      return [20 * Math.sin(th) * Math.cos(ph), 20 * Math.sin(th) * Math.sin(ph), 20 * Math.cos(th)];
+    };
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 24; j++) sphere.push(tri([S(i, j), S(i + 1, j), S(i + 1, j + 1)]), tri([S(i, j), S(i + 1, j + 1), S(i, j + 1)]));
+    const encode = (tris: number[][]) => {
+      const res = new Uint8Array(84 + 50 * tris.length);
+      const w = new DataView(res.buffer);
+      w.setUint32(80, tris.length, true);
+      tris.forEach((t, i) => t.forEach((v, kk) => w.setFloat32(84 + 50 * i + 12 + 4 * kk, v, true)));
+      return toB64(res);
+    };
+    for (const mesh of [box, sphere]) {
+      const d = addFeature(emptyDocument(), makeImport(emptyDocument(), 'malla.stl', 'stl', encode(mesh)));
+      const cut = run(addSketchExtrude(d, { profile: circle(4, [5, 0]), distance: 60, direction: 'symmetric', operation: 'cut' }));
+      expect(cut.error).toBe('');
+      expect(cut.printable).toBe(true);
+      const join = run(addSketchExtrude(d, { profile: rect(10, 10, [10, 10]), distance: 40, operation: 'join' }));
+      expect(join.error).toBe('');
+    }
+  }, 120_000);
 });

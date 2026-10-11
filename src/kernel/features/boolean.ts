@@ -5,6 +5,9 @@ import { historyOf, NameBuilder, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 import { volume } from './measure';
 
+/** Arriba de esta cantidad de caras entre ambos cuerpos no se unifican caras tras la booleana. */
+const SIMPLIFY_MAX_FACES = 2000;
+
 /**
  * Aplica la operación. Toma posesión de `tool` (lo libera); no modifica `input`.
  * Devuelve un sólido nuevo, propiedad del llamador.
@@ -29,11 +32,12 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
 
   const oc = getOC();
   const range = new oc.Message_ProgressRange();
-  const algo = op === 'join'
+  const build = () => op === 'join'
     ? new oc.BRepAlgoAPI_Fuse(input.shape.wrapped, tool.shape.wrapped, range)
     : op === 'intersect'
       ? new oc.BRepAlgoAPI_Common(input.shape.wrapped, tool.shape.wrapped, range)
       : new oc.BRepAlgoAPI_Cut(input.shape.wrapped, tool.shape.wrapped, range);
+  let algo = build();
   try {
     if (!algo.IsDone() || algo.HasErrors()) {
       throw new FeatureError(
@@ -41,8 +45,18 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
       );
     }
     // Unifica caras coplanares y aristas colineales que deja la booleana (conserva la historia).
-    algo.SimplifyResult(true, true, 1e-6);
-    const result = cast(algo.Shape());
+    // Con miles de caras (mallas importadas) no se simplifica: es lento y no aporta.
+    const simplify = input.shape.faces.length + tool.shape.faces.length <= SIMPLIFY_MAX_FACES;
+    if (simplify) algo.SimplifyResult(true, true, 1e-6);
+    let result = cast(algo.Shape());
+    if (simplify && result.solids.length > 0 && !isValidShape(result)) {
+      // Con caras casi coplanares (mallas importadas) la unificación puede dejar caras inválidas:
+      // se rehace la booleana y se queda el resultado sin simplificar.
+      result.delete();
+      algo.delete();
+      algo = build();
+      result = cast(algo.Shape());
+    }
     if (result.solids.length === 0) {
       result.delete();
       throw new FeatureError(
