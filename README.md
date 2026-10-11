@@ -91,7 +91,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 - Medición de distancias y ángulos entre caras y aristas.
 - Propiedades: volumen, área, masa y **metros de filamento** según el material.
 - **Comprobación para imprimir:** sólido válido, malla cerrada, normales hacia afuera y cuerpos sin superponerse.
-- Exportación **STL, 3MF y STEP**. Importación **STL/STEP**, como referencia o para hacer encastres.
+- Exportación **STL, 3MF y STEP**. Importación **STL/STEP** como **sólido** (cuerpo nuevo, unir, cortar para encastres) o como referencia. Los STL se reparan solos: agujeros, caras dadas vuelta, triángulos repetidos y vértices sin soldar.
 
 </td>
 <td width="50%" valign="top">
@@ -118,6 +118,7 @@ con cotas que son expresiones de esos parámetros.
 | Modelo | Qué tiene |
 |---|---|
 | **Caja transportadora** | Hard surface: cuerpo octogonal con biseles, junta de tapa con labios, paneles ranurados, asas superiores y laterales, trabas |
+| **Caja de seguridad SSC** | Hard surface: aristas redondeadas, junta a media altura, costillas en la tapa (cantidad paramétrica), paneles frontales con escalón central, tapas laterales en relieve con tornillos y asa, patas |
 
 Las plantillas están en `src/templates/` y se escriben con `TemplateBuilder` (parámetros, sketches con
 coordenadas como expresiones, extrusiones, simetrías y chaflanes/redondeos que eligen sus aristas sobre
@@ -230,11 +231,13 @@ El surco es un perfil ISO de 60°, barrido a lo largo de una hélice en modo bin
 
 Coser 25.000 triángulos con `BRepBuilderAPI_Sewing` tardaba minutos. En cambio, el lector:
 
-1. suelda los vértices repetidos;
-2. crea cada vértice y arista de OpenCascade una sola vez, compartidos entre triángulos vecinos;
-3. arma la cáscara a mano.
+1. suelda los vértices repetidos o casi iguales (tolerancia relativa al tamaño, con grilla de vecinos);
+2. repara la malla (`src/kernel/meshRepair.ts`): quita triángulos repetidos, orienta todos los
+   triángulos igual que sus vecinos y cierra cada agujero con un abanico desde su centro;
+3. crea cada vértice y arista de OpenCascade una sola vez, compartidos entre triángulos vecinos;
+4. arma la cáscara a mano.
 
-Si la malla es cerrada, se convierte en sólido y se puede usar en booleanas.
+El historial dice qué se reparó («sólido, reparado: 2 agujeros cerrados»). Si la malla es cerrada, se convierte en sólido y se puede usar en booleanas.
 
 </details>
 

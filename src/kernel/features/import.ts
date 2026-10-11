@@ -6,10 +6,11 @@ import { NameBuilder, type NamedShape } from '../naming';
 import { describeError, FeatureError, hashString } from '../occtUtils';
 import { combine } from './boolean';
 import { volume } from './measure';
-import { checkWatertight, weldMesh } from '../export/meshExport';
+import { checkWatertight } from '../export/meshExport';
+import { describeRepair, repairMesh, weldClose } from '../meshRepair';
 
 /** Archivos ya leídos, por contenido (leer un STL grande cuesta; mover la pieza no debería). */
-const parsed = new Map<string, AnyShape>();
+const parsed = new Map<string, { shape: AnyShape; note: string }>();
 const MAX_PARSED = 4;
 
 function base64ToBytes(b64: string): Uint8Array {
@@ -22,16 +23,16 @@ function base64ToBytes(b64: string): Uint8Array {
 let fileCounter = 0;
 
 /** Lee el archivo (sin ubicar). El resultado lo conserva la cache: el llamador debe clonarlo. */
-export function readImport(format: ImportFeature['format'], data: string): AnyShape {
+export function readImport(format: ImportFeature['format'], data: string): { shape: AnyShape; note: string } {
   const key = hashString(format + data);
   const hit = parsed.get(key);
   if (hit) return hit;
   const oc = getOC();
   const path = `/import-${++fileCounter}.${format === 'stl' ? 'stl' : 'step'}`;
   oc.FS.writeFile(path, base64ToBytes(data));
-  let shape: AnyShape;
+  let read: { shape: AnyShape; note: string };
   try {
-    shape = format === 'step' ? readSTEP(path) : readSTL(path);
+    read = format === 'step' ? { shape: readSTEP(path), note: '' } : readSTL(path);
   } finally {
     try {
       oc.FS.unlink(path);
@@ -39,13 +40,13 @@ export function readImport(format: ImportFeature['format'], data: string): AnySh
       // ya borrado
     }
   }
-  parsed.set(key, shape);
+  parsed.set(key, read);
   if (parsed.size > MAX_PARSED) {
-    const [oldKey, old] = parsed.entries().next().value as [string, AnyShape];
+    const [oldKey, old] = parsed.entries().next().value as [string, { shape: AnyShape }];
     parsed.delete(oldKey);
-    old.delete();
+    old.shape.delete();
   }
-  return shape;
+  return read;
 }
 
 function readSTEP(path: string): AnyShape {
@@ -90,15 +91,28 @@ export function parseSTL(bytes: Uint8Array): Float32Array {
 const UNIFY_MAX_TRIANGLES = 4000;
 
 /**
- * STL → sólido. Los vértices iguales se sueldan y cada vértice y arista de OpenCascade se crea
+ * STL → sólido. La malla se repara primero (triángulos repetidos, orientación, agujeros: ver
+ * meshRepair). Los vértices iguales se sueldan y cada vértice y arista de OpenCascade se crea
  * una sola vez: los triángulos vecinos comparten aristas y la cáscara queda cerrada sin "coser"
  * (coser con OCCT tardaba minutos con 25.000 triángulos). Malla abierta → solo superficie.
  */
-function readSTL(path: string): AnyShape {
+function readSTL(path: string): { shape: AnyShape; note: string } {
   const oc = getOC();
   const tris = parseSTL(oc.FS.readFile(path) as Uint8Array);
-  const mesh = weldMesh(tris, Uint32Array.from({ length: tris.length / 3 }, (_, i) => i));
-  if (mesh.triangles.length === 0) throw new FeatureError('El STL no tiene triángulos');
+  // Tolerancia de soldadura relativa al tamaño: algunos programas dejan los vértices compartidos
+  // apenas distintos (redondeo de float32).
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < tris.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], tris[i + k]);
+      hi[k] = Math.max(hi[k], tris[i + k]);
+    }
+  }
+  const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+  const welded = weldClose(tris, Math.max(1e-5, diag * 1e-5));
+  if (welded.triangles.length === 0) throw new FeatureError('El STL no tiene triángulos');
+  const { mesh, report } = repairMesh(welded);
+  const repaired = describeRepair(report);
   const keep: { delete(): void }[] = [];
   const vertex = new Map<number, unknown>();
   const edge = new Map<string, unknown>();
@@ -150,7 +164,14 @@ function readSTL(path: string): AnyShape {
       result = cast(unify.Shape());
       unify.delete();
     }
-    if (checkWatertight(mesh).boundaryEdges > 0) return result; // malla abierta: solo referencia
+    const tight = checkWatertight(mesh);
+    if (tight.boundaryEdges > 0 || tight.nonManifoldEdges > 0) {
+      // Malla que no se pudo cerrar: queda como superficie (solo referencia).
+      const why = tight.nonManifoldEdges > 0
+        ? `${tight.nonManifoldEdges} aristas compartidas por más de dos caras`
+        : `${tight.boundaryEdges} bordes abiertos`;
+      return { shape: result, note: `superficie: ${why}${repaired ? ` (reparado: ${repaired})` : ''}` };
+    }
     const exp = new oc.TopExp_Explorer(result.wrapped, oc.TopAbs_ShapeEnum.TopAbs_SHELL, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
     const maker = new oc.BRepBuilderAPI_MakeSolid();
     try {
@@ -158,7 +179,7 @@ function readSTL(path: string): AnyShape {
       const solid = oc.TopoDS.Solid(maker.Solid());
       oc.BRepLib.OrientClosedSolid(solid);
       const shape = cast(solid);
-      if (shape.solids.length > 0 && volume(shape) > 0) return shape;
+      if (shape.solids.length > 0 && volume(shape) > 0) return { shape, note: repaired ? `sólido, reparado: ${repaired}` : 'sólido' };
       shape.delete();
     } catch {
       // sigue como superficie
@@ -166,7 +187,7 @@ function readSTL(path: string): AnyShape {
       exp.delete();
       maker.delete();
     }
-    return result;
+    return { shape: result, note: 'superficie: OpenCascade no pudo armar el sólido' };
   } catch (err) {
     if (err instanceof FeatureError) throw err;
     throw new FeatureError(`No se pudo leer el archivo STL (${describeError(err)})`);
@@ -189,23 +210,24 @@ export function placeImport(f: ImportFeature, raw: AnyShape): AnyShape {
 }
 
 /** Cuerpo importado y ubicado, con un nombre por cara (`<feature>:import:<n>`). */
-export function importedBody(f: ImportFeature): NamedShape {
-  const shape = placeImport(f, readImport(f.format, f.data));
+export function importedBody(f: ImportFeature): NamedShape & { note: string } {
+  const read = readImport(f.format, f.data);
+  const shape = placeImport(f, read.shape);
   const nb = new NameBuilder(shape);
   shape.faces.forEach((face, i) => nb.add(face.wrapped, `${f.id}:import:${i}`));
-  return nb.finish(f.id);
+  return { ...nb.finish(f.id), note: read.note };
 }
 
 /**
  * Aplica la importación. Con 'reference' el sólido no cambia y el cuerpo se devuelve aparte
  * (se muestra translúcido y no se exporta).
  */
-export function runImport(f: ImportFeature, input: NamedShape | null): { output: NamedShape | null; reference?: NamedShape } {
-  const body = importedBody(f);
-  if (f.operation === 'reference') return { output: input, reference: body };
+export function runImport(f: ImportFeature, input: NamedShape | null): { output: NamedShape | null; reference?: NamedShape; note: string } {
+  const { note, ...body } = importedBody(f);
+  if (f.operation === 'reference') return { output: input, reference: body, note };
   if (body.shape.solids.length === 0) {
     body.shape.delete();
-    throw new FeatureError('El archivo no forma un sólido cerrado: solo se puede usar como referencia');
+    throw new FeatureError(`El archivo no forma un sólido cerrado (${note}): solo se puede usar como referencia`);
   }
-  return { output: combine(f.operation, input, body, f.id) };
+  return { output: combine(f.operation, input, body, f.id), note };
 }

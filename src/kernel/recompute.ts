@@ -302,9 +302,10 @@ export class RecomputeEngine {
           return ok(runThread(feature, ctx.input));
         case 'import': {
           const r = runImport(feature, ctx.input);
+          const info = r.note ? `${feature.fileName} · ${r.note}` : feature.fileName;
           return r.reference
-            ? { key, output: ctx.input, owned: false, reference: r.reference, status: 'ok', info: feature.fileName, timeMs: elapsed(t0) }
-            : { ...ok(r.output!), info: feature.fileName };
+            ? { key, output: ctx.input, owned: false, reference: r.reference, status: 'ok', info, timeMs: elapsed(t0) }
+            : { ...ok(r.output!), info };
         }
         case 'pushpull':
           return ok(runPushPull(feature, ctx.input));

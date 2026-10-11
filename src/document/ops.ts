@@ -392,7 +392,7 @@ export function makeThread(doc: CadDocument, face: FaceRef, pitch: number, overr
 
 export function makeImport(doc: CadDocument, fileName: string, format: ImportFeature['format'], data: string): ImportFeature {
   return {
-    ...base(doc, 'import'), fileName, format, data, operation: 'reference',
+    ...base(doc, 'import'), fileName, format, data, operation: 'new',
     position: [0, 0, 0], rotation: [0, 0, 0], scale: 1,
   };
 }

@@ -386,7 +386,8 @@ function ImportPanel(props: { store: CadStore; feature: ImportFeature }) {
       <Num store={props.store} id={f().id} path="scale" label="Escala" unit="×" />
       <p class="hint">
         Para un encastre: ubicá la pieza donde va y elegí Cortar; queda su forma restada de tu sólido. Si el STL viene en
-        pulgadas, escala 25,4. Un STL abierto (con agujeros) solo sirve como referencia.
+        pulgadas, escala 25,4. Un STL se convierte en sólido: si tiene agujeros, caras dadas vuelta o
+        triángulos repetidos se repara solo (el historial dice qué se arregló). Si aun así no cierra, usalo como referencia.
       </p>
     </>
   );
