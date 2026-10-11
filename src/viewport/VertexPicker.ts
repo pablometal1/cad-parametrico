@@ -10,6 +10,8 @@ export class VertexPicker {
   private positions: Float32Array = new Float32Array(0);
   private chain: number[] = [];
   private hovered = -1;
+  /** Vértices tapados por el modelo desde la cámara actual (no se dibujan ni se eligen). */
+  private hidden = new Set<number>();
   private readonly dotsMat = new THREE.PointsMaterial({ color: 0xdfe6ee, size: 7, sizeAttenuation: false, depthTest: false });
   private readonly hoverMat = new THREE.PointsMaterial({ color: 0xffa040, size: 13, sizeAttenuation: false, depthTest: false });
   private readonly chainMat = new THREE.LineBasicMaterial({ color: 0xffc857, depthTest: false });
@@ -32,6 +34,7 @@ export class VertexPicker {
     this.positions = positions;
     this.chain = [];
     this.hovered = -1;
+    this.hidden = new Set();
     this.rebuild();
   }
 
@@ -41,23 +44,34 @@ export class VertexPicker {
     this.rebuild();
   }
 
-  /** Índice del vértice más cercano al cursor (en píxeles), o -1. */
-  hitTest(screen: [number, number], camera: THREE.Camera, size: { w: number; h: number }): number {
-    let best = -1;
-    let bestD = SNAP_PX;
+  /**
+   * Índice del vértice visible más cercano al cursor (en píxeles), o -1. Si varios caen en el mismo
+   * lugar de la pantalla (vista de frente: el de adelante tapa al de atrás) gana el más cercano a la
+   * cámara, y los que tapa el modelo se descartan.
+   */
+  hitTest(screen: [number, number], camera: THREE.Camera, size: { w: number; h: number }, occluded?: (p: THREE.Vector3) => boolean): number {
     const v = new THREE.Vector3();
+    const near: { i: number; d: number; z: number }[] = [];
     for (let i = 0; i < this.positions.length / 3; i++) {
-      v.set(this.positions[3 * i], this.positions[3 * i + 1], this.positions[3 * i + 2]).project(camera);
+      v.copy(this.point(i)).project(camera);
       if (v.z > 1) continue;
       const x = ((v.x + 1) / 2) * size.w;
       const y = ((1 - v.y) / 2) * size.h;
       const d = Math.hypot(x - screen[0], y - screen[1]);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
+      if (d < SNAP_PX) near.push({ i, d, z: v.z });
     }
-    return best;
+    near.sort((a, b) => (Math.abs(a.d - b.d) < 2 ? a.z - b.z : a.d - b.d));
+    return near.find((c) => !occluded?.(this.point(c.i)))?.i ?? -1;
+  }
+
+  /** Recalcula qué vértices tapa el modelo (se llama antes de cada cuadro, si cambió la vista). */
+  updateVisibility(occluded: (p: THREE.Vector3) => boolean) {
+    if (!this.positions.length) return;
+    const hidden = new Set<number>();
+    for (let i = 0; i < this.positions.length / 3; i++) if (occluded(this.point(i))) hidden.add(i);
+    if (hidden.size === this.hidden.size && [...hidden].every((i) => this.hidden.has(i))) return;
+    this.hidden = hidden;
+    this.rebuild(false);
   }
 
   setHover(index: number) {
@@ -88,14 +102,15 @@ export class VertexPicker {
     this.dots = this.hoverDot = this.chainLine = this.previewLine = null;
   }
 
-  private rebuild() {
+  private rebuild(render = true) {
     this.clear();
     if (!this.positions.length) {
       this.requestRender();
       return;
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
+    const visible: THREE.Vector3[] = [];
+    for (let i = 0; i < this.positions.length / 3; i++) if (!this.hidden.has(i)) visible.push(this.point(i));
+    const g = new THREE.BufferGeometry().setFromPoints(visible);
     this.dots = new THREE.Points(g, this.dotsMat);
     this.dots.renderOrder = 31;
     this.group.add(this.dots);
@@ -116,6 +131,6 @@ export class VertexPicker {
         this.group.add(this.previewLine);
       }
     }
-    this.requestRender();
+    if (render) this.requestRender();
   }
 }
