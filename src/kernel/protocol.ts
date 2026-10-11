@@ -198,6 +198,8 @@ export interface KernelApi {
   /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */
   /** Asas de la feature (puede tener varias, como las flechas X/Y/Z de Mover). */
   manipulator(featureId: string): Manipulator[];
+  /** Arma el documento de una plantilla de la biblioteca de modelos. */
+  buildTemplate(id: string): CadDocument;
 }
 
 export type KernelMethod = keyof KernelApi;
