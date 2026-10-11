@@ -6,6 +6,7 @@ import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef, Vec3, VertexRef } from '../document/types';
 import { initSolver } from '../sketch/solver';
 import { evaluateDocument } from '../document/evaluate';
+import { buildTemplate } from '../templates';
 import { initOCCT } from './occt';
 import { copyMesh, displayMeshOptions, shapeToMesh } from './mesh';
 import { describeError, FeatureError } from './occtUtils';
@@ -109,6 +110,10 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     const e = edges[edgeIndex];
     if (!e) throw new Error(`Arista ${edgeIndex} fuera de rango (el sólido tiene ${edges.length})`);
     return { index: edgeIndex, curveType: e.geomType, length: e.length, midpoint: e.pointAt(0.5).toTuple() };
+  }
+
+  buildTemplate(id: string): CadDocument {
+    return buildTemplate(id, this);
   }
 
   faceRefs(indices: number[]): FaceRef[] {

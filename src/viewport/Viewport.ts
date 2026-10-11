@@ -562,6 +562,7 @@ export class Viewport {
     this.manipulator.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.drawPlane.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.updateMeasureLabel();
+    if (this.vertexHandlers) this.vertexPicker.updateVisibility((p) => this.occluded(p));
     this.renderer.render(this.scene, this.camera);
     this.viewCube.sync(this.camera, this.controls.target);
   };
@@ -791,6 +792,21 @@ export class Viewport {
     return [ev.clientX - rect.left, ev.clientY - rect.top];
   }
 
+  /** ¿El punto queda tapado por el modelo desde la cámara? (vértices de atrás no se eligen). */
+  private occluded(p: THREE.Vector3): boolean {
+    if (!this.mesh) return false;
+    const toCamera = this.camera instanceof THREE.PerspectiveCamera
+      ? this.camera.position.clone().sub(p)
+      : new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    const far = this.camera instanceof THREE.PerspectiveCamera ? toCamera.length() : Infinity;
+    toCamera.normalize();
+    // Se sale un poquito del vértice para no chocar con las caras que llegan a él.
+    const size = this.mesh.geometry.boundingSphere?.radius ?? 1;
+    const eps = Math.max(1e-4, size * 1e-3);
+    const ray = new THREE.Raycaster(p.clone().addScaledVector(toCamera, eps), toCamera, 0, far);
+    return ray.intersectObject(this.mesh, false).length > 0;
+  }
+
   private rayFrom(ev: PointerEvent): THREE.Raycaster {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
@@ -873,7 +889,7 @@ export class Viewport {
     if (ev.button !== 0 || !down) return;
     if (Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > CLICK_TOLERANCE_PX) return; // fue órbita
     if (this.vertexHandlers) {
-      const i = this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size());
+      const i = this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size(), (pt) => this.occluded(pt));
       if (i >= 0) this.vertexHandlers.onPick(i);
       return;
     }
@@ -914,7 +930,7 @@ export class Viewport {
     }
     if (ev.buttons !== 0) return; // no resaltar mientras se orbita
     if (this.vertexHandlers) {
-      this.vertexPicker.setHover(this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size()));
+      this.vertexPicker.setHover(this.vertexPicker.hitTest(this.screenOf(ev), this.camera, this.size(), (pt) => this.occluded(pt)));
       return;
     }
     if (this.drawHandlers) {

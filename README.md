@@ -108,6 +108,21 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 - Deshacer y rehacer instantáneos, y un borrador automático por pestaña (`?pieza=nombre`).
 - El documento es un JSON legible (`.cad.json`), validado al abrirlo.
 
+### 📚 Biblioteca de modelos
+
+**Archivo → Biblioteca de modelos…** abre modelos paramétricos listos como proyecto nuevo, con todo el
+historial a la vista. Cada medida está en la tabla de parámetros (`fx`): cambiar `largo`, `alto`, el
+bisel o el diámetro de las asas regenera el modelo entero. Los sketches quedan totalmente definidos
+con cotas que son expresiones de esos parámetros.
+
+| Modelo | Qué tiene |
+|---|---|
+| **Caja transportadora** | Hard surface: cuerpo octogonal con biseles, junta de tapa con labios, paneles ranurados, asas superiores y laterales, trabas |
+
+Las plantillas están en `src/templates/` y se escriben con `TemplateBuilder` (parámetros, sketches con
+coordenadas como expresiones, extrusiones, simetrías y chaflanes/redondeos que eligen sus aristas sobre
+el sólido ya calculado). `tests/templates.test.ts` arma cada una y la regenera con otras medidas.
+
 ## Primeros pasos
 
 Requiere **Node.js 20** o más nuevo.

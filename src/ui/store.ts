@@ -411,6 +411,18 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
     // ------------------------------------------------------------ archivos
 
+    /** Abre una plantilla de la biblioteca como proyecto nuevo. Devuelve un mensaje de error o null. */
+    async openTemplate(id: string, name: string): Promise<string | null> {
+      try {
+        const d = await kernel.buildTemplate(id);
+        replaceDocument(d, name);
+        setNotice('Modelo de la biblioteca listo: cambiá sus medidas en la tabla de parámetros (fx, Shift+X)');
+        return null;
+      } catch (err) {
+        return (err as Error).message;
+      }
+    },
+
     newDocument() {
       replaceDocument(ops.emptyDocument(), 'pieza');
       setNotice(null);

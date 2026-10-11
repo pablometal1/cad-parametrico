@@ -15,6 +15,7 @@ import { TooltipLayer } from './Tooltip';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ParameterTable } from './ParameterTable';
 import { ExportDialog } from './ExportDialog';
+import { LibraryDialog } from './LibraryDialog';
 import { PartInfo } from './PartInfo';
 import type { MassProperties, Measurement } from '../kernel/protocol';
 import { createDirectDraw, type DrawTool } from './draw3d/controller';
@@ -65,6 +66,7 @@ export function App() {
   const [fileMenu, setFileMenu] = createSignal(false);
   const [paramsOpen, setParamsOpen] = createSignal(false);
   const [exportOpen, setExportOpen] = createSignal(false);
+  const [libraryOpen, setLibraryOpen] = createSignal(false);
   const [mass, setMass] = createSignal<MassProperties | null>(null);
   const [measurement, setMeasurement] = createSignal<Measurement | null>(null);
   const [helpOpen, setHelpOpen] = createSignal(false);
@@ -496,6 +498,7 @@ export function App() {
             <div class="menu" onMouseLeave={() => setFileMenu(false)}>
               <button onClick={() => { setFileMenu(false); newProject(); }}><Icon name="new" size={16} />Nuevo</button>
               <button onClick={() => { setFileMenu(false); fileInput.click(); }}><Icon name="open" size={16} />Abrir… <span class="kbd">Ctrl+O</span></button>
+              <button disabled={!ready()} onClick={() => { setFileMenu(false); setLibraryOpen(true); }}><Icon name="library" size={16} />Biblioteca de modelos…</button>
               <button onClick={() => { setFileMenu(false); store.save(); }}><Icon name="save" size={16} />Guardar <span class="kbd">Ctrl+S</span></button>
               <button onClick={() => { setFileMenu(false); saveAs(); }}><Icon name="saveAs" size={16} />Guardar como…</button>
               <button onClick={() => { setFileMenu(false); importInput.click(); }}><Icon name="import" size={16} />Importar STL / STEP…</button>
@@ -714,6 +717,13 @@ export function App() {
         </Show>
         <Show when={helpOpen()}>
           <ShortcutHelp onClose={() => setHelpOpen(false)} />
+        </Show>
+        <Show when={libraryOpen()}>
+          <LibraryDialog onClose={() => setLibraryOpen(false)} onOpen={(t) => {
+            if (store.dirty() && !window.confirm('Hay cambios sin guardar. ¿Abrir el modelo de la biblioteca igual?')) return Promise.resolve(null);
+            framed = false; // encuadrar el modelo nuevo cuando llegue su malla
+            return store.openTemplate(t.id, t.fileName);
+          }} />
         </Show>
         <Show when={exportOpen()}>
           <ExportDialog kernel={kernel} fileName={store.fileName()} onClose={() => setExportOpen(false)} onDone={(m) => store.setNotice(m)} />

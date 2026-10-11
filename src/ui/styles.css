@@ -539,3 +539,13 @@ kbd {
 .text-opts { display: inline-flex; align-items: center; gap: 6px; }
 .text-input { width: 140px; background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; }
 .text-input:focus { outline: none; border-color: #5d7fa6; }
+
+/* Biblioteca de modelos */
+.library-dialog { width: 420px; }
+.library-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left;
+  margin: 6px 0; padding: 8px 10px; background: #1d2126; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.library-item:hover:not(:disabled) { border-color: var(--accent, #e8913a); }
+.library-item .muted { font-size: 12px; }
