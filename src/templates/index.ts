@@ -3,6 +3,7 @@
 import type { CadDocument } from '../document/types';
 import { TemplateBuilder, type TemplateKernel } from './builder';
 import { buildCaja } from './caja';
+import { buildSsc } from './ssc';
 
 export interface TemplateInfo {
   id: string;
@@ -23,6 +24,13 @@ const TEMPLATES: TemplateDef[] = [
     description: 'Hard surface: cuerpo con esquinas y bordes biselados, junta de tapa con labios, paneles ranurados, asas y trabas.',
     fileName: 'caja-transportadora',
     build: buildCaja,
+  },
+  {
+    id: 'caja-ssc',
+    name: 'Caja de seguridad SSC',
+    description: 'Hard surface: aristas redondeadas, junta a media altura, costillas en la tapa, paneles con escalón, tapas laterales con tornillos y asa, patas.',
+    fileName: 'caja-ssc',
+    build: buildSsc,
   },
 ];
 

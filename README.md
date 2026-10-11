@@ -118,6 +118,7 @@ con cotas que son expresiones de esos parámetros.
 | Modelo | Qué tiene |
 |---|---|
 | **Caja transportadora** | Hard surface: cuerpo octogonal con biseles, junta de tapa con labios, paneles ranurados, asas superiores y laterales, trabas |
+| **Caja de seguridad SSC** | Hard surface: aristas redondeadas, junta a media altura, costillas en la tapa (cantidad paramétrica), paneles frontales con escalón central, tapas laterales en relieve con tornillos y asa, patas |
 
 Las plantillas están en `src/templates/` y se escriben con `TemplateBuilder` (parámetros, sketches con
 coordenadas como expresiones, extrusiones, simetrías y chaflanes/redondeos que eligen sus aristas sobre
