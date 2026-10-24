@@ -516,14 +516,22 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
     [next[i], next[j]] = [next[j], next[i]];
     update({ sections: next });
   };
-  const free = () => sketchOptions(props.store, f().id).filter((o) => !f().sections.includes(o.value));
+  const free = () => sketchOptions(props.store, f().id).filter((o) => !f().sections.includes(o.value) && o.value !== f().spine);
+  const spineOptions = () => [{ value: '' as FeatureId, label: 'Ninguna' }, ...sketchOptions(props.store, f().id, f().spine).filter((o) => !f().sections.includes(o.value))];
   return (
     <>
       <h3>Solevación</h3>
       <For each={f().sections}>
-        {(id, i) => (
+        {(sec, i) => (
           <div class="section-row">
-            <SelectField label={`Sección ${i() + 1}`} value={id} options={sketchOptions(props.store, f().id, id)} onChange={(v) => setAt(i(), v)} />
+            <Show when={typeof sec === 'string' ? sec : null} fallback={
+              <label class="field">
+                <span class="field-label">{`Sección ${i() + 1}`}</span>
+                <span class="field-input muted">Cara del modelo</span>
+              </label>
+            }>
+              {(id) => <SelectField label={`Sección ${i() + 1}`} value={id()} options={sketchOptions(props.store, f().id, id())} onChange={(v) => setAt(i(), v)} />}
+            </Show>
             <span class="section-actions">
               <button class="icon-btn" disabled={i() === 0} onClick={() => swap(i(), i() - 1)} aria-label="Subir sección" data-tip="Subir sección">
                 <Icon name="toTop" size={13} />
@@ -542,15 +550,30 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
         <SelectField label="Agregar" value={'' as FeatureId} options={[{ value: '' as FeatureId, label: 'Elegir sketch…' }, ...free()]}
           onChange={(id) => id && update({ sections: [...f().sections, id] })} />
       </Show>
+      <SelectField label="Trayectoria central" value={(f().spine ?? '') as FeatureId} options={spineOptions()}
+        onChange={(id) => update({ spine: id || undefined, ...(id ? { closed: false } : {}) })} />
       <label class="field">
         <span class="field-label">Reglada</span>
         <span class="field-input">
-          <input type="checkbox" checked={f().ruled} onChange={(e) => update({ ruled: e.currentTarget.checked })} />
+          <input type="checkbox" checked={f().ruled} disabled={!!f().spine} onChange={(e) => update({ ruled: e.currentTarget.checked })} />
           <span class="muted">caras planas entre secciones</span>
         </span>
       </label>
+      <label class="field">
+        <span class="field-label">Cerrar</span>
+        <span class="field-input">
+          <input type="checkbox" checked={!!f().closed} disabled={!!f().spine || f().sections.length < 3}
+            onChange={(e) => update({ closed: e.currentTarget.checked })} />
+          <span class="muted">unir la última sección con la primera (anillo)</span>
+        </span>
+      </label>
+      <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
       <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
-      <p class="hint">Cada sección es un sketch con un solo contorno cerrado, en el orden en que se unen.</p>
+      <p class="hint">
+        Cada sección es un sketch con un contorno cerrado, un punto (solo al principio o al final, termina en punta) o
+        una curva abierta, o la cara del modelo que estaba elegida al crearla. Con curvas abiertas sale una superficie
+        engrosada con el espesor indicado. La trayectoria central es un sketch con una curva que guía la forma entre las secciones.
+      </p>
     </>
   );
 }

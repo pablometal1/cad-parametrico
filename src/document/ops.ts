@@ -3,7 +3,7 @@ import { isValidName, parseExpression, referencedNames, renameInExpression } fro
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
-  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
+  type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type LoftSection, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
   type PushPullFeature, type DraftFeature, type PatchFeature, type DomeFeature, type Curve3dFeature, type VertexRef, type CombineFeature, type SplitFeature, type MoveFeature,
 } from './types';
 
@@ -173,7 +173,7 @@ export function sketchesUsedBy(f: Feature): FeatureId[] {
     case 'sweep':
       return [f.profile, f.path];
     case 'loft':
-      return f.sections;
+      return [...f.sections.filter((x): x is FeatureId => typeof x === 'string'), ...(f.spine ? [f.spine] : [])];
     case 'hole':
       return [f.sketch];
     default:
@@ -401,7 +401,7 @@ export function makeSweep(doc: CadDocument, profile: FeatureId, path: FeatureId,
   return { ...base(doc, 'sweep'), profile, path, operation: hasSolidBefore(doc) ? 'join' : 'new', ...overrides };
 }
 
-export function makeLoft(doc: CadDocument, sections: FeatureId[], overrides: Partial<Omit<LoftFeature, 'type'>> = {}): LoftFeature {
+export function makeLoft(doc: CadDocument, sections: LoftSection[], overrides: Partial<Omit<LoftFeature, 'type'>> = {}): LoftFeature {
   return { ...base(doc, 'loft'), sections, ruled: false, operation: hasSolidBefore(doc) ? 'join' : 'new', ...overrides };
 }
 

@@ -542,6 +542,7 @@ kbd {
 .text-opts { display: inline-flex; align-items: center; gap: 6px; }
 .text-input { width: 140px; background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; }
 .text-input:focus { outline: none; border-color: #5d7fa6; }
+.text-opts select { background: #16191d; color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
 
 /* Biblioteca de modelos */
 .library-dialog { width: 420px; }

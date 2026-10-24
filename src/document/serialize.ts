@@ -3,7 +3,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
-  type Parameter, type PlaneReference, type SketchSpline, NURBS_MAX_DEGREE,
+  type Parameter, type PlaneReference, type SketchSpline, type LoftFeature, type LoftSection, NURBS_MAX_DEGREE,
 } from './types';
 import { isValidName } from './expressions';
 
@@ -200,12 +200,18 @@ function validateFeature(raw: unknown, path: string): Feature {
         pitch: num(o.pitch, `${path}.pitch`), clearance: num(o.clearance, `${path}.clearance`),
         length: num(o.length, `${path}.length`), fromStart: bool(o.fromStart, `${path}.fromStart`),
       };
-    case 'loft':
-      return {
-        ...base, type: 'loft', sections: list(o.sections, `${path}.sections`, str),
+    case 'loft': {
+      const loft: LoftFeature = {
+        ...base, type: 'loft',
+        sections: list(o.sections, `${path}.sections`, (v, p): LoftSection => (typeof v === 'string' ? v : { face: faceRef(obj(v, p).face, `${p}.face`) })),
         ruled: bool(o.ruled, `${path}.ruled`),
         operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
       };
+      if (o.closed !== undefined) loft.closed = bool(o.closed, `${path}.closed`);
+      if (o.spine !== undefined) loft.spine = str(o.spine, `${path}.spine`);
+      if (o.thickness !== undefined) loft.thickness = num(o.thickness, `${path}.thickness`);
+      return loft;
+    }
     case 'extrude': {
       const f: ExtrudeFeature = {
         ...base,

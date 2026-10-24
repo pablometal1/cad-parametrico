@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-320%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-362%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -43,7 +43,8 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 
 ### ✏️ Sketch 2D con restricciones
 
-- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura, **spline** y **texto**.
+- Punto, línea, rectángulo (también desde el centro), círculo, arco, polígono, ranura, **spline**, **curva NURBS** (puntos de control, grado 1 a 5) y **texto**.
+- Peine de curvatura para revisar la suavidad de las splines; tangencia de una spline con líneas, arcos u otras splines.
 - Herramientas de edición como las de Fusion: **recortar**, **desfase** (paralelo, vinculado al original), **redondeo de esquina**, **simetría** y **patrones** circular y lineal.
 - Restricciones geométricas: coincidente, horizontal, vertical, paralela, perpendicular, tangente, igual y simétrica.
 - Cotas: distancia, radio y ángulo. Se editan con doble clic.
@@ -67,7 +68,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | | |
 |---|---|
 | **Extrusión · Revolución** | Cuerpo nuevo, unir, cortar o intersección; extrusión delgada (paredes y nervios) |
-| **Barrido · Solevación** | Perfil por una trayectoria; o entre secciones |
+| **Barrido · Solevación** | Perfil por una trayectoria (también splines); solevación entre contornos, puntos, curvas abiertas o caras del modelo, con trayectoria central o cerrada en anillo |
 | **Agujero** | Simple, cajeado o avellanado, con presets de tornillos e insertos |
 | **Rosca modelada** | ISO de 60°, interna o externa, imprimible |
 | **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas; redondeo de radio variable |

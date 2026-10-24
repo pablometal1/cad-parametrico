@@ -4,12 +4,13 @@ import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, Shel
 import type { PlaneFrame, Vec3 } from '../document/planes';
 import { describePlane, evaluatePlane } from './features/plane';
 import { describeError, FeatureError, hashString } from './occtUtils';
-import type { NamedShape } from './naming';
+import { resolveFace, type NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
 import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
-import { runLoft, runSweep } from './features/sweep';
+import { runLoft, runSweep, type LoftSectionInput } from './features/sweep';
+import type { Wire } from 'replicad';
 import { runHole } from './features/hole';
 import { runThread } from './features/thread';
 import { runImport } from './features/import';
@@ -323,12 +324,22 @@ export class RecomputeEngine {
           return ok(runDome(feature, ctx.input));
         case 'hole':
           return ok(runHole(feature, resolveSketchById(feature.sketch, 'el sketch de este agujero', ctx), ctx.input));
-        case 'loft':
-          return ok(runLoft(
-            feature,
-            feature.sections.map((id, i) => resolveSketchById(id, `la sección ${i + 1} de esta solevación`, ctx)),
-            ctx.input,
-          ));
+        case 'loft': {
+          const wires: Wire[] = [];
+          try {
+            const sections = feature.sections.map((sec, i): LoftSectionInput => {
+              if (typeof sec === 'string') return { kind: 'sketch', sketch: resolveSketchById(sec, `la sección ${i + 1} de esta solevación`, ctx) };
+              if (!ctx.input) throw new FeatureError(`La sección ${i + 1} es una cara del modelo, pero antes no hay un sólido`);
+              const wire = ctx.input.shape.faces[resolveFace(ctx.input, sec.face)].outerWire();
+              wires.push(wire);
+              return { kind: 'face', wire };
+            });
+            const spine = feature.spine ? resolveSketchById(feature.spine, 'la trayectoria central de esta solevación', ctx) : null;
+            return ok(runLoft(feature, sections, ctx.input, spine));
+          } finally {
+            wires.forEach((w) => w.delete());
+          }
+        }
       }
     } catch (err) {
       return { key, output: ctx.input, owned: false, status: 'error', error: describeError(err), timeMs: elapsed(t0) };
@@ -371,7 +382,10 @@ function dependencyState(feature: Feature, ctx: Context): string {
       return 'ok';
     }
     if (feature.type === 'sweep' || feature.type === 'loft') {
-      for (const id of feature.type === 'sweep' ? [feature.profile, feature.path] : feature.sections) {
+      const ids = feature.type === 'sweep'
+        ? [feature.profile, feature.path]
+        : [...feature.sections.filter((x): x is FeatureId => typeof x === 'string'), ...(feature.spine ? [feature.spine] : [])];
+      for (const id of ids) {
         resolveSketchById(id, 'un sketch', ctx);
       }
       return 'ok';

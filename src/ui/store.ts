@@ -565,27 +565,50 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       return null;
     },
 
-    /** Solevación entre los sketches sin usar que tienen un solo contorno cerrado, en orden. */
-    addLoft(): string | null {
-      // Solo secciones paralelas a la última (un perfil para barrido en otro plano no entra).
-      const closed = sketchCandidates().filter((x) => x.regions === 1);
+    /**
+     * Solevación. Con una cara elegida en el modelo, empieza en ella y sigue por los sketches sin
+     * usar (contornos cerrados o puntos). Si no, une los sketches sin usar paralelos con un contorno
+     * cerrado o un punto; y si no hay, los que tienen una curva abierta (superficie engrosada).
+     */
+    async addLoft(faces: number[] = []): Promise<string | null> {
+      const isPoint = (sk: SketchFeature) =>
+        sk.entities.filter((e) => e.type === 'point').length === 1 && !sk.entities.some((e) => e.type !== 'point');
+      const candidates = sketchCandidates();
+      const solidish = candidates.filter((x) => x.regions === 1 || isPoint(x.sketch));
+      if (faces.length > 0) {
+        if (faces.length > 1) return 'Para empezar la solevación en una cara, elegí una sola';
+        const rest = solidish.map((x) => x.sketch.id);
+        if (!rest.length) return 'Para una solevación desde una cara hace falta al menos un sketch sin usar, con un contorno cerrado o un punto';
+        const refs = await withRefs(() => kernel.faceRefs(faces));
+        if (!refs) return null;
+        addWithDialog(ops.makeLoft(doc(), [{ face: refs[0] }, ...rest], { operation: 'join' }));
+        return null;
+      }
       const dir = (sk: SketchFeature): number[] =>
         sk.plane.kind === 'base'
           ? { XY: [0, 0, 1], XZ: [0, 1, 0], YZ: [1, 0, 0] }[sk.plane.plane]
           : sk.plane.kind === 'face'
             ? sk.plane.face.normal ?? [0, 0, 1]
             : planeFrames().get(sk.plane.plane)?.normal ?? [0, 0, 1];
-      const ref = closed.at(-1) ? dir(closed.at(-1)!.sketch) : null;
-      const parallel = (sk: SketchFeature) => {
-        const n = dir(sk);
-        return !!ref && Math.abs(Math.abs(n[0] * ref[0] + n[1] * ref[1] + n[2] * ref[2]) - 1) < 1e-6;
+      // Solo secciones paralelas a la última (un perfil para barrido en otro plano no entra).
+      const parallelTo = (list: typeof candidates) => {
+        const ref = list.at(-1) ? dir(list.at(-1)!.sketch) : null;
+        return list.filter((x) => {
+          const n = dir(x.sketch);
+          return !!ref && Math.abs(Math.abs(n[0] * ref[0] + n[1] * ref[1] + n[2] * ref[2]) - 1) < 1e-6;
+        });
       };
-      const sections = closed.filter((x) => parallel(x.sketch)).map((x) => x.sketch.id);
-      if (sections.length < 2) {
-        return 'Para una solevación hacen falta al menos dos sketches sin usar, cada uno con un contorno cerrado (por ejemplo en planos desplazados)';
+      const closed = parallelTo(solidish);
+      if (closed.filter((x) => x.regions === 1).length >= 1 && closed.length >= 2) {
+        addWithDialog(ops.makeLoft(doc(), closed.map((x) => x.sketch.id)));
+        return null;
       }
-      addWithDialog(ops.makeLoft(doc(), sections));
-      return null;
+      const open = parallelTo(candidates.filter((x) => x.regions === 0 && x.open === 1));
+      if (open.length >= 2) {
+        addWithDialog(ops.makeLoft(doc(), open.map((x) => x.sketch.id), { thickness: 2 }));
+        return null;
+      }
+      return 'Para una solevación hacen falta al menos dos sketches sin usar (en planos desplazados), cada uno con un contorno cerrado, un punto o una curva abierta; o elegí primero una cara del modelo';
     },
 
     /**

@@ -105,7 +105,7 @@ export function App() {
     if (id === 'extrude') store.setNotice(store.addExtrude());
     else if (id === 'revolve') store.setNotice(store.addRevolve());
     else if (id === 'sweep') store.setNotice(store.addSweep());
-    else if (id === 'loft') store.setNotice(store.addLoft());
+    else if (id === 'loft') void store.addLoft(sel.faces).then((msg) => store.setNotice(msg));
     else if (id === 'thread') void store.addThread(sel.faces);
     else if (id === 'hole') {
       const msg = store.addHole();

@@ -3,7 +3,7 @@ import { assembleWire, cast, getOC, makeBezierCurve, makeCircle, makeFace, makeL
 import { flattenContour, signedArea, textContours, textRegions, type TextContour } from '../../sketch/text';
 import type { Vec2 } from '../../sketch/model';
 import { basePlaneFrame, faceFrame, offsetFrame, scale, toPlane, toWorld, type PlaneFrame, type Vec3 } from '../../document/planes';
-import type { FeatureId, SketchData, SketchFeature } from '../../document/types';
+import type { FeatureId, SketchCurve, SketchData, SketchFeature } from '../../document/types';
 import { arcParams, curveDistance } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
 import { findChains, findProfiles, ProfileError, type LoopEdge, type ProfileLoop, type ProfileRegion } from '../../sketch/profiles';
@@ -218,6 +218,11 @@ function buildWire(index: SketchIndex, frame: PlaneFrame, loop: ProfileLoop) {
   } finally {
     edges.forEach((e) => e.delete());
   }
+}
+
+/** Aristas 3D de una curva del sketch (una spline por puntos da varias). El llamador es dueño. */
+export function curveEdges(index: SketchIndex, frame: PlaneFrame, curve: SketchCurve, reversed: boolean): Edge[] {
+  return loopEdges(index, frame, [{ curve, reversed }], false);
 }
 
 /** Aristas 3D de una secuencia de curvas del sketch. `isHole`: los círculos van en sentido horario. */

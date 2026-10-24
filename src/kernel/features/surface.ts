@@ -59,7 +59,6 @@ function loopFrame(edges: Edge[]): { center: Vec3; normal: Vec3 } {
  * en el centro si no es 0), engrosada `thickness` mm y combinada con el sólido.
  */
 export function runPatch(feature: PatchFeature, input: NamedShape | null, curves: Vec3[][] = []): NamedShape {
-  const oc = getOC();
   const curveEdges = curves.flatMap((pts) => pts.slice(1).map((p, i) => makeLine(pts[i], p)));
   if (!input && !curveEdges.length) throw new FeatureError('No hay aristas ni curvas para el parche');
   if (feature.edges.length + curveEdges.length < 2) throw new FeatureError('Elegí las aristas o curvas de un contorno cerrado (al menos 2)');
@@ -74,17 +73,33 @@ export function runPatch(feature: PatchFeature, input: NamedShape | null, curves
     const point = Math.abs(feature.height) > 1e-9 ? (center.map((v, k) => v + normal[k] * feature.height) as Vec3) : null;
     const surface = fillSurface(edges, point, keep);
     keep.push(surface);
-    const ts = new oc.BRepOffsetAPI_MakeThickSolid();
-    keep.push(ts);
+    const solid = thickenSheet(surface, feature.thickness, 'el parche');
+    const nb = new NameBuilder(solid);
+    nb.add(solid.faces[0].wrapped, `${feature.id}:patch`);
+    const tool = nb.finish(feature.id);
+    return combine(feature.operation, input, tool, feature.id);
+  } finally {
+    keep.forEach((k) => k.delete());
+  }
+}
+
+/**
+ * Engrosa una superficie abierta `thickness` mm hacia el lado de su normal. `what` nombra la pieza
+ * en los mensajes ("el parche", "la solevación"). El llamador es dueño del sólido devuelto.
+ */
+export function thickenSheet(sheet: AnyShape, thickness: number, what: string): AnyShape {
+  const oc = getOC();
+  if (!(thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${thickness})`);
+  const ts = new oc.BRepOffsetAPI_MakeThickSolid();
+  const r = new oc.Message_ProgressRange();
+  try {
     try {
-      ts.MakeThickSolidBySimple(surface.wrapped, feature.thickness);
-      const r = new oc.Message_ProgressRange();
-      keep.push(r);
+      ts.MakeThickSolidBySimple(sheet.wrapped, thickness);
       ts.Build(r);
     } catch {
-      throw new FeatureError('No se pudo engrosar el parche: probá con un espesor menor');
+      throw new FeatureError(`No se pudo engrosar ${what}: probá con un espesor menor`);
     }
-    if (!ts.IsDone()) throw new FeatureError('No se pudo engrosar el parche: probá con un espesor menor');
+    if (!ts.IsDone()) throw new FeatureError(`No se pudo engrosar ${what}: probá con un espesor menor`);
     let solid = cast(ts.Shape());
     if (volume(solid) < 0) {
       const flipped = cast(solid.wrapped.Reversed());
@@ -93,14 +108,12 @@ export function runPatch(feature: PatchFeature, input: NamedShape | null, curves
     }
     if (!isValidShape(solid) || solid.solids.length === 0) {
       solid.delete();
-      throw new FeatureError('El parche engrosado no es un sólido válido');
+      throw new FeatureError(`${what[0].toUpperCase()}${what.slice(1)} engrosad${what.startsWith('la ') ? 'a' : 'o'} no es un sólido válido`);
     }
-    const nb = new NameBuilder(solid);
-    nb.add(solid.faces[0].wrapped, `${feature.id}:patch`);
-    const tool = nb.finish(feature.id);
-    return combine(feature.operation, input, tool, feature.id);
+    return solid;
   } finally {
-    keep.forEach((k) => k.delete());
+    ts.delete();
+    r.delete();
   }
 }
 
