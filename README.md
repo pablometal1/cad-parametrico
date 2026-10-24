@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-373%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-379%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -68,7 +68,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | | |
 |---|---|
 | **Extrusión · Revolución** | Cuerpo nuevo, unir, cortar o intersección; extrusión delgada (paredes y nervios) |
-| **Barrido · Solevación** | Perfil por una trayectoria (también splines); solevación entre contornos, puntos, curvas abiertas o caras del modelo, con trayectoria central o cerrada en anillo |
+| **Barrido · Solevación** | Perfil por una trayectoria (también splines); solevación entre contornos, puntos, curvas abiertas, caras o **aristas** del modelo (como en Plasticity: superficie o sólido, tangente a las caras vecinas), con trayectoria central o cerrada en anillo |
 | **Agujero** | Simple, cajeado o avellanado, con presets de tornillos e insertos |
 | **Rosca modelada** | ISO de 60°, interna o externa, imprimible |
 | **Redondeo · Chaflán · Vaciado** | Sobre aristas o caras seleccionadas; redondeo de radio variable |
@@ -78,7 +78,7 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | **Desmoldeo** | Inclinar caras respecto de una cara neutra |
 | **Combinar · Dividir** | Unir, cortar o intersectar cuerpos; partirlos con un plano |
 | **Mover/copiar cuerpos** | Traslación y giro, con o sin copia; flechas X/Y/Z y aro de giro en el modelo |
-| **Abombar cara · Parche** | Superficies libres: abombar una cara plana o rellenar un contorno de aristas y engrosarlo |
+| **Abombar cara · Parche** | Superficies libres: abombar una cara plana o rellenar un contorno de aristas, como superficie sin espesor o engrosada, opcionalmente tangente a las caras vecinas |
 | **Línea 3D** | Unir vértices del modelo con líneas en el espacio (clic en cada vértice; clic en el primero cierra). Una línea que va por una cara la parte en dos (después se puede empujar/tirar cada parte). La curva sigue al modelo si cambian sus cotas y, cerrada, sirve de borde para un parche. **Superficie por vértices** en un paso, y cada tramo se curva arrastrando sus asas en el visor (como los puntos de control de Plasticity), con tangente continua opcional |
 
 </td>

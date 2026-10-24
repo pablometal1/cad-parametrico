@@ -162,6 +162,20 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
 
   private vertexCache: { shape: NamedShape; items: { point: Vec3; edges: number[] }[] } | null = null;
 
+  /** Agrupa aristas en cadenas conectadas por sus extremos (cada cadena, una sección de solevación). */
+  edgeChains(indices: number[]): number[][] {
+    const edges = this.requireShape().shape.edges;
+    const ends = indices.map((i) => [edges[i].startPoint.toTuple(), edges[i].endPoint.toTuple()]);
+    const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
+    const touch = (a: number, b: number) => ends[a].some((p) => ends[b].some((q) => near(p, q)));
+    const group = indices.map((_, k) => k);
+    const find = (k: number): number => (group[k] === k ? k : (group[k] = find(group[k])));
+    for (let a = 0; a < indices.length; a++) for (let b = a + 1; b < indices.length; b++) if (touch(a, b)) group[find(a)] = find(b);
+    const out = new Map<number, number[]>();
+    indices.forEach((idx, k) => out.set(find(k), [...(out.get(find(k)) ?? []), idx]));
+    return [...out.values()];
+  }
+
   edgeRefs(indices: number[]): EdgeRef[] {
     const shape = this.requireShape();
     const kinds = edgeKinds(shape);

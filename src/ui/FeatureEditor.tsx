@@ -527,7 +527,7 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
             <Show when={typeof sec === 'string' ? sec : null} fallback={
               <label class="field">
                 <span class="field-label">{`Sección ${i() + 1}`}</span>
-                <span class="field-input muted">Cara del modelo</span>
+                <span class="field-input muted">{typeof sec === 'object' && 'edges' in sec ? plural(sec.edges.length, 'arista del modelo', 'aristas del modelo') : 'Cara del modelo'}</span>
               </label>
             }>
               {(id) => <SelectField label={`Sección ${i() + 1}`} value={id()} options={sketchOptions(props.store, f().id, id())} onChange={(v) => setAt(i(), v)} />}
@@ -567,12 +567,28 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
           <span class="muted">unir la última sección con la primera (anillo)</span>
         </span>
       </label>
+      <Show when={f().sections.some((x) => typeof x === 'object')}>
+        <label class="field">
+          <span class="field-label">Tangente</span>
+          <span class="field-input">
+            <input type="checkbox" checked={!!f().continuity} disabled={!!f().spine || f().ruled} onChange={(e) => update({ continuity: e.currentTarget.checked })} />
+            <span class="muted">continuar las caras del modelo en los extremos</span>
+          </span>
+        </label>
+      </Show>
+      <label class="field">
+        <span class="field-label">Solo superficie</span>
+        <span class="field-input">
+          <input type="checkbox" checked={!!f().surface} onChange={(e) => update({ surface: e.currentTarget.checked })} />
+          <span class="muted">sin tapas ni volumen (con contornos cerrados)</span>
+        </span>
+      </label>
       <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
       <SelectField label="Operación" value={f().operation} options={OPERATIONS} onChange={(operation) => update({ operation })} />
       <p class="hint">
-        Cada sección es un sketch con un contorno cerrado, un punto (solo al principio o al final, termina en punta) o
-        una curva abierta, o la cara del modelo que estaba elegida al crearla. Con curvas abiertas sale una superficie
-        engrosada con el espesor indicado. La trayectoria central es un sketch con una curva que guía la forma entre las secciones.
+        Como en Plasticity: contornos de sketch o caras del modelo dan un sólido; curvas abiertas, aristas del modelo o «solo superficie»
+        dan una superficie (espesor 0 o vacío: sin espesor, cuerpo aparte, no se exporta a STL/3MF; con espesor, se engrosa).
+        Un punto al principio o al final termina en punta. Para unir dos cuerpos con una superficie, elegí sus aristas (o caras) y tocá Solevación.
       </p>
     </>
   );

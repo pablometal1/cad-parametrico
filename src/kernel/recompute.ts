@@ -4,12 +4,12 @@ import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, Shel
 import type { PlaneFrame } from '../document/planes';
 import { describePlane, evaluatePlane } from './features/plane';
 import { describeError, FeatureError, hashString } from './occtUtils';
-import { resolveFace, type NamedShape } from './naming';
+import { resolveEdge, resolveFace, ShapeTable, type NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
 import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
-import { runLoft, runSweep, type LoftSectionInput } from './features/sweep';
+import { chainWire, runLoft, runSweep, type LoftSectionInput } from './features/sweep';
 import type { Wire } from 'replicad';
 import { runHole } from './features/hole';
 import { runThread } from './features/thread';
@@ -330,10 +330,18 @@ export class RecomputeEngine {
           try {
             const sections = feature.sections.map((sec, i): LoftSectionInput => {
               if (typeof sec === 'string') return { kind: 'sketch', sketch: resolveSketchById(sec, `la sección ${i + 1} de esta solevación`, ctx) };
-              if (!ctx.input) throw new FeatureError(`La sección ${i + 1} es una cara del modelo, pero antes no hay un sólido`);
-              const wire = ctx.input.shape.faces[resolveFace(ctx.input, sec.face)].outerWire();
+              if (!ctx.input) throw new FeatureError(`La sección ${i + 1} es del modelo, pero antes no hay un sólido`);
+              const input = ctx.input;
+              if ('edges' in sec) {
+                const table = ShapeTable.edges(input.shape);
+                const wire = chainWire([...new Set(sec.edges.map((r) => resolveEdge(input, r)))].map((k) => table.items[k]));
+                wires.push(wire);
+                return { kind: 'edges', wire, input };
+              }
+              const faceIndex = resolveFace(input, sec.face);
+              const wire = input.shape.faces[faceIndex].outerWire();
               wires.push(wire);
-              return { kind: 'face', wire };
+              return { kind: 'face', wire, faceIndex, input };
             });
             const spine = feature.spine ? resolveSketchById(feature.spine, 'la trayectoria central de esta solevación', ctx) : null;
             return ok(runLoft(feature, sections, ctx.input, spine));

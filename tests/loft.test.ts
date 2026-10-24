@@ -3,7 +3,7 @@ import { addFeature, emptyDocument, makeExtrude, makeLoft, makeSketch, makeSweep
 import { parseDocument, serializeDocument } from '../src/document/serialize';
 import type { BasePlane, CadDocument, LoftFeature, SketchData, SketchFeature } from '../src/document/types';
 import { volume } from '../src/kernel/features/measure';
-import { faceRefOf, type NamedShape } from '../src/kernel/naming';
+import { edgeRefOf, faceRefOf, type NamedShape } from '../src/kernel/naming';
 import { initOCCT } from '../src/kernel/occt';
 import { RecomputeEngine } from '../src/kernel/recompute';
 import { SketchBuilder } from '../src/sketch/builders';
@@ -134,14 +134,27 @@ describe('solevación de curvas abiertas (superficie engrosada)', () => {
     expect(r.vol).toBeGreaterThan(30 * 20 * 1.5);
   });
 
-  it('sin espesor, o mezclando abiertas y cerradas: errores claros', () => {
+  it('sin espesor: una superficie (como en Plasticity); mezclando abiertas y cerradas, error claro', () => {
     let [doc, a] = sketch(emptyDocument(), 'XY', 0, (b) => b.line([0, 0], [20, 0]));
     let b: SketchFeature;
     let sq: SketchFeature;
     [doc, b] = sketch(doc, 'XY', 10, (bb) => bb.line([0, 0], [20, 0]));
     [doc, sq] = sketch(doc, 'XY', 20, square(10));
-    expect(run(addFeature(doc, makeLoft(doc, [a.id, b.id]))).error).toMatch(/espesor/);
+    const sheet = run(addFeature(doc, makeLoft(doc, [a.id, b.id])));
+    expect(sheet.status).toBe('ok');
+    expect(sheet.solids).toBe(0);
+    expect(sheet.faceTypes.length).toBe(1);
     expect(run(addFeature(doc, makeLoft(doc, [a.id, sq.id], { thickness: 1 }))).error).toMatch(/todas contornos cerrados/);
+  });
+
+  it('«solo superficie» con contornos cerrados: un tubo sin tapas', () => {
+    let [doc, a] = sketch(emptyDocument(), 'XY', 0, (b) => b.circle([0, 0], 5));
+    let b: SketchFeature;
+    [doc, b] = sketch(doc, 'XY', 10, (bb) => bb.circle([0, 0], 3));
+    const r = run(addFeature(doc, makeLoft(doc, [a.id, b.id], { surface: true })));
+    expect(r.status).toBe('ok');
+    expect(r.solids).toBe(0);
+    expect(r.faceTypes.every((t) => t !== 'PLANE')).toBe(true);
   });
 });
 
@@ -242,5 +255,60 @@ describe('guardar y abrir', () => {
     expect(back).toEqual(doc);
     const loft = back.features.at(-1) as LoftFeature;
     expect(loft.sections[0]).toEqual({ face });
+  });
+});
+
+describe('solevación entre aristas y caras del modelo (con continuidad)', () => {
+  /** Dos bloques de 20 × 20 × 10 separados: x de −30 a −10 y de 10 a 30. */
+  function twoBlocks() {
+    let [doc, a] = sketch(emptyDocument(), 'XY', 0, (b) => b.rectangle([-30, -10], [-10, 10]));
+    doc = addFeature(doc, makeExtrude(doc, a.id, { distance: 10 }));
+    let b: SketchFeature;
+    [doc, b] = sketch(doc, 'XY', 0, (bb) => bb.rectangle([10, -10], [30, 10]));
+    return addFeature(doc, makeExtrude(doc, b.id, { distance: 10, operation: 'new' }));
+  }
+  const edgeAt = (s: NamedShape, x: number, z: number) =>
+    edgeRefOf(s, s.shape.edges.findIndex((e) => {
+      const m = e.pointAt(0.5).toTuple();
+      return Math.abs(m[0] - x) < 1e-6 && Math.abs(m[1]) < 1e-6 && Math.abs(m[2] - z) < 1e-6;
+    }));
+  const faceAt = (s: NamedShape, x: number) =>
+    faceRefOf(s, s.shape.faces.findIndex((f) => f.geomType === 'PLANE' && Math.abs(f.center.toTuple()[0] - x) < 1e-6));
+
+  it('aristas de dos cuerpos: una superficie puente; con continuidad sale tangente a la tapa', () => {
+    const doc = twoBlocks();
+    const [ea, eb] = withShape(doc, (s) => [edgeAt(s, -10, 10), edgeAt(s, 10, 10)]);
+    const plain = run(addFeature(doc, makeLoft(doc, [{ edges: [ea] }, { edges: [eb] }])));
+    expect(plain.error ?? plain.status).toBe('ok');
+    expect(plain.solids).toBe(2);
+    const smooth = addFeature(doc, makeLoft(doc, [{ edges: [ea] }, { edges: [eb] }], { continuity: true }));
+    const r = run(smooth);
+    expect(r.status).toBe('ok');
+    expect(r.faceTypes.filter((t) => t === 'BSPLINE_SURFACE').length).toBe(1);
+    // La tangente continúa una cara del bloque (la tapa: horizontal hacia el otro bloque), así que
+    // cerca de la arista la superficie es casi horizontal.
+    withShape(smooth, (s) => {
+      const sheet = s.shape.faces.find((f) => f.geomType === 'BSPLINE_SURFACE')!;
+      const p = sheet.pointOnSurface(0.5, 0.02);
+      const n = sheet.normalAt(p).toTuple();
+      expect(Math.abs(n[2])).toBeGreaterThan(0.9);
+    });
+  });
+
+  it('cara a cara con continuidad: un sólido que sigue las paredes y se une a los dos bloques', () => {
+    const doc = twoBlocks();
+    const [fa, fb] = withShape(doc, (s) => [faceAt(s, -10), faceAt(s, 10)]);
+    const r = run(addFeature(doc, makeLoft(doc, [{ face: fa }, { face: fb }], { continuity: true, operation: 'join' })));
+    expect(r.error ?? r.status).toBe('ok');
+    expect(r.solids).toBe(1);
+    // Bloques alineados: continuar sus paredes da un puente recto de 20 × 10 × 20 entre ellos.
+    expect(r.vol).toBeCloseTo(2 * 4000 + 4000, 3);
+  });
+
+  it('se guarda y se vuelve a abrir con secciones de aristas', () => {
+    const doc = twoBlocks();
+    const [ea, eb] = withShape(doc, (s) => [edgeAt(s, -10, 10), edgeAt(s, 10, 10)]);
+    const d = addFeature(doc, makeLoft(doc, [{ edges: [ea] }, { edges: [eb] }], { continuity: true, surface: true }));
+    expect(parseDocument(serializeDocument(d))).toEqual(d);
   });
 });

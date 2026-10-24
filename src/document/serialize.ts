@@ -214,13 +214,20 @@ function validateFeature(raw: unknown, path: string): Feature {
     case 'loft': {
       const loft: LoftFeature = {
         ...base, type: 'loft',
-        sections: list(o.sections, `${path}.sections`, (v, p): LoftSection => (typeof v === 'string' ? v : { face: faceRef(obj(v, p).face, `${p}.face`) })),
+        sections: list(o.sections, `${path}.sections`, (v, p): LoftSection => {
+          if (typeof v === 'string') return v;
+          const r = obj(v, p);
+          if (r.edges !== undefined) return { edges: list(r.edges, `${p}.edges`, edgeRef) };
+          return { face: faceRef(r.face, `${p}.face`) };
+        }),
         ruled: bool(o.ruled, `${path}.ruled`),
         operation: oneOf(o.operation, ['new', 'join', 'cut', 'intersect'] as const, `${path}.operation`),
       };
       if (o.closed !== undefined) loft.closed = bool(o.closed, `${path}.closed`);
       if (o.spine !== undefined) loft.spine = str(o.spine, `${path}.spine`);
       if (o.thickness !== undefined) loft.thickness = num(o.thickness, `${path}.thickness`);
+      if (o.surface !== undefined) loft.surface = bool(o.surface, `${path}.surface`);
+      if (o.continuity !== undefined) loft.continuity = bool(o.continuity, `${path}.continuity`);
       return loft;
     }
     case 'extrude': {

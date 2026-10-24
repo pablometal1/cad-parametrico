@@ -584,7 +584,25 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
      * usar (contornos cerrados o puntos). Si no, une los sketches sin usar paralelos con un contorno
      * cerrado o un punto; y si no hay, los que tienen una curva abierta (superficie engrosada).
      */
-    async addLoft(faces: number[] = []): Promise<string | null> {
+    async addLoft(faces: number[] = [], edges: number[] = []): Promise<string | null> {
+      // Aristas elegidas (como en Plasticity): cada cadena conectada es una sección; sale una
+      // superficie que continúa tangente a las caras vecinas.
+      if (edges.length > 0) {
+        const chains = await withRefs(() => kernel.edgeChains(edges));
+        if (!chains) return null;
+        if (chains.length < 2) return 'Elegí aristas de al menos dos bordes separados (Shift + clic): cada grupo conectado es una sección';
+        const refs = await withRefs(() => Promise.all(chains.map((c) => kernel.edgeRefs(c))));
+        if (!refs) return null;
+        addWithDialog(ops.makeLoft(doc(), refs.map((r) => ({ edges: r })), { continuity: true, operation: 'new' }));
+        return null;
+      }
+      // Dos o más caras: un sólido de cara a cara que continúa las paredes, unido a la pieza.
+      if (faces.length >= 2) {
+        const refs = await withRefs(() => kernel.faceRefs(faces));
+        if (!refs) return null;
+        addWithDialog(ops.makeLoft(doc(), refs.map((face) => ({ face })), { continuity: true, operation: 'join' }));
+        return null;
+      }
       const isPoint = (sk: SketchFeature) =>
         sk.entities.filter((e) => e.type === 'point').length === 1 && !sk.entities.some((e) => e.type !== 'point');
       const candidates = sketchCandidates();

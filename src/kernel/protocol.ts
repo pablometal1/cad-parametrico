@@ -188,6 +188,8 @@ export interface KernelApi {
   /** Referencias topológicas (nombre + huella) de caras del sólido mostrado. */
   faceRefs(indices: number[]): FaceRef[];
   /** Referencias topológicas de aristas del sólido mostrado. */
+  /** Agrupa aristas del sólido mostrado en cadenas conectadas. */
+  edgeChains(indices: number[]): number[][];
   edgeRefs(indices: number[]): EdgeRef[];
   /** Vértices del sólido actual (xyz consecutivos), para enganchar líneas 3D. */
   vertices(): Float32Array;

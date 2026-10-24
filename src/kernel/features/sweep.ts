@@ -1,5 +1,5 @@
 // Barrido (perfil a lo largo de una trayectoria) y solevación (superficie entre secciones).
-import { assembleWire, cast, getOC, makeCircle, makeCompound, makeLine, makeThreePointArc, makeVertex, type AnyShape, type Edge, type Face, type Vertex, type Wire } from 'replicad';
+import { assembleWire, cast, getOC, makeBSplineApproximation, makeCircle, makeCompound, makeLine, makeThreePointArc, makeVertex, type AnyShape, type Edge, type Face, type Vertex, type Wire } from 'replicad';
 import { toWorld, type Vec3 } from '../../document/planes';
 import type { LoftFeature, SweepFeature } from '../../document/types';
 import { arcParams } from '../../sketch/geometry';
@@ -133,26 +133,38 @@ export function buildPathWire(s: EvaluatedSketch) {
 }
 
 /**
- * Sección ya resuelta: un sketch del documento, o el contorno exterior de una cara del modelo
- * (el llamador es dueño del wire).
+ * Sección ya resuelta: un sketch del documento, el contorno exterior de una cara del modelo, o una
+ * cadena de aristas del modelo (el llamador es dueño del wire). `input` es el sólido de donde salen
+ * la cara o las aristas (para continuar tangente a sus caras vecinas).
  */
-export type LoftSectionInput = { kind: 'sketch'; sketch: EvaluatedSketch } | { kind: 'face'; wire: Wire };
+export type LoftSectionInput =
+  | { kind: 'sketch'; sketch: EvaluatedSketch }
+  | { kind: 'face'; wire: Wire; faceIndex: number; input: NamedShape }
+  | { kind: 'edges'; wire: Wire; input: NamedShape };
 
 export function runLoft(feature: LoftFeature, sections: LoftSectionInput[], input: NamedShape | null, spine: EvaluatedSketch | null = null): NamedShape {
   if (feature.operation === 'cut' && !input) {
     throw new FeatureError('No hay un sólido previo para cortar');
   }
-  return combine(feature.operation, input, buildLoftTool(feature, sections, spine), feature.id);
+  const tool = buildLoftTool(feature, sections, spine);
+  // Una superficie sin espesor va como cuerpo aparte (no se puede unir ni cortar).
+  return combine(tool.shape.solids.length === 0 ? 'new' : feature.operation, input, tool, feature.id);
 }
 
+/** De dónde sale una sección del modelo (para continuar tangente a sus caras vecinas). */
+type Source = { kind: 'face'; faceIndex: number; input: NamedShape } | { kind: 'edges'; input: NamedShape };
+
 type Prepared =
-  | { kind: 'wire'; wire: Wire; open: boolean; sketch: EvaluatedSketch | null }
+  | { kind: 'wire'; wire: Wire; open: boolean; sketch: EvaluatedSketch | null; source?: Source }
   | { kind: 'vertex'; vertex: Vertex; at: Vec3 };
 
 /** Una sección como wire (cerrado o abierto) o como punto. El llamador es dueño del resultado. */
 function prepareSection(sec: LoftSectionInput, i: number): Prepared {
   const name = `La sección ${i + 1}`;
-  if (sec.kind === 'face') return { kind: 'wire', wire: sec.wire.clone() as Wire, open: false, sketch: null };
+  if (sec.kind === 'face') return { kind: 'wire', wire: sec.wire.clone() as Wire, open: false, sketch: null, source: { kind: 'face', faceIndex: sec.faceIndex, input: sec.input } };
+  if (sec.kind === 'edges') {
+    return { kind: 'wire', wire: sec.wire.clone() as Wire, open: !sec.wire.isClosed, sketch: null, source: { kind: 'edges', input: sec.input } };
+  }
   const s = sec.sketch;
   if (s.regions.length > 1) {
     throw new FeatureError(`${name} tiene que tener exactamente un contorno cerrado, una curva abierta o un punto (tiene ${s.regions.length} contornos)`);
@@ -210,11 +222,40 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
       throw new FeatureError('Las secciones tienen que ser todas contornos cerrados (sólido) o todas curvas abiertas (superficie)');
     }
     if (open && wires.length !== prepared.length) throw new FeatureError('Con secciones abiertas (superficie) no se puede terminar en un punto');
-    if (open && !(feature.thickness !== undefined && feature.thickness > 0)) {
-      throw new FeatureError('Con secciones abiertas la solevación es una superficie: indicá un espesor mayor que 0');
-    }
+    // Como en Plasticity: contornos de sketch o caras dan un sólido; curvas abiertas, aristas del
+    // modelo o «solo superficie», una superficie (sin espesor, o engrosada si se pide).
+    const surface = open || !!feature.surface || prepared.some((p) => p.kind === 'wire' && p.source?.kind === 'edges');
+    const thickness = feature.thickness ?? 0;
+    if (!(thickness >= 0)) throw new FeatureError(`El espesor no puede ser negativo (es ${thickness})`);
 
     if (!open) orientSections(prepared, closed, keep);
+
+    // Continuidad: en los extremos que salen de una cara o de aristas del modelo, una sección auxiliar
+    // desplazada en la dirección de la cara vecina hace que la superficie la continúe (tangente).
+    if (feature.continuity && !spine && !feature.ruled && !closed) {
+      const ends = [0, prepared.length - 1];
+      const aux = ends.map((i) => {
+        const p = prepared[i];
+        if (p.kind !== 'wire' || !p.source) return null;
+        const other = prepared[i === 0 ? 1 : prepared.length - 2];
+        const here = wireFrame(p.wire).center;
+        const there = other.kind === 'wire' ? wireFrame(other.wire).center : other.at;
+        const d = 0.3 * Math.hypot(there[0] - here[0], there[1] - here[1], there[2] - here[2]);
+        let w = continuationWire(p.wire, p.source, there, d);
+        keep.push(w);
+        // Mismo sentido de recorrido que su sección (si no, la superficie se retuerce).
+        if (!open) {
+          const [a, b] = [wireFrame(p.wire).normal, wireFrame(w).normal];
+          if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] < 0) {
+            w = cast(w.wrapped.Reversed()) as Wire;
+            keep.push(w);
+          }
+        }
+        return w;
+      });
+      if (aux[1]) prepared.splice(prepared.length - 1, 0, { kind: 'wire', wire: aux[1], open, sketch: null });
+      if (aux[0]) prepared.splice(1, 0, { kind: 'wire', wire: aux[0], open, sketch: null });
+    }
 
     let result: AnyShape;
     let history: History;
@@ -231,12 +272,12 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
         throw new FeatureError(`No se pudo seguir la trayectoria central (${describeError(err)})`);
       }
       if (!pipe.IsDone()) throw new FeatureError('No se pudo seguir la trayectoria central: revisá que las secciones estén sobre ella y en orden');
-      if (!open && !pipe.MakeSolid()) throw new FeatureError('La solevación por la trayectoria no se pudo cerrar como sólido');
+      if (!surface && !pipe.MakeSolid()) throw new FeatureError('La solevación por la trayectoria no se pudo cerrar como sólido');
       result = cast(pipe.Shape());
       history = historyOf(pipe);
-      if (!open) caps = capsOf(pipe);
+      if (!surface) caps = capsOf(pipe);
     } else {
-      const loft = new oc.BRepOffsetAPI_ThruSections(!open, feature.ruled, 1e-6);
+      const loft = new oc.BRepOffsetAPI_ThruSections(!surface, feature.ruled, 1e-6);
       keep.push(loft);
       try {
         for (const p of prepared) {
@@ -254,19 +295,19 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
       if (!loft.IsDone()) throw new FeatureError('No se pudo unir las secciones');
       result = cast(loft.Shape());
       history = historyOf(loft);
-      if (!open && !closed) caps = capsOf(loft);
+      if (!surface && !closed) caps = capsOf(loft);
     }
     if (caps) keep.push(...[caps.first, caps.last].filter((c): c is AnyShape => !!c));
 
-    if (open) {
+    if (surface) {
       if (!isValidShape(result) || result.faces.length === 0) {
         result.delete();
         throw new FeatureError('La superficie de la solevación se cruza consigo misma: revisá el orden de las secciones');
       }
-      const solid = thickenSheet(result, feature.thickness!, 'la solevación');
-      result.delete();
-      const nb = new NameBuilder(solid);
-      nb.addAll(solid, `${feature.id}:sheet`);
+      const body = thickness > 0 ? thickenSheet(result, thickness, 'la solevación') : result;
+      if (body !== result) result.delete();
+      const nb = new NameBuilder(body);
+      nb.addAll(body, `${feature.id}:sheet`);
       return nb.finish(feature.id);
     }
     if (result.solids.length === 0 || !isValidShape(result)) {
@@ -335,4 +376,134 @@ function orientSections(prepared: Prepared[], closed: boolean, keep: { delete():
       p.wire = flipped;
     }
   });
+}
+
+/** Índices de las caras (de la lista `faces`, leída una sola vez) que tocan la arista. */
+function adjacentFaces(faces: Face[], edge: Edge): number[] {
+  return faces.flatMap((f, i) => (f.edges.some((e) => e.isSame(edge)) ? [i] : []));
+}
+
+const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit3 = (a: Vec3): Vec3 => {
+  const l = Math.hypot(a[0], a[1], a[2]);
+  return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0];
+};
+
+/** Dirección que continúa la cara más allá de la arista: sobre la cara, perpendicular a la arista, hacia afuera. */
+function outward(face: Face, edge: Edge, t: number): { at: Vec3; dir: Vec3 } {
+  const at = edge.pointAt(t).toTuple() as Vec3;
+  const tan = edge.tangentAt(t).toTuple() as Vec3;
+  const pv = edge.pointAt(t);
+  const n = face.normalAt(pv).toTuple() as Vec3;
+  pv.delete();
+  let dir = unit3(cross3(n, tan));
+  const c = face.center.toTuple();
+  if (dir[0] * (at[0] - c[0]) + dir[1] * (at[1] - c[1]) + dir[2] * (at[2] - c[2]) < 0) dir = [-dir[0], -dir[1], -dir[2]];
+  return { at, dir };
+}
+
+/**
+ * Contorno auxiliar para la continuidad: cada arista de la sección desplazada `d` mm en la
+ * dirección que continúa su cara vecina (de una cara elegida, la otra cara de cada arista; de
+ * aristas sueltas, la cara que mira hacia la sección siguiente `toward`).
+ */
+function continuationWire(wire: Wire, source: Source, toward: Vec3, d: number): Wire {
+  const N = 12;
+  // Por arista: puntos originales (para encadenar) y desplazados.
+  const raw: { base: Vec3[]; moved: Vec3[] }[] = [];
+  // La lista de caras se lee una sola vez: volver a leerla invalida los objetos anteriores.
+  const all = source.input.shape.faces;
+  for (const e of wire.edges) {
+    const faces = adjacentFaces(all, e).filter((i) => source.kind !== 'face' || i !== source.faceIndex).map((i) => all[i]);
+    if (!faces.length) throw new FeatureError('Una arista de la sección no toca ninguna cara del modelo: desactivá «Tangente a las caras»');
+    let face = faces[0];
+    if (source.kind === 'edges' && faces.length > 1) {
+      const score = (f: Face) => {
+        const { at, dir } = outward(f, e, 0.5);
+        return dir[0] * (toward[0] - at[0]) + dir[1] * (toward[1] - at[1]) + dir[2] * (toward[2] - at[2]);
+      };
+      face = faces.reduce((a, b) => (score(b) > score(a) ? b : a));
+    }
+    const base: Vec3[] = [];
+    const moved: Vec3[] = [];
+    for (let k = 0; k <= N; k++) {
+      const { at, dir } = outward(face, e, k / N);
+      base.push(at);
+      moved.push([at[0] + dir[0] * d, at[1] + dir[1] * d, at[2] + dir[2] * d]);
+    }
+    raw.push({ base, moved });
+  }
+  // Las aristas de un wire no vienen en orden de recorrido: se encadenan por sus extremos.
+  const near = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
+  const ordered = [raw.shift()!];
+  const flip = (r: { base: Vec3[]; moved: Vec3[] }) => ({ base: r.base.slice().reverse(), moved: r.moved.slice().reverse() });
+  while (raw.length) {
+    const tail = ordered[ordered.length - 1].base.at(-1)!;
+    const head = ordered[0].base[0];
+    const i = raw.findIndex((r) => near(r.base[0], tail) || near(r.base.at(-1)!, tail));
+    if (i >= 0) {
+      const r = raw.splice(i, 1)[0];
+      ordered.push(near(r.base[0], tail) ? r : flip(r));
+      continue;
+    }
+    const j = raw.findIndex((r) => near(r.base[0], head) || near(r.base.at(-1)!, head));
+    if (j < 0) break;
+    const r = raw.splice(j, 1)[0];
+    ordered.unshift(near(r.base.at(-1)!, head) ? r : flip(r));
+  }
+  if (raw.length) throw new FeatureError('Las aristas de la sección no forman una cadena: no se puede armar la continuidad');
+  const chains = ordered.map((r) => r.moved);
+  // Los extremos compartidos se promedian para que el contorno quede cerrado y sin saltos.
+  const join = (a: Vec3[], b: Vec3[]) => {
+    const m = [0, 1, 2].map((k) => (a[a.length - 1][k] + b[0][k]) / 2) as Vec3;
+    a[a.length - 1] = m;
+    b[0] = m;
+  };
+  for (let i = 0; i + 1 < chains.length; i++) join(chains[i], chains[i + 1]);
+  if (wire.isClosed && chains.length > 1) join(chains[chains.length - 1], chains[0]);
+  const edges = chains.map((pts) => {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const off = Math.max(...pts.map((p) => {
+      const ab = [last[0] - first[0], last[1] - first[1], last[2] - first[2]] as Vec3;
+      const ap = [p[0] - first[0], p[1] - first[1], p[2] - first[2]] as Vec3;
+      const l = Math.hypot(...ab);
+      return l > 1e-12 ? Math.hypot(...cross3(ab, ap)) / l : 0;
+    }));
+    return off < 1e-7 ? makeLine(first, last) : makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 3, degMin: 2 });
+  });
+  try {
+    return assembleWire(edges);
+  } catch (err) {
+    throw new FeatureError(`No se pudo armar la continuidad tangente (${describeError(err)})`);
+  } finally {
+    edges.forEach((e) => e.delete());
+  }
+}
+
+/** Ordena aristas sueltas en una cadena continua y arma el wire (abierto o cerrado). */
+export function chainWire(edges: Edge[]): Wire {
+  const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
+  const left = edges.slice();
+  const order: Edge[] = [left.shift()!];
+  let head = order[0].startPoint.toTuple();
+  let tail = order[0].endPoint.toTuple();
+  while (left.length) {
+    const i = left.findIndex((e) => {
+      const [a, b] = [e.startPoint.toTuple(), e.endPoint.toTuple()];
+      return near(a, tail) || near(b, tail) || near(a, head) || near(b, head);
+    });
+    if (i < 0) throw new FeatureError('Las aristas de la sección no forman una sola cadena continua');
+    const e = left.splice(i, 1)[0];
+    const [a, b] = [e.startPoint.toTuple(), e.endPoint.toTuple()];
+    if (near(a, tail)) [order.push(e), (tail = b)];
+    else if (near(b, tail)) [order.push(e), (tail = a)];
+    else if (near(b, head)) [order.unshift(e), (head = a)];
+    else [order.unshift(e), (head = b)];
+  }
+  try {
+    return assembleWire(order);
+  } catch (err) {
+    throw new FeatureError(`Las aristas de la sección no forman una cadena (${describeError(err)})`);
+  }
 }

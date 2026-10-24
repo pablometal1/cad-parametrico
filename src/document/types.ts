@@ -285,10 +285,10 @@ export interface SweepFeature extends FeatureBase {
 }
 
 /**
- * Sección de una solevación: un sketch (con un contorno cerrado, una curva abierta o un solo punto)
- * o una cara plana del modelo (se usa su contorno exterior).
+ * Sección de una solevación: un sketch (con un contorno cerrado, una curva abierta o un solo punto),
+ * una cara del modelo (se usa su contorno exterior) o una cadena de aristas del modelo.
  */
-export type LoftSection = FeatureId | { face: FaceRef };
+export type LoftSection = FeatureId | { face: FaceRef } | { edges: EdgeRef[] };
 
 /**
  * Solevación (como en Plasticity): une dos o más secciones, en orden, con una superficie suave, o
@@ -305,7 +305,12 @@ export interface LoftFeature extends FeatureBase {
   operation: BooleanOperation;
   closed?: boolean;
   spine?: FeatureId;
+  /** Espesor de la superficie (0 o sin indicar: superficie sin espesor, solo como cuerpo nuevo). */
   thickness?: number;
+  /** Con contornos cerrados, solo la superficie lateral (sin tapas ni volumen). */
+  surface?: boolean;
+  /** En los extremos que son caras o aristas del modelo, continuar tangente a sus caras vecinas. */
+  continuity?: boolean;
 }
 
 /**
