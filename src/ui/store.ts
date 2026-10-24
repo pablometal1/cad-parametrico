@@ -11,7 +11,7 @@ import * as ops from '../document/ops';
 import { handlesAfter, type BezierSegment } from '../document/curve3d';
 import { parseDocument } from '../document/serialize';
 import type {
-  BasePlane, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature } from '../document/types';
+  BasePlane, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature, LoftFeature, LoftSection } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -56,7 +56,7 @@ export interface ToolDialog {
 }
 
 /** Campos de caras de las features de modelado directo y de cuerpos. */
-export type PickSlot = 'faces' | 'neutral' | 'target' | 'tools' | 'body' | 'plane' | 'bodies' | 'face';
+export type PickSlot = 'faces' | 'neutral' | 'target' | 'tools' | 'body' | 'plane' | 'bodies' | 'face' | 'loftEdges' | 'loftFaces';
 
 /** Modo "elegir referencias": el historial se retrocede hasta la feature para elegir sobre su entrada. */
 export interface Picking {
@@ -851,8 +851,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const i = d.features.findIndex((f) => f.id === featureId);
       const f = d.features[i];
       if (!f) return;
-      const multi = slot === 'faces' || slot === 'tools' || slot === 'bodies';
-      const kind = slot ? (multi ? 'faces' : 'face') : f.type === 'fillet' || f.type === 'chamfer' || f.type === 'patch' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
+      const multi = slot === 'faces' || slot === 'tools' || slot === 'bodies' || slot === 'loftFaces';
+      const kind = slot === 'loftEdges' ? 'edges' : slot ? (multi ? 'faces' : 'face') : f.type === 'fillet' || f.type === 'chamfer' || f.type === 'patch' || edgeAxis ? 'edges' : f.type === 'shell' ? 'faces' : 'face';
       // Para un sketch o un plano: el modelo hasta antes de la feature (la cara tiene que existir antes).
       setPicking({ featureId, kind, slot, before: d });
       apply((x) => ops.setRollback(x, i), { history: false });
@@ -864,6 +864,31 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!p) return;
       const restore = (d: CadDocument) => ops.setRollback(d, p.before.rollback);
       const opts: CommitOptions = { base: p.before };
+      if (p.slot === 'loftEdges' || p.slot === 'loftFaces') {
+        // Solevación: agrega secciones del modelo (sin límite). Cada grupo de aristas conectadas es una.
+        const loft = ops.findFeature(p.before, p.featureId);
+        if (loft?.type !== 'loft') return;
+        let added: LoftSection[];
+        if (p.slot === 'loftEdges') {
+          if (!sel.edges.length) return setNotice('Seleccioná aristas (Shift + clic para varias)');
+          const chains = await withRefs(() => kernel.edgeChains(sel.edges));
+          if (!chains) return;
+          const refs = await withRefs(() => Promise.all(chains.map((c) => kernel.edgeRefs(c))));
+          if (!refs) return;
+          added = refs.map((r) => ({ edges: r }));
+        } else {
+          if (!sel.faces.length) return setNotice('Seleccioná al menos una cara');
+          const refs = await withRefs(() => kernel.faceRefs(sel.faces));
+          if (!refs) return;
+          added = refs.map((face) => ({ face }));
+        }
+        apply((d) => restore(ops.updateFeature<LoftFeature>(d, p.featureId, { sections: [...loft.sections, ...added], continuity: loft.continuity ?? true })), opts);
+        batch(() => {
+          setPicking(null);
+          setNotice(null);
+        });
+        return;
+      }
       if (p.slot) {
         // Campos de caras de las features de modelado directo y de cuerpos.
         const optional = p.slot === 'bodies' || p.slot === 'body';

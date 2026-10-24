@@ -37,6 +37,8 @@ const SLOT_TEXT: Record<PickSlot, string> = {
   plane: 'Elegí la cara plana que hace de plano de corte',
   face: 'Elegí la cara plana a abombar',
   bodies: 'Elegí una cara de cada cuerpo (ninguna: todos)',
+  loftEdges: 'Elegí las aristas de las secciones a agregar (Shift + clic; cada grupo conectado es una sección)',
+  loftFaces: 'Elegí las caras a agregar como secciones (Shift + clic para varias)',
 };
 
 function pickText(kind: keyof typeof PICK_TEXT, type: string | undefined, slot?: PickSlot) {

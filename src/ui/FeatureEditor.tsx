@@ -550,6 +550,8 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
         <SelectField label="Agregar" value={'' as FeatureId} options={[{ value: '' as FeatureId, label: 'Elegir sketch…' }, ...free()]}
           onChange={(id) => id && update({ sections: [...f().sections, id] })} />
       </Show>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'loftEdges')}>Agregar aristas…</PickButton>
+      <PickButton onClick={() => props.store.beginPick(f().id, false, 'loftFaces')}>Agregar caras…</PickButton>
       <SelectField label="Trayectoria central" value={(f().spine ?? '') as FeatureId} options={spineOptions()}
         onChange={(id) => update({ spine: id || undefined, ...(id ? { closed: false } : {}) })} />
       <label class="field">

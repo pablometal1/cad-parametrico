@@ -311,4 +311,17 @@ describe('solevación entre aristas y caras del modelo (con continuidad)', () =>
     const d = addFeature(doc, makeLoft(doc, [{ edges: [ea] }, { edges: [eb] }], { continuity: true, surface: true }));
     expect(parseDocument(serializeDocument(d))).toEqual(d);
   });
+
+  it('más de dos secciones de aristas: la superficie pasa por todas', () => {
+    let doc = twoBlocks();
+    // Un tercer bloque más alto, más lejos en X.
+    let c: SketchFeature;
+    [doc, c] = sketch(doc, 'XY', 0, (bb) => bb.rectangle([50, -10], [70, 10]));
+    doc = addFeature(doc, makeExtrude(doc, c.id, { distance: 20, operation: 'new' }));
+    const [e1, e2, e3] = withShape(doc, (s) => [edgeAt(s, -10, 10), edgeAt(s, 10, 10), edgeAt(s, 50, 20)]);
+    const r = run(addFeature(doc, makeLoft(doc, [{ edges: [e1] }, { edges: [e2] }, { edges: [e3] }], { continuity: true })));
+    expect(r.error ?? r.status).toBe('ok');
+    expect(r.solids).toBe(3);
+    expect(r.faceTypes.filter((t) => t === 'BSPLINE_SURFACE').length).toBeGreaterThanOrEqual(1);
+  });
 });
