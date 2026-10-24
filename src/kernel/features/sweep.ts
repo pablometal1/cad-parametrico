@@ -1,10 +1,10 @@
 // Barrido (perfil a lo largo de una trayectoria) y solevación (superficie entre secciones).
 import { assembleWire, cast, getOC, makeBSplineApproximation, makeCircle, makeCompound, makeLine, makeThreePointArc, makeVertex, type AnyShape, type Edge, type Face, type Vertex, type Wire } from 'replicad';
 import { toWorld, type Vec3 } from '../../document/planes';
-import type { LoftFeature, SweepFeature } from '../../document/types';
+import type { FeatureId, LoftFeature, LoftSection, SweepFeature } from '../../document/types';
 import { arcParams } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
-import { historyOf, NameBuilder, type History, type NamedShape } from '../naming';
+import { historyOf, NameBuilder, resolveEdge, resolveFace, ShapeTable, type History, type NamedShape } from '../naming';
 import { thickenSheet } from './surface';
 import { describeError, FeatureError, isValidShape } from '../occtUtils';
 import { combine, sweepRegions } from './boolean';
@@ -232,7 +232,13 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
 
     // Continuidad: en los extremos que salen de una cara o de aristas del modelo, una sección auxiliar
     // desplazada en la dirección de la cara vecina hace que la superficie la continúe (tangente).
-    if (feature.continuity && !spine && !feature.ruled && !closed) {
+    // Dos secciones con continuidad: secciones intermedias sobre una Bézier cúbica entre ellas
+    // (sin el sobrepaso que da interpolar las auxiliares).
+    const bridged = feature.continuity && !spine && !feature.ruled && !closed && prepared.length === 2
+      ? bridgeSections(prepared[0], prepared[1], feature.tensionStart ?? 1, feature.tensionEnd ?? 1, keep)
+      : null;
+    if (bridged) prepared.splice(1, 0, ...bridged.map((wire): Prepared => ({ kind: 'wire', wire, open, sketch: null })));
+    if (!bridged && feature.continuity && !spine && !feature.ruled && !closed) {
       const ends = [0, prepared.length - 1];
       const aux = ends.map((i) => {
         const p = prepared[i];
@@ -240,7 +246,9 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
         const other = prepared[i === 0 ? 1 : prepared.length - 2];
         const here = wireFrame(p.wire).center;
         const there = other.kind === 'wire' ? wireFrame(other.wire).center : other.at;
-        const d = 0.3 * Math.hypot(there[0] - here[0], there[1] - here[1], there[2] - here[2]);
+        const tension = (i === 0 ? feature.tensionStart : feature.tensionEnd) ?? 1;
+        if (!(tension > 0)) throw new FeatureError(`La tensión tiene que ser mayor que 0 (es ${tension})`);
+        const d = TENSION_SCALE * tension * Math.hypot(there[0] - here[0], there[1] - here[1], there[2] - here[2]);
         let w = continuationWire(p.wire, p.source, there, d);
         keep.push(w);
         // Mismo sentido de recorrido que su sección (si no, la superficie se retuerce).
@@ -414,16 +422,7 @@ function continuationWire(wire: Wire, source: Source, toward: Vec3, d: number): 
   // La lista de caras se lee una sola vez: volver a leerla invalida los objetos anteriores.
   const all = source.input.shape.faces;
   for (const e of wire.edges) {
-    const faces = adjacentFaces(all, e).filter((i) => source.kind !== 'face' || i !== source.faceIndex).map((i) => all[i]);
-    if (!faces.length) throw new FeatureError('Una arista de la sección no toca ninguna cara del modelo: desactivá «Tangente a las caras»');
-    let face = faces[0];
-    if (source.kind === 'edges' && faces.length > 1) {
-      const score = (f: Face) => {
-        const { at, dir } = outward(f, e, 0.5);
-        return dir[0] * (toward[0] - at[0]) + dir[1] * (toward[1] - at[1]) + dir[2] * (toward[2] - at[2]);
-      };
-      face = faces.reduce((a, b) => (score(b) > score(a) ? b : a));
-    }
+    const face = continuationFace(all, e, source, toward);
     const base: Vec3[] = [];
     const moved: Vec3[] = [];
     for (let k = 0; k <= N; k++) {
@@ -506,4 +505,193 @@ export function chainWire(edges: Edge[]): Wire {
   } catch (err) {
     throw new FeatureError(`Las aristas de la sección no forman una cadena (${describeError(err)})`);
   }
+}
+
+/** Distancia de la sección auxiliar de continuidad, como fracción de la distancia a la sección vecina. */
+const TENSION_SCALE = 0.3;
+
+/** Cara cuya continuación sigue la superficie en la arista `e` de una sección del modelo. */
+function continuationFace(all: Face[], e: Edge, source: Source, toward: Vec3): Face {
+  const faces = adjacentFaces(all, e).filter((i) => source.kind !== 'face' || i !== source.faceIndex).map((i) => all[i]);
+  if (!faces.length) throw new FeatureError('Una arista de la sección no toca ninguna cara del modelo: desactivá «Tangente a las caras»');
+  if (source.kind !== 'edges' || faces.length === 1) return faces[0];
+  const score = (f: Face) => {
+    const { at, dir } = outward(f, e, 0.5);
+    return dir[0] * (toward[0] - at[0]) + dir[1] * (toward[1] - at[1]) + dir[2] * (toward[2] - at[2]);
+  };
+  return faces.reduce((a, b) => (score(b) > score(a) ? b : a));
+}
+
+/** Centro aproximado de una sección (para la distancia entre secciones y los manejadores). */
+function sectionCenter(sec: LoftSection, input: NamedShape | null, sketches: Map<FeatureId, EvaluatedSketch>): Vec3 | null {
+  if (typeof sec === 'string') {
+    const s = sketches.get(sec);
+    if (!s) return null;
+    const pts = s.data.entities.filter((e) => e.type === 'point').map((p) => (p.type === 'point' ? toWorld(s.frame, p.x, p.y) : [0, 0, 0] as Vec3));
+    if (!pts.length) return null;
+    return [0, 1, 2].map((k) => pts.reduce((acc, p) => acc + p[k], 0) / pts.length) as Vec3;
+  }
+  if (!input) return null;
+  const w = modelSectionWire(sec, input);
+  try {
+    return wireFrame(w.wire).center;
+  } finally {
+    w.wire.delete();
+  }
+}
+
+function modelSectionWire(sec: Exclude<LoftSection, string>, input: NamedShape): { wire: Wire; source: Source } {
+  if ('edges' in sec) {
+    const table = ShapeTable.edges(input.shape);
+    return { wire: chainWire([...new Set(sec.edges.map((r) => resolveEdge(input, r)))].map((k) => table.items[k])), source: { kind: 'edges', input } };
+  }
+  const faceIndex = resolveFace(input, sec.face);
+  return { wire: input.shape.faces[faceIndex].outerWire(), source: { kind: 'face', faceIndex, input } };
+}
+
+/**
+ * Manejadores de tensión de una solevación con continuidad: en cada extremo que sale de una cara o
+ * de aristas del modelo, el centro de la sección, la dirección en que la superficie continúa la cara
+ * y cuántos mm mueve una unidad de tensión.
+ */
+export function loftTensionHandles(feature: LoftFeature, input: NamedShape | null, sketches: Map<FeatureId, EvaluatedSketch>):
+  { param: 'tensionStart' | 'tensionEnd'; center: Vec3; dir: Vec3; scale: number; value: number }[] {
+  if (!feature.continuity || feature.spine || feature.ruled || feature.closed || !input || feature.sections.length < 2) return [];
+  const n = feature.sections.length;
+  const out: ReturnType<typeof loftTensionHandles> = [];
+  for (const [i, param] of [[0, 'tensionStart'], [n - 1, 'tensionEnd']] as const) {
+    const sec = feature.sections[i];
+    if (typeof sec === 'string') continue;
+    const toward = sectionCenter(feature.sections[i === 0 ? 1 : n - 2], input, sketches);
+    if (!toward) continue;
+    const { wire, source } = modelSectionWire(sec, input);
+    try {
+      const all = input.shape.faces;
+      const sum: Vec3 = [0, 0, 0];
+      for (const e of wire.edges) {
+        const { dir } = outward(continuationFace(all, e, source, toward), e, 0.5);
+        for (let k = 0; k < 3; k++) sum[k] += dir[k];
+      }
+      const center = wireFrame(wire).center;
+      const dist = Math.hypot(toward[0] - center[0], toward[1] - center[1], toward[2] - center[2]);
+      const dir = unit3(sum);
+      if (Math.hypot(...dir) < 0.5 || dist < 1e-9) continue;
+      out.push({ param, center, dir, scale: TENSION_SCALE * dist, value: feature[param] ?? 1 });
+    } finally {
+      wire.delete();
+    }
+  }
+  return out;
+}
+
+type Chain = { base: Vec3[]; dir: Vec3[] | null };
+
+/**
+ * Muestras de una sección en orden de recorrido: por arista, puntos y (si sale del modelo) la
+ * dirección que continúa su cara vecina en cada uno.
+ */
+function sectionChains(wire: Wire, source: Source | undefined, toward: Vec3, N: number): Chain[] {
+  const all = source ? source.input.shape.faces : [];
+  const raw: Chain[] = wire.edges.map((e) => {
+    const face = source ? continuationFace(all, e, source, toward) : null;
+    const base: Vec3[] = [];
+    const dir: Vec3[] = [];
+    for (let k = 0; k <= N; k++) {
+      if (face) {
+        const o = outward(face, e, k / N);
+        base.push(o.at);
+        dir.push(o.dir);
+      } else base.push(e.pointAt(k / N).toTuple() as Vec3);
+    }
+    return { base, dir: face ? dir : null };
+  });
+  const near = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
+  const flip = (c: Chain): Chain => ({ base: c.base.slice().reverse(), dir: c.dir ? c.dir.slice().reverse() : null });
+  const out = [raw.shift()!];
+  while (raw.length) {
+    const tail = out[out.length - 1].base.at(-1)!;
+    const head = out[0].base[0];
+    const i = raw.findIndex((c) => near(c.base[0], tail) || near(c.base.at(-1)!, tail));
+    if (i >= 0) {
+      const c = raw.splice(i, 1)[0];
+      out.push(near(c.base[0], tail) ? c : flip(c));
+      continue;
+    }
+    const j = raw.findIndex((c) => near(c.base[0], head) || near(c.base.at(-1)!, head));
+    if (j < 0) return [];
+    const c = raw.splice(j, 1)[0];
+    out.unshift(near(c.base.at(-1)!, head) ? c : flip(c));
+  }
+  return out;
+}
+
+/**
+ * Secciones intermedias entre dos secciones con la misma cantidad de aristas: cada punto recorre
+ * una Bézier cúbica de su punto en A a su par en B, con controles en la dirección que continúa la
+ * cara vecina (o un tercio del camino si ese extremo no sale del modelo). null si no se pueden
+ * emparejar (distinta cantidad de aristas, o un punto como sección).
+ */
+function bridgeSections(a: Prepared, b: Prepared, tensionA: number, tensionB: number, keep: { delete(): void }[]): Wire[] | null {
+  if (a.kind !== 'wire' || b.kind !== 'wire' || (!a.source && !b.source)) return null;
+  if (!(tensionA > 0) || !(tensionB > 0)) throw new FeatureError('La tensión tiene que ser mayor que 0');
+  const N = 12;
+  const ca = wireFrame(a.wire).center;
+  const cb = wireFrame(b.wire).center;
+  const A = sectionChains(a.wire, a.source, cb, N);
+  let B = sectionChains(b.wire, b.source, ca, N);
+  if (!A.length || A.length !== B.length) return null;
+  const n = A.length;
+  const closedLoop = !a.open;
+  const dist = (p: Vec3, q: Vec3) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+  const mid = (c: Chain) => c.base[N >> 1];
+  // Emparejar: mismo sentido de recorrido y el corrimiento de aristas que deja los pares más cerca.
+  const reversed = (cs: Chain[]): Chain[] => cs.slice().reverse().map((c) => ({ base: c.base.slice().reverse(), dir: c.dir ? c.dir.slice().reverse() : null }));
+  const score = (cs: Chain[], shift: number) => A.reduce((acc, c, i) => acc + dist(mid(c), mid(cs[(i + shift) % n])) + dist(c.base[0], cs[(i + shift) % n].base[0]), 0);
+  let best = { cs: B, shift: 0, v: Infinity };
+  for (const cs of [B, reversed(B)]) {
+    for (let sh = 0; sh < (closedLoop ? n : 1); sh++) {
+      const v = score(cs, sh);
+      if (v < best.v) best = { cs, shift: sh, v };
+    }
+  }
+  B = A.map((_, i) => best.cs[(i + best.shift) % n]);
+  const d = TENSION_SCALE * dist(ca, cb);
+  const wires: Wire[] = [];
+  for (const t of [0.2, 0.4, 0.6, 0.8]) {
+    const u = 1 - t;
+    const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+    const chains = A.map((ch, i) => ch.base.map((P, k) => {
+      const Q = B[i].base[k];
+      const c1 = ch.dir ? P.map((v, m) => v + ch.dir![k][m] * d * tensionA) : P.map((v, m) => v + (Q[m] - v) / 3);
+      const c2 = B[i].dir ? Q.map((v, m) => v + B[i].dir![k][m] * d * tensionB) : Q.map((v, m) => v + (P[m] - v) / 3);
+      return [0, 1, 2].map((m) => w[0] * P[m] + w[1] * c1[m] + w[2] * c2[m] + w[3] * Q[m]) as Vec3;
+    }));
+    // Extremos compartidos: promedio, para que el contorno quede continuo.
+    const join = (x: Vec3[], y: Vec3[]) => {
+      const m = [0, 1, 2].map((k) => (x[x.length - 1][k] + y[0][k]) / 2) as Vec3;
+      x[x.length - 1] = m;
+      y[0] = m;
+    };
+    for (let i = 0; i + 1 < n; i++) join(chains[i], chains[i + 1]);
+    if (closedLoop && n > 1) join(chains[n - 1], chains[0]);
+    if (closedLoop && n === 1) chains[0][chains[0].length - 1] = chains[0][0];
+    const edges = chains.map((pts) => {
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      const chord = [last[0] - first[0], last[1] - first[1], last[2] - first[2]] as Vec3;
+      const l = Math.hypot(...chord);
+      const off = l > 1e-9 ? Math.max(...pts.map((p) => Math.hypot(...cross3(chord, [p[0] - first[0], p[1] - first[1], p[2] - first[2]])) / l)) : Infinity;
+      return off < 1e-7 ? makeLine(first, last) : makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 3, degMin: 2 });
+    });
+    try {
+      const wire = assembleWire(edges);
+      keep.push(wire);
+      wires.push(wire);
+    } catch {
+      return null;
+    } finally {
+      edges.forEach((e) => e.delete());
+    }
+  }
+  return wires;
 }

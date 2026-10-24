@@ -232,7 +232,7 @@ export class ManipulatorWidget {
     this.handle.renderOrder = 21;
     this.shaft.renderOrder = 20;
     this.group.add(this.shaft, this.handle);
-    this.label.textContent = `${m.label}: ${formatValue(this.value)} ${m.kind === 'angular' ? '°' : 'mm'}`;
+    this.label.textContent = `${m.label}: ${formatValue(this.value)}${m.kind === 'angular' ? ' °' : m.unit === undefined ? ' mm' : m.unit ? ` ${m.unit}` : ''}`;
     this.requestRender();
   }
 

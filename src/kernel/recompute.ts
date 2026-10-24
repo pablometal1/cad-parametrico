@@ -99,14 +99,16 @@ export class RecomputeEngine {
   private lastInputs = new Map<FeatureId, NamedShape | null>();
   private lastSketches = new Map<FeatureId, EvaluatedSketch>();
   private lastPlanes = new Map<FeatureId, PlaneFrame>();
+  private lastCurves = new Map<FeatureId, Curve3dGeometry>();
   private lastDoc: CadDocument | null = null;
 
   /** Contexto de la feature en el último recálculo, o null si no se evaluó (retrocedida/suprimida). */
   contextOf(id: FeatureId): {
-    input: NamedShape | null; sketches: Map<FeatureId, EvaluatedSketch>; planes: Map<FeatureId, PlaneFrame>; doc: CadDocument;
+    input: NamedShape | null; sketches: Map<FeatureId, EvaluatedSketch>; planes: Map<FeatureId, PlaneFrame>;
+    curves: Map<FeatureId, Curve3dGeometry>; doc: CadDocument;
   } | null {
     if (!this.lastDoc || !this.lastInputs.has(id)) return null;
-    return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, planes: this.lastPlanes, doc: this.lastDoc };
+    return { input: this.lastInputs.get(id)!, sketches: this.lastSketches, planes: this.lastPlanes, curves: this.lastCurves, doc: this.lastDoc };
   }
 
   /**
@@ -126,6 +128,7 @@ export class RecomputeEngine {
     this.lastInputs = new Map();
     this.lastSketches = sketches;
     this.lastPlanes = planes;
+    this.lastCurves = curves;
     this.lastDoc = doc;
 
     doc.features.forEach((feature, index) => {

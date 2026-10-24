@@ -147,6 +147,9 @@ export function getFieldValue(f: Feature, path: string): number | undefined {
   return typeof v === 'number' ? v : undefined;
 }
 
+/** Campos numéricos opcionales (pueden no estar todavía en la feature). */
+const OPTIONAL_NUMERIC = new Set(['tensionStart', 'tensionEnd', 'thickness']);
+
 /**
  * Asigna un valor numérico a un campo. Para cotas de ángulo, `value` es el ángulo visible
  * (interior) y se convierte al valor con signo del solver.
@@ -166,6 +169,6 @@ export function setFieldValue<F extends Feature>(f: F, path: string, value: numb
       c.type === 'angle' ? { ...c, value: solverAngleFromStored(new SketchIndex(sk), c.a, c.b, c.value, Math.abs(value)) } : { ...c, value };
     return { ...sk, constraints: sk.constraints.map((x) => (x.id === id ? next : x)) } as F;
   }
-  if (!(path in f)) throw new Error(`Campo desconocido ${path}`);
+  if (!(path in f) && !OPTIONAL_NUMERIC.has(path)) throw new Error(`Campo desconocido ${path}`);
   return { ...f, [path]: value };
 }

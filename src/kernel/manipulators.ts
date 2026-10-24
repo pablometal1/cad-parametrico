@@ -4,6 +4,8 @@ import type { PlaneFrame } from '../document/planes';
 import { dot, normalize, sub, toWorld, type Vec3 } from '../document/planes';
 import type { Feature, FeatureId } from '../document/types';
 import { revolveAxis } from './features/revolve';
+import { patchFrame, type Curve3dGeometry } from './features/surface';
+import { loftTensionHandles } from './features/sweep';
 import type { EvaluatedSketch } from './features/sketch';
 import { edgeAdjacency, resolveEdge, resolveFace, type NamedShape } from './naming';
 import type { Manipulator } from './protocol';
@@ -12,6 +14,7 @@ interface Ctx {
   input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
   planes?: Map<FeatureId, PlaneFrame>;
+  curves?: Map<FeatureId, Curve3dGeometry>;
 }
 
 export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipulator[] | null {
@@ -170,7 +173,25 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipu
           origin: c.toTuple(), dir: unit(face.normalAt(c).toTuple()), factor: 1, value: feature.height, min: -1e6,
         };
       }
-      case 'patch':
+      case 'patch': {
+        // Abombado: asa en el centro del contorno, sobre su normal.
+        const curves = (feature.curves ?? []).map((id) => ctx.curves?.get(id)?.segments).filter((c): c is NonNullable<typeof c> => !!c);
+        const frame = patchFrame(feature, ctx.input, curves);
+        if (!frame) return null;
+        return {
+          kind: 'linear', featureId: feature.id, param: 'height', label: 'Abombado',
+          origin: frame.center, dir: frame.normal, factor: 1, value: feature.height, min: -1e6,
+        };
+      }
+      case 'loft': {
+        // Tensión de la continuidad en cada extremo que sale del modelo.
+        const handles = loftTensionHandles(feature, ctx.input, ctx.sketches);
+        if (!handles.length) return null;
+        return handles.map((h) => ({
+          kind: 'linear' as const, featureId: feature.id, param: h.param, label: h.param === 'tensionStart' ? 'Tensión inicio' : 'Tensión fin',
+          origin: h.center, dir: h.dir, factor: h.scale, value: h.value, min: 0.05, unit: '',
+        }));
+      }
       case 'curve3d':
       case 'thread':
       case 'draft':
@@ -181,7 +202,6 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipu
       case 'pattern':
       case 'mirror':
       case 'sweep':
-      case 'loft':
         return null;
     }
   } catch {

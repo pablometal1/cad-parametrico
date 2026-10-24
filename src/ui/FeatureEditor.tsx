@@ -577,6 +577,11 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
             <span class="muted">continuar las caras del modelo en los extremos</span>
           </span>
         </label>
+        <Show when={f().continuity}>
+          <Num store={props.store} id={f().id} path="tensionStart" label="Tensión inicio" unit="" />
+          <Num store={props.store} id={f().id} path="tensionEnd" label="Tensión fin" unit="" />
+          <p class="hint">Cuánto sigue la superficie a la cara antes de curvarse (1 = normal). También se ajusta arrastrando las flechas en el visor.</p>
+        </Show>
       </Show>
       <label class="field">
         <span class="field-label">Solo superficie</span>

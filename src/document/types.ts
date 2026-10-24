@@ -311,6 +311,9 @@ export interface LoftFeature extends FeatureBase {
   surface?: boolean;
   /** En los extremos que son caras o aristas del modelo, continuar tangente a sus caras vecinas. */
   continuity?: boolean;
+  /** Cuánto sigue la superficie a la cara vecina antes de curvarse, en cada extremo (1 = normal). */
+  tensionStart?: number;
+  tensionEnd?: number;
 }
 
 /**

@@ -328,3 +328,16 @@ export function runDome(feature: DomeFeature, input: NamedShape | null): NamedSh
     keep.forEach((k) => k.delete());
   }
 }
+
+/** Centro y normal del contorno de un parche (para su manejador de abombado). */
+export function patchFrame(feature: PatchFeature, input: NamedShape | null, curves: BezierSegment[][]): { center: Vec3; normal: Vec3 } | null {
+  const table = input ? ShapeTable.edges(input.shape) : null;
+  const model = input ? [...new Set(feature.edges.map((r) => resolveEdge(input, r)))].map((i) => table!.items[i]) : [];
+  const fromCurves = curves.flatMap((segs) => segmentEdges(segs));
+  try {
+    const all = [...model, ...fromCurves];
+    return all.length >= 2 ? loopFrame(all) : null;
+  } finally {
+    fromCurves.forEach((e) => e.delete());
+  }
+}

@@ -593,14 +593,14 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         if (chains.length < 2) return 'Elegí aristas de al menos dos bordes separados (Shift + clic): cada grupo conectado es una sección';
         const refs = await withRefs(() => Promise.all(chains.map((c) => kernel.edgeRefs(c))));
         if (!refs) return null;
-        addWithDialog(ops.makeLoft(doc(), refs.map((r) => ({ edges: r })), { continuity: true, operation: 'new' }));
+        addWithDialog(ops.makeLoft(doc(), refs.map((r) => ({ edges: r })), { continuity: true, tensionStart: 1, tensionEnd: 1, operation: 'new' }));
         return null;
       }
       // Dos o más caras: un sólido de cara a cara que continúa las paredes, unido a la pieza.
       if (faces.length >= 2) {
         const refs = await withRefs(() => kernel.faceRefs(faces));
         if (!refs) return null;
-        addWithDialog(ops.makeLoft(doc(), refs.map((face) => ({ face })), { continuity: true, operation: 'join' }));
+        addWithDialog(ops.makeLoft(doc(), refs.map((face) => ({ face })), { continuity: true, tensionStart: 1, tensionEnd: 1, operation: 'join' }));
         return null;
       }
       const isPoint = (sk: SketchFeature) =>

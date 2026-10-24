@@ -197,4 +197,15 @@ describe('superficie por vértices con asas', () => {
     const flat = k.recompute(updateFeature(doc, patch.id, { thickness: 0, tangent: true, height: 0 } as never));
     expect(flat.features.at(-1)!.error ?? '').toMatch(/abombado/);
   });
+
+  it('el parche tiene un manejador de abombado en el centro del contorno', async () => {
+    const { k, doc } = await boxPatch();
+    k.recompute(doc);
+    const [h] = k.manipulator(doc.features.at(-1)!.id);
+    if (h?.kind !== 'linear') throw new Error('sin manejador');
+    expect(h.param).toBe('height');
+    expect(h.origin[0]).toBeCloseTo(0, 6);
+    expect(h.origin[2]).toBeCloseTo(10, 6);
+    expect(Math.abs(h.dir[2])).toBeCloseTo(1, 6);
+  });
 });

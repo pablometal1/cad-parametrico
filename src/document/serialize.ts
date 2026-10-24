@@ -228,6 +228,8 @@ function validateFeature(raw: unknown, path: string): Feature {
       if (o.thickness !== undefined) loft.thickness = num(o.thickness, `${path}.thickness`);
       if (o.surface !== undefined) loft.surface = bool(o.surface, `${path}.surface`);
       if (o.continuity !== undefined) loft.continuity = bool(o.continuity, `${path}.continuity`);
+      if (o.tensionStart !== undefined) loft.tensionStart = num(o.tensionStart, `${path}.tensionStart`);
+      if (o.tensionEnd !== undefined) loft.tensionEnd = num(o.tensionEnd, `${path}.tensionEnd`);
       return loft;
     }
     case 'extrude': {

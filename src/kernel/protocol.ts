@@ -62,6 +62,8 @@ export type Manipulator =
       color?: number;
       /** Largo fijo del asa además del valor (mm): con valor 0 la flecha igual se ve. */
       offset?: number;
+      /** Unidad de la etiqueta (por defecto mm; '' = sin unidad, p. ej. una tensión). */
+      unit?: string;
       label: string;
       origin: V3;
       dir: V3;

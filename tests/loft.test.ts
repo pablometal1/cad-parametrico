@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { addFeature, emptyDocument, makeExtrude, makeLoft, makeSketch, makeSweep, sketchesUsedBy } from '../src/document/ops';
 import { parseDocument, serializeDocument } from '../src/document/serialize';
 import type { BasePlane, CadDocument, LoftFeature, SketchData, SketchFeature } from '../src/document/types';
-import { volume } from '../src/kernel/features/measure';
+import { area, volume } from '../src/kernel/features/measure';
 import { edgeRefOf, faceRefOf, type NamedShape } from '../src/kernel/naming';
 import { initOCCT } from '../src/kernel/occt';
 import { RecomputeEngine } from '../src/kernel/recompute';
@@ -323,5 +323,57 @@ describe('solevación entre aristas y caras del modelo (con continuidad)', () =>
     expect(r.error ?? r.status).toBe('ok');
     expect(r.solids).toBe(3);
     expect(r.faceTypes.filter((t) => t === 'BSPLINE_SURFACE').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('tensión: más tensión sigue más a la cara antes de curvarse; el visor recibe una flecha por extremo', async () => {
+    // Segundo bloque más alto: el puente tiene que hacer una S.
+    let [doc, a] = sketch(emptyDocument(), 'XY', 0, (bb) => bb.rectangle([-30, -10], [-10, 10]));
+    doc = addFeature(doc, makeExtrude(doc, a.id, { distance: 10 }));
+    let b: SketchFeature;
+    [doc, b] = sketch(doc, 'XY', 15, (bb) => bb.rectangle([10, -10], [30, 10]));
+    doc = addFeature(doc, makeExtrude(doc, b.id, { distance: 10, operation: 'new' }));
+    const [fa, fb] = withShape(doc, (s) => [faceAt(s, -10), faceAt(s, 10)]);
+    // El volumen no cambia (cada corte es el mismo rectángulo corrido); el área de la S sí.
+    const areaOf = (t: number) => withShape(addFeature(doc, makeLoft(doc, [{ face: fa }, { face: fb }], { continuity: true, operation: 'new', tensionStart: t, tensionEnd: t })), (s) => area(s.shape));
+    const [soft, hard] = [areaOf(0.5), areaOf(2)];
+    expect(soft).toBeGreaterThan(0);
+    expect(Math.abs(hard - soft)).toBeGreaterThan(20);
+
+    const { KernelService } = await import('../src/kernel/service');
+    const k = new KernelService();
+    await k.init();
+    const loft = makeLoft(doc, [{ face: fa }, { face: fb }], { continuity: true, operation: 'new' });
+    k.recompute(addFeature(doc, loft));
+    const handles = k.manipulator(loft.id);
+    expect(handles.map((h) => (h.kind === 'linear' ? h.param : ''))).toEqual(['tensionStart', 'tensionEnd']);
+    const start = handles[0];
+    if (start.kind !== 'linear') throw new Error();
+    // Sale de la cara del primer bloque hacia +X (continuando sus paredes).
+    expect(start.dir[0]).toBeGreaterThan(0.99);
+    expect(start.value).toBe(1);
+  });
+
+  it('puente entre aristas a distinta altura: sin sobrepaso (no baja de la tapa baja ni sube de la alta)', () => {
+    let [doc, a] = sketch(emptyDocument(), 'XY', 0, (bb) => bb.rectangle([-30, -10], [-10, 10]));
+    doc = addFeature(doc, makeExtrude(doc, a.id, { distance: 10 }));
+    let b: SketchFeature;
+    [doc, b] = sketch(doc, 'XY', 15, (bb) => bb.rectangle([10, -10], [30, 10]));
+    doc = addFeature(doc, makeExtrude(doc, b.id, { distance: 10, operation: 'new' }));
+    const [ea, eb] = withShape(doc, (s) => [edgeAt(s, -10, 10), edgeAt(s, 10, 25)]);
+    const d = addFeature(doc, makeLoft(doc, [{ edges: [ea] }, { edges: [eb] }], { continuity: true }));
+    expect(run(d).error ?? 'ok').toBe('ok');
+    withShape(d, (s) => {
+      const sheet = s.shape.faces.find((f) => f.geomType === 'BSPLINE_SURFACE')!;
+      const [lo, hi] = sheet.boundingBox.bounds;
+      expect(lo[2]).toBeGreaterThan(10 - 0.05);
+      expect(hi[2]).toBeLessThan(25 + 0.05);
+    });
+  });
+
+  it('la tensión se puede fijar aunque la solevación todavía no la tenga (arrastrando la flecha)', async () => {
+    const { setFieldValue } = await import('../src/document/evaluate');
+    const loft = makeLoft(emptyDocument(), ['a', 'b']);
+    expect(setFieldValue(loft, 'tensionStart', 2).tensionStart).toBe(2);
+    expect(() => setFieldValue(loft, 'inventado', 2)).toThrow();
   });
 });
