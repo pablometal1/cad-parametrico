@@ -1,5 +1,5 @@
 // Constructores de geometría del sketch. Los usan las herramientas de dibujo y los tests.
-import type { SketchConstraint, SketchData, SketchEntityId } from '../document/types';
+import type { SketchConstraint, SketchData, SketchEntityId, SketchSpline } from '../document/types';
 import { dist } from './geometry';
 import { idAllocator, type Vec2 } from './model';
 
@@ -75,11 +75,19 @@ export class SketchBuilder {
     return id;
   }
 
-  /** Spline que pasa por los puntos dados (existentes o nuevos), en orden. */
-  spline(points: PointInput[], closed = false, construction = false): SketchEntityId {
+  /**
+   * Spline por los puntos dados (existentes o nuevos), en orden. Con `kind` 'control' los puntos
+   * son el polígono de control de una curva NURBS de grado `degree`.
+   */
+  spline(points: PointInput[], closed = false, construction = false, shape: { kind?: 'fit' | 'control'; degree?: number } = {}): SketchEntityId {
     const ids = points.map((p) => this.point(p));
     const id = this.alloc('s');
-    this.entities.push({ id, type: 'spline', points: ids, closed, construction });
+    const e: SketchSpline = { id, type: 'spline', points: ids, closed, construction };
+    if (shape.kind === 'control') {
+      e.kind = 'control';
+      if (shape.degree !== undefined) e.degree = shape.degree;
+    }
+    this.entities.push(e);
     this.created.push(id);
     return id;
   }

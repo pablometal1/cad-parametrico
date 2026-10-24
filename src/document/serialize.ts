@@ -3,7 +3,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
-  type Parameter, type PlaneReference,
+  type Parameter, type PlaneReference, type SketchSpline, NURBS_MAX_DEGREE,
 } from './types';
 import { isValidName } from './expressions';
 
@@ -299,7 +299,16 @@ function validateEntity(raw: unknown, path: string): SketchEntity {
     case 'spline': {
       const points = list(o.points, `${path}.points`, str);
       if (points.length < 2) throw new DocumentFormatError(`${path}.points`, 'una spline necesita al menos 2 puntos');
-      return { id, type: 'spline', points, closed: bool(o.closed, `${path}.closed`), construction: construction() };
+      const spline: SketchSpline = { id, type: 'spline', points, closed: bool(o.closed, `${path}.closed`), construction: construction() };
+      if (o.kind !== undefined) spline.kind = oneOf(o.kind, ['fit', 'control'] as const, `${path}.kind`);
+      if (o.degree !== undefined) {
+        const degree = num(o.degree, `${path}.degree`);
+        if (!Number.isInteger(degree) || degree < 1 || degree > NURBS_MAX_DEGREE) {
+          throw new DocumentFormatError(`${path}.degree`, `el grado tiene que ser un entero entre 1 y ${NURBS_MAX_DEGREE}`);
+        }
+        spline.degree = degree;
+      }
+      return spline;
     }
     case 'text':
       return {

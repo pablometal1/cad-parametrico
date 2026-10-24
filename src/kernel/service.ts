@@ -1,6 +1,7 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
 import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
+import { area, volumeProps } from './features/measure';
 import { loadFonts } from '../sketch/text';
 import { measureArea } from 'replicad';
 import type { CadDocument, EdgeRef, FaceRef, Vec3, VertexRef } from '../document/types';
@@ -262,19 +263,15 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   }
 
   private computeMassProperties(shape: NamedShape['shape']): MassProperties {
-    const oc = getOC();
-    const vol = new oc.GProp_GProps();
-    const surf = new oc.GProp_GProps();
+    const vol = volumeProps(shape, true);
     try {
-      oc.BRepGProp.VolumeProperties(shape.wrapped, vol, false, false, false);
-      oc.BRepGProp.SurfaceProperties(shape.wrapped, surf, false, false);
       const c = vol.CentreOfMass();
       const center: [number, number, number] = [c.X(), c.Y(), c.Z()];
       c.delete();
       const [min, max] = shape.boundingBox.bounds;
       return {
         volume: vol.Mass(),
-        area: surf.Mass(),
+        area: area(shape),
         bodies: shape.solids.length,
         center,
         bboxMin: [min[0], min[1], min[2]],
@@ -283,7 +280,6 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       };
     } finally {
       vol.delete();
-      surf.delete();
     }
   }
 

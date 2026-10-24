@@ -1,5 +1,5 @@
 // Feature de sketch en el kernel: resuelve las restricciones y construye las caras de sus perfiles.
-import { assembleWire, cast, getOC, makeBezierCurve, makeCircle, makeFace, makeLine, makeThreePointArc, type AnyShape, type Edge, type Face } from 'replicad';
+import { assembleWire, cast, getOC, makeBezierCurve, makeCircle, makeFace, makeLine, makeThreePointArc, Edge, type AnyShape, type Face } from 'replicad';
 import { flattenContour, signedArea, textContours, textRegions, type TextContour } from '../../sketch/text';
 import type { Vec2 } from '../../sketch/model';
 import { basePlaneFrame, faceFrame, offsetFrame, scale, toPlane, toWorld, type PlaneFrame, type Vec3 } from '../../document/planes';
@@ -8,9 +8,9 @@ import { arcParams, curveDistance } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
 import { findChains, findProfiles, ProfileError, type LoopEdge, type ProfileLoop, type ProfileRegion } from '../../sketch/profiles';
 import { solveSketch } from '../../sketch/solver';
-import { splineBeziers } from '../../sketch/spline';
+import { bsplineData, splineBeziers, type BSplineData } from '../../sketch/spline';
 import { resolveFace, type History, type NameBuilder, type NamedShape } from '../naming';
-import { FeatureError, isValidShape } from '../occtUtils';
+import { describeError, FeatureError, isValidShape } from '../occtUtils';
 
 /** Resultado de evaluar un sketch: lo que necesitan las features que lo usan. */
 export interface EvaluatedSketch {
@@ -229,6 +229,12 @@ function loopEdges(index: SketchIndex, frame: PlaneFrame, loopEdgeList: LoopEdge
   return loopEdgeList.flatMap(({ curve, reversed }): Edge | Edge[] => {
     switch (curve.type) {
       case 'spline': {
+        if (curve.kind === 'control') {
+          // NURBS: una sola arista B-spline exacta. Invertir el orden de los polos invierte la
+          // curva (los nudos uniformes son simétricos).
+          const pts = curve.points.map((id) => index.point(id));
+          return makeBSplineEdge(bsplineData(reversed ? pts.slice().reverse() : pts, curve.closed, curve.degree), frame);
+        }
         // Los mismos tramos de Bézier que dibuja el editor.
         const segs = splineBeziers(curve.points.map((id) => index.point(id)), curve.closed);
         const ordered = reversed ? segs.slice().reverse().map((sg) => sg.slice().reverse()) : segs;
@@ -395,4 +401,37 @@ function ordered(edges: Edge[], near: Vec3): { edges: Edge[]; first: Vec3; last:
     cur = d(ends[i][0], cur) < tol ? ends[i][1] : ends[i][0];
   }
   return { edges: out, first, last: cur };
+}
+
+/** Arista de una B-spline del sketch (polos en coordenadas del plano). */
+export function makeBSplineEdge(d: BSplineData, frame: PlaneFrame): Edge {
+  const oc = getOC();
+  const poles = new oc.NCollection_Array1_gp_Pnt(1, d.poles.length);
+  const knots = new oc.NCollection_Array1_double(1, d.knots.length);
+  const mults = new oc.NCollection_Array1_int(1, d.mults.length);
+  const pnts = d.poles.map(([u, v]) => new oc.gp_Pnt(...toWorld(frame, u, v)));
+  try {
+    pnts.forEach((p, i) => poles.SetValue(i + 1, p));
+    d.knots.forEach((k, i) => knots.SetValue(i + 1, k));
+    d.mults.forEach((m, i) => mults.SetValue(i + 1, m));
+    const curve = new oc.Geom_BSplineCurve(poles, knots, mults, d.degree, d.periodic);
+    // Misma curva en forma no periódica: las propiedades de masa y las booleanas de OCCT son
+    // inestables sobre caras B-spline periódicas.
+    if (d.periodic) curve.SetNotPeriodic();
+    const mk = new oc.BRepBuilderAPI_MakeEdge(curve as never);
+    try {
+      if (!mk.IsDone()) throw new FeatureError('No se pudo construir la curva NURBS');
+      return new Edge(mk.Edge());
+    } finally {
+      mk.delete();
+    }
+  } catch (err) {
+    if (err instanceof FeatureError) throw err;
+    throw new FeatureError(`No se pudo construir la curva NURBS (${describeError(err)})`);
+  } finally {
+    pnts.forEach((p) => p.delete());
+    poles.delete();
+    knots.delete();
+    mults.delete();
+  }
 }

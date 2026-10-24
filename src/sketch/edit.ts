@@ -650,7 +650,7 @@ function copyGeometry(
     if (e.type === 'point') pt(e.id);
     else if (e.type === 'line') curves.set(e.id, b.line(pt(e.p1), pt(e.p2), e.construction));
     else if (e.type === 'circle') curves.set(e.id, b.circle(pt(e.center), e.radius, e.construction));
-    else if (e.type === 'spline') curves.set(e.id, b.spline(e.points.map(pt), e.closed, e.construction));
+    else if (e.type === 'spline') curves.set(e.id, b.spline(e.points.map(pt), e.closed, e.construction, { kind: e.kind, degree: e.degree }));
     else if (e.type === 'arc') {
       const [c, s, en] = [pt(e.center), pt(e.start), pt(e.end)];
       // Reflejar invierte el sentido: el arco nuevo va del reflejo del final al del inicio.

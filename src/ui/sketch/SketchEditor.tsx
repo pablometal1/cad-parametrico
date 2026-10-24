@@ -3,8 +3,8 @@ import { flattenContour, fontsLoaded, textContours } from '../../sketch/text';
 import { Icon, tip, type IconName } from '../icons';
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchCurve, type SketchData } from '../../document/types';
-import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, splinePolyline, sub, type ArcParams } from '../../sketch/geometry';
-import { sampleSpline } from '../../sketch/spline';
+import { add, arcParams, curveDistance, curveMidpoint, dist, lerp, lineEnds, mul, splinePolyline, splineSamples, sub, type ArcParams } from '../../sketch/geometry';
+import { curvatureComb, NURBS_MAX_DEGREE } from '../../sketch/spline';
 import { SketchIndex, type Vec2 } from '../../sketch/model';
 import { CONSTRAINT_LABELS, dimensionText } from '../../sketch/rules';
 import { previewSegments2D } from '../draw3d/preview';
@@ -33,7 +33,8 @@ const TOOLS: { id: Tool; label: string; key: string; icon: IconName }[] = [
   { id: 'centerRect', label: 'Rectángulo desde el centro', key: 'E', icon: 'centerRect' },
   { id: 'polygon', label: 'Polígono regular', key: 'P', icon: 'polygon' },
   { id: 'slot', label: 'Ranura', key: 'S', icon: 'slot' },
-  { id: 'spline', label: 'Spline', key: 'B', icon: 'spline' },
+  { id: 'spline', label: 'Spline (pasa por los puntos)', key: 'B', icon: 'spline' },
+  { id: 'nurbs', label: 'Curva NURBS (puntos de control)', key: 'N', icon: 'nurbs' },
 ];
 
 /** Herramientas de edición (como en Fusion): se aplican a la selección. */
@@ -360,6 +361,7 @@ export function SketchEditor(props: {
     else if (k === 's') s.setTool('slot');
     else if (k === 'x') s.setTool('trim');
     else if (k === 'b') s.setTool('spline');
+    else if (k === 'n') s.setTool('nurbs');
     else if (e.key === 'Enter') s.finishPending();
     else if (k === 'd') s.startEdit('offset');
     else if (k === 'm') s.startEdit('mirror');
@@ -418,6 +420,39 @@ export function SketchEditor(props: {
     return e?.type === 'text' ? e : null;
   });
 
+  /** Spline elegida (para cambiar su tipo, su grado o ver su peine de curvatura), si hay una sola. */
+  const selectedSpline = createMemo(() => {
+    const ids = s.selection();
+    if (ids.length !== 1) return null;
+    const e = index().get(ids[0]);
+    return e?.type === 'spline' ? e : null;
+  });
+  const [showComb, setShowComb] = createSignal(true);
+
+  /** Peine de curvatura de la spline elegida: largo proporcional a la curvatura, hacia afuera. */
+  const comb = createMemo((): JSX.Element => {
+    const c = selectedSpline();
+    if (!c || !showComb()) return null;
+    const pts = splinePolyline(index(), c);
+    const teeth = curvatureComb(pts, c.closed);
+    const kMax = Math.max(...teeth.map((t) => Math.abs(t.k)), 1e-12);
+    // El diente más largo mide 48 px en pantalla, sea cual sea el zoom.
+    const len = 48 / kMax / view().scale;
+    const tips = teeth.map((t) => toScreen([t.at[0] - t.normal[0] * t.k * len, t.at[1] - t.normal[1] * t.k * len]));
+    let d = '';
+    teeth.forEach((t, i) => {
+      if (i % 2) return;
+      const a = toScreen(t.at);
+      d += `M${a[0]} ${a[1]}L${tips[i][0]} ${tips[i][1]}`;
+    });
+    return (
+      <g class="sk-comb">
+        <path d={d} />
+        <path class="envelope" d={'M' + tips.map((q) => q.join(' ')).join('L') + (c.closed ? 'Z' : '')} />
+      </g>
+    );
+  });
+
   const curveElement = (c: SketchCurve) => {
     const idx = index();
     const stroke = color(c.id, c.construction);
@@ -436,7 +471,11 @@ export function SketchEditor(props: {
       return <circle cx={ctr[0]} cy={ctr[1]} r={c.radius * view().scale} {...common} />;
     }
     if (c.type === 'spline') {
-      return <path d={'M' + splinePolyline(idx, c).map((q) => toScreen(q).join(' ')).join('L') + (c.closed ? 'Z' : '')} {...common} />;
+      const curve = <path d={'M' + splinePolyline(idx, c).map((q) => toScreen(q).join(' ')).join('L') + (c.closed ? 'Z' : '')} {...common} />;
+      if (c.kind !== 'control') return curve;
+      // NURBS: también el polígono de control, que es lo que se edita.
+      const cage = c.points.map((id) => toScreen(idx.point(id)).join(' '));
+      return <>{curve}<path class="sk-cage" d={'M' + cage.join('L') + (c.closed ? 'Z' : '')} /></>;
     }
     return <path d={arcPath(arcParams(idx, c), toScreen, view().scale)} {...common} />;
   };
@@ -472,8 +511,16 @@ export function SketchEditor(props: {
         return <path d={arcPath({ center: p.center.pos, radius: r, startAngle: a0, endAngle: a1 }, toScreen, view().scale)} {...style} />;
       }
       case 'spline': {
-        const pts = sampleSpline([...p.points.map((a) => a.pos), cur.pos], false);
-        return <path d={'M' + pts.map((q) => toScreen(q).join(' ')).join('L')} {...style} />;
+        const ctrl = [...p.points.map((a) => a.pos), cur.pos];
+        const pts = splineSamples(ctrl, { closed: false, kind: p.kind });
+        return (
+          <>
+            <path d={'M' + pts.map((q) => toScreen(q).join(' ')).join('L')} {...style} />
+            <Show when={p.kind === 'control'}>
+              <path class="sk-cage" d={'M' + ctrl.map((q) => toScreen(q).join(' ')).join('L')} />
+            </Show>
+          </>
+        );
       }
       default: {
         // Rectángulo desde el centro, polígono y ranura: misma vista previa que el dibujo en 3D.
@@ -546,6 +593,26 @@ export function SketchEditor(props: {
                 </label>
                 <label class="sides">
                   <input type="checkbox" checked={t().bold} onChange={(e) => s.updateText(t().id, { bold: e.currentTarget.checked })} /> negrita
+                </label>
+              </span>
+            )}
+          </Show>
+          <Show when={selectedSpline()}>
+            {(c) => (
+              <span class="text-opts" title="Spline elegida">
+                <select value={c().kind ?? 'fit'} onChange={(e) => s.setSplineShape(c().id, { kind: e.currentTarget.value as 'fit' | 'control' })}
+                  {...tip('Tipo de spline', undefined, 'Por puntos: la curva pasa por cada punto. NURBS: los puntos forman el polígono de control y la curva se acerca a ellos (más suave)')}>
+                  <option value="fit">Por puntos</option>
+                  <option value="control">NURBS</option>
+                </select>
+                <Show when={c().kind === 'control'}>
+                  <label class="sides" {...tip('Grado de la curva', undefined, 'Grado 3 es el habitual; más alto, más suave pero cada punto influye en un tramo más largo')}>
+                    grado <input type="number" min="1" max={NURBS_MAX_DEGREE} value={c().degree ?? 3}
+                      onChange={(e) => s.setSplineShape(c().id, { degree: Math.max(1, Math.min(NURBS_MAX_DEGREE, Math.round(Number(e.currentTarget.value) || 3))) })} />
+                  </label>
+                </Show>
+                <label class="sides" {...tip('Peine de curvatura', undefined, 'Dientes proporcionales a la curvatura: una envolvente pareja indica una curva suave')}>
+                  <input type="checkbox" checked={showComb()} onChange={(e) => setShowComb(e.currentTarget.checked)} /> peine
                 </label>
               </span>
             )}
@@ -647,6 +714,7 @@ export function SketchEditor(props: {
             {(l) => <line class="dim-leader" x1={l.leader![0][0]} y1={l.leader![0][1]} x2={l.leader![1][0]} y2={l.leader![1][1]} />}
           </For>
 
+          {comb()}
           {preview()}
 
           {index().points().map((p) => {

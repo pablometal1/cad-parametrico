@@ -129,10 +129,40 @@ function coincidentPairs(data: SketchData): Set<string> {
 function sharedEnd(index: SketchIndex, x: SketchEntityId, y: SketchEntityId, joined: Set<string>): [SketchEntityId, SketchEntityId] | null {
   const ends = (id: SketchEntityId): SketchEntityId[] => {
     const e = index.get(id);
+    if (e?.type === 'spline') return e.closed ? [] : [e.points[0], e.points[e.points.length - 1]];
     return e?.type === 'line' ? [e.p1, e.p2] : e?.type === 'arc' ? [e.start, e.end] : [];
   };
   for (const p of ends(x)) for (const q of ends(y)) if (p === q || joined.has(`${p}|${q}`)) return [p, q];
   return null;
+}
+
+/**
+ * Tangencia con una spline en un extremo compartido. En las dos clases de spline la tangente en un
+ * extremo va del extremo hacia el punto siguiente (en la NURBS es el primer tramo del polígono de
+ * control; en la que pasa por los puntos, el primer control de Bézier cae sobre esa recta). Así la
+ * tangencia es una condición sobre tres puntos.
+ */
+function splineTangent(index: SketchIndex, id: string, x: SketchEntityId, y: SketchEntityId, joined: Set<string>): SketchPrimitive[] {
+  const shared = sharedEnd(index, x, y, joined);
+  if (!shared) throw new Error('La tangencia con una spline tiene que ser en un extremo que compartan (uní primero los extremos)');
+  /** Punto vecino al extremo compartido, sobre la tangente. */
+  const neighbor = (curve: SketchEntityId, end: SketchEntityId): SketchEntityId => {
+    const e = index.get(curve);
+    if (e?.type !== 'spline') throw new Error('no es una spline');
+    return e.points[0] === end ? e.points[1] : e.points[e.points.length - 2];
+  };
+  const [ex, ey] = [index.get(x)!, index.get(y)!];
+  if (ex.type === 'spline' && ey.type === 'spline') {
+    return [{ id, type: 'point_on_line_ppp', p_id: shared[0], lp1_id: neighbor(x, shared[0]), lp2_id: neighbor(y, shared[1]) }];
+  }
+  const [other, spline, end] = ex.type === 'spline' ? [ey, x, shared[0]] : [ex, y, shared[1]];
+  const nb = neighbor(spline, end);
+  if (other.type === 'line') return [{ id, type: 'point_on_line_pl', p_id: nb, l_id: other.id }];
+  if (other.type === 'arc') {
+    const onArc = other.id === x ? shared[0] : shared[1];
+    return [{ id, type: 'perpendicular_pppp', l1p1_id: other.center, l1p2_id: onArc, l2p1_id: onArc, l2p2_id: nb }];
+  }
+  throw new Error('La tangencia con una spline es con una línea, un arco u otra spline, en un extremo compartido');
 }
 
 function toGcs(index: SketchIndex, c: SketchConstraint, joined: Set<string> = new Set()): SketchPrimitive[] {
@@ -176,6 +206,7 @@ function toGcs(index: SketchIndex, c: SketchConstraint, joined: Set<string> = ne
       // Tangencia en un extremo compartido: la forma general es degenerada ahí (el solver converge
       // mal y la marca redundante). Como en FreeCAD: la línea es perpendicular al radio en ese punto,
       // o los dos centros quedan alineados con él.
+      if (kind(x) === 'spline' || kind(y) === 'spline') return splineTangent(index, id, x, y, joined);
       const shared = pair === 'line-arc' || pair === 'arc-arc' ? sharedEnd(index, x, y, joined) : null;
       if (shared && pair === 'line-arc') {
         const l = index.get(x) as { p1: string; p2: string };

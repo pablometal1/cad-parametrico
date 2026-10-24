@@ -1,6 +1,6 @@
 // Estado y lógica del editor de sketch (sin DOM). La vista (SketchEditor) traduce eventos a estas acciones.
 import { batch, createSignal } from 'solid-js';
-import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchData, type SketchEntityId, type SketchText } from '../../document/types';
+import { AXIS_X, AXIS_Y, ORIGIN, type SketchConstraint, type SketchConstraintType, type SketchData, type SketchEntityId, type SketchSpline, type SketchText } from '../../document/types';
 import { SketchBuilder } from '../../sketch/builders';
 import { filletCorner, mirrorCurves, offsetCurves, patternCurves, trimCurve, type EditResult } from '../../sketch/edit';
 import { dist, sub } from '../../sketch/geometry';
@@ -10,7 +10,7 @@ import { solveSketch, type SolveResult } from '../../sketch/solver';
 import { evaluateText } from '../../document/evaluate';
 import { plainNumber } from '../../document/expressions';
 
-export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot' | 'trim' | 'spline';
+export type Tool = 'select' | 'point' | 'text' | 'line' | 'rectangle' | 'centerRect' | 'circle' | 'arc' | 'polygon' | 'slot' | 'trim' | 'spline' | 'nurbs';
 
 /** Herramientas de edición que piden valores antes de aplicarse. */
 export type EditAction = 'offset' | 'fillet' | 'circular' | 'linear';
@@ -43,7 +43,7 @@ export type Pending =
   | { tool: 'centerRect'; center: Anchor }
   | { tool: 'polygon'; center: Anchor }
   | { tool: 'slot'; c1: Anchor; c2?: Anchor }
-  | { tool: 'spline'; points: Anchor[] };
+  | { tool: 'spline'; points: Anchor[]; kind: 'fit' | 'control' };
 
 export interface SolveInfo {
   ok: boolean;
@@ -280,9 +280,10 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
         if (commit(b.data)) setPending(null);
         return;
       }
-      case 'spline': {
+      case 'spline':
+      case 'nurbs': {
         if (!p || p.tool !== 'spline') {
-          setPending({ tool: 'spline', points: [at] });
+          setPending({ tool: 'spline', points: [at], kind: tool() === 'nurbs' ? 'control' : 'fit' });
           return;
         }
         const first = p.points[0];
@@ -291,7 +292,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
         // Clic en el primer punto: cierra. Clic otra vez en el último: termina abierta.
         if (p.points.length >= 3 && same(at, first)) return finishSpline(true);
         if (same(at, last)) return finishSpline(false);
-        setPending({ tool: 'spline', points: [...p.points, at] });
+        setPending({ ...p, points: [...p.points, at] });
         return;
       }
       case 'slot': {
@@ -321,7 +322,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     if (!p || p.tool !== 'spline') return;
     if (p.points.length < 2) return setPending(null);
     const b = new SketchBuilder(data());
-    const id = b.spline(p.points.map((a) => a.pointId ?? a.pos), closed && p.points.length >= 3, construction());
+    const id = b.spline(p.points.map((a) => a.pointId ?? a.pos), closed && p.points.length >= 3, construction(), { kind: p.kind });
     if (commit(b.data)) {
       setPending(null);
       setSelection([id]);
@@ -583,6 +584,19 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     }, { allowRedundant: true });
   }
 
+  /** Cambia el tipo (por puntos o NURBS) o el grado de la spline elegida. */
+  function setSplineShape(id: SketchEntityId, shape: { kind?: 'fit' | 'control'; degree?: number }) {
+    const e = data().entities.find((x) => x.id === id);
+    if (e?.type !== 'spline') return;
+    const next: SketchSpline = { ...e, ...shape };
+    if (next.kind !== 'control') {
+      delete next.kind;
+      delete next.degree;
+    }
+    commit({ ...data(), entities: data().entities.map((x) => (x.id === id ? next : x)) }, { allowRedundant: true });
+    setSelection([id]);
+  }
+
   function undo() {
     const prev = undoStack.pop();
     if (!prev) return;
@@ -620,7 +634,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
     polygonSides, setPolygonSides, textOptions, setTextOptions, updateText,
     setTool, setConstruction, setMessage, setPrompt,
     click, escape, select, beginDrag, drag, endDrag,
-    applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, undo, redo,
+    applyConstraint, editDimension, confirmPrompt, deleteSelection, toggleConstruction, setSplineShape, undo, redo,
     trimAt, startEdit, confirmAction, setActionPrompt, finishPending,
   };
 }
@@ -639,6 +653,7 @@ const TOOL_HINTS: Record<Exclude<Tool, 'select'>, string> = {
   slot: 'Ranura: clic en los dos centros y luego para el ancho.',
   trim: 'Recortar: clic en el tramo a borrar; se corta hasta las intersecciones más cercanas.',
   spline: 'Spline: clic en cada punto por donde pasa. Enter, Esc o clic otra vez en el último punto termina; clic en el primero la cierra.',
+  nurbs: 'Curva NURBS: clic en cada punto de control (la curva pasa por el primero y el último y se acerca a los demás). Enter, Esc o clic otra vez en el último termina; clic en el primero la cierra.',
 };
 
 const EDIT_HINTS: Record<EditAction, string> = {

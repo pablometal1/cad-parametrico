@@ -289,6 +289,9 @@ button.wide { width: 100%; margin-top: 6px; }
   background: #2a3240; border: 1px solid #5d7fa6; border-radius: 6px;
   padding: 6px 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); white-space: nowrap;
 }
+.sk-cage { stroke: #8fa3b8; stroke-width: 1; stroke-dasharray: 3 3; fill: none; pointer-events: none; opacity: 0.8; }
+.sk-comb path { stroke: #5fb3ff; stroke-width: 0.8; fill: none; pointer-events: none; opacity: 0.7; }
+.sk-comb .envelope { stroke-width: 1.2; opacity: 0.9; }
 .face-reference { stroke: #8fa3b8; stroke-width: 1.2; stroke-dasharray: 4 3; fill: none; pointer-events: none; }
 .menu button:disabled { opacity: 0.4; }
 

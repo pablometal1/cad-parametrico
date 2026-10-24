@@ -105,13 +105,21 @@ export interface SketchArc extends CurveBase {
 }
 
 /**
- * Spline que pasa por sus puntos (en orden). Abierta: va del primero al último; cerrada: vuelve
- * al primero. Los puntos son puntos comunes del sketch (se acotan y se arrastran como cualquiera).
+ * Spline. Con `kind` 'fit' (o sin `kind`) pasa por sus puntos, en orden. Con 'control' es una
+ * curva NURBS (B-spline uniforme de grado `degree`, 3 si falta): los puntos son el polígono de
+ * control, la curva empieza y termina en el primero y el último y se acerca a los demás.
+ * Abierta: va del primero al último; cerrada: vuelve al primero. Los puntos son puntos comunes
+ * del sketch (se acotan y se arrastran como cualquiera).
  */
+/** Grado máximo de una curva NURBS del sketch (más alto se vuelve difícil de controlar). */
+export const NURBS_MAX_DEGREE = 5;
+
 export interface SketchSpline extends CurveBase {
   type: 'spline';
   points: SketchEntityId[];
   closed: boolean;
+  kind?: 'fit' | 'control';
+  degree?: number;
 }
 
 export type SketchCurve = SketchLine | SketchCircle | SketchArc | SketchSpline;

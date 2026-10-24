@@ -1,6 +1,6 @@
 // Geometría 2D del sketch: medidas, muestreo de curvas y distancias para selección.
 import type { SketchArc, SketchCurve, SketchEntityId, SketchSpline } from '../document/types';
-import { sampleSpline } from './spline';
+import { sampleNurbs, sampleSpline } from './spline';
 import { AXIS_X, AXIS_Y } from '../document/types';
 import type { SketchIndex, Vec2 } from './model';
 
@@ -155,7 +155,12 @@ export function curveDistance(index: SketchIndex, c: SketchCurve, p: Vec2): numb
 
 /** Polilínea de una spline del sketch. */
 export function splinePolyline(index: SketchIndex, c: SketchSpline): Vec2[] {
-  return sampleSpline(c.points.map((id) => index.point(id)), c.closed);
+  return splineSamples(c.points.map((id) => index.point(id)), c);
+}
+
+/** Polilínea de una spline a partir de sus puntos (de paso o de control, según su tipo). */
+export function splineSamples(pts: Vec2[], c: { closed: boolean; kind?: 'fit' | 'control'; degree?: number }): Vec2[] {
+  return c.kind === 'control' ? sampleNurbs(pts, c.closed, c.degree) : sampleSpline(pts, c.closed);
 }
 
 /** Polilínea que aproxima una curva (para dibujar y para detectar contención de perfiles). */

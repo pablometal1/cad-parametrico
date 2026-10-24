@@ -5,7 +5,7 @@ import type { Curve3dFeature, DomeFeature, PatchFeature, Vec3 } from '../../docu
 import { historyOf, NameBuilder, resolveEdge, resolveFace, resolveVertex, ShapeTable, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
 import { combine } from './boolean';
-import { volume } from './measure';
+import { volume, volumeProps } from './measure';
 
 type Keep = { delete(): void };
 
@@ -197,8 +197,7 @@ export function runDome(feature: DomeFeature, input: NamedShape | null): NamedSh
     if (pieces.solids.length < 2) throw new FeatureError('La superficie del abombado no se separa de la cara: probá con otra altura');
     // La parte del abombado es la que queda más cerca del plano de la cara.
     const along = (s: AnyShape) => {
-      const props = new oc.GProp_GProps();
-      oc.BRepGProp.VolumeProperties(s.wrapped, props, false, false, false);
+      const props = volumeProps(s, true);
       const g = props.CentreOfMass();
       const d = (g.X() - c[0]) * n[0] + (g.Y() - c[1]) * n[1] + (g.Z() - c[2]) * n[2];
       g.delete();

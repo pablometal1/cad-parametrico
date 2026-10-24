@@ -61,7 +61,18 @@ export function constraintFromSelection(
 
     case 'tangent':
       if (n === 2 && (isCurve(0) || isCurve(1)) && kinds.every((k) => k === 'line' || k === 'circle' || k === 'arc')) return ok({ type, a, b });
-      return hint('Elegí una línea y un círculo/arco, o dos círculos/arcos');
+      if (n === 2 && (is(0, 'spline') || is(1, 'spline')) && kinds.every((k) => k === 'line' || k === 'arc' || k === 'spline')) {
+        const ends = (id: string): string[] => {
+          const e = index.get(id);
+          if (e?.type === 'spline') return e.closed ? [] : [e.points[0], e.points[e.points.length - 1]];
+          return e?.type === 'line' ? [e.p1, e.p2] : e?.type === 'arc' ? [e.start, e.end] : [];
+        };
+        const near = (p: string, q: string) =>
+          p === q || index.data.constraints.some((c) => c.type === 'coincident' && ((c.a === p && c.b === q) || (c.a === q && c.b === p)));
+        if (ends(a).some((p) => ends(b).some((q) => near(p, q)))) return ok({ type, a, b });
+        return hint('La tangencia con una spline va en un extremo que compartan: uní primero los extremos');
+      }
+      return hint('Elegí una línea y un círculo/arco, o dos círculos/arcos (o una spline y una curva unidas por un extremo)');
 
     case 'equal':
       if (n === 2 && is(0, 'line') && is(1, 'line')) return ok({ type, a, b });

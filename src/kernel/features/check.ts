@@ -4,6 +4,7 @@ import { cast, getOC, type AnyShape } from 'replicad';
 import type { PartCheck } from '../protocol';
 import { checkWatertight, meshVolume, weldMesh } from '../export/meshExport';
 import { isValidShape } from '../occtUtils';
+import { volume } from './measure';
 
 /** Hasta cuántos cuerpos se comparan de a pares (las booleanas cuestan). */
 const MAX_OVERLAP_BODIES = 8;
@@ -16,10 +17,7 @@ export function checkPart(shape: AnyShape): PartCheck {
   let invertedBodies = 0;
   for (const solid of solids) {
     // Volumen del B-rep: negativo si el sólido está "dado vuelta" (normales hacia adentro).
-    const props = new oc.GProp_GProps();
-    oc.BRepGProp.VolumeProperties(solid.wrapped, props, false, false, false);
-    const brepVolume = props.Mass();
-    props.delete();
+    const brepVolume = volume(solid);
     // La malla que se exporta: cerrada (cada arista con un vecino) y con el mismo sentido de giro
     // en triángulos vecinos; si una cara está invertida, sus aristas se repiten en el mismo sentido.
     const raw = solid.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
@@ -39,10 +37,7 @@ export function checkPart(shape: AnyShape): PartCheck {
       try {
         if (!common.IsDone() || common.HasErrors()) continue;
         const c = cast(common.Shape());
-        const props = new oc.GProp_GProps();
-        oc.BRepGProp.VolumeProperties(c.wrapped, props, false, false, false);
-        if (props.Mass() > 1e-6) overlappingPairs++;
-        props.delete();
+        if (volume(c) > 1e-6) overlappingPairs++;
         c.delete();
       } finally {
         common.delete();

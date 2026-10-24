@@ -33,6 +33,7 @@ export const ICONS = {
   polygon: '<path d="M12 3.5 19.4 7.8v8.4L12 20.5l-7.4-4.3V7.8z"/>',
   slot: '<path d="M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7z"/><circle class="f" cx="8" cy="12" r="1.3"/><circle class="f" cx="16" cy="12" r="1.3"/>',
   construction: '<path class="d" d="M4 20 20 4"/>',
+  nurbs: '<path d="M3 18L8 5L16 19L21 6" stroke-dasharray="2 2" stroke-width="1.2"/><path d="M3 18C6 10 9 9 12 12s5 2 9-6"/><circle class="f" cx="8" cy="5" r="1.5"/><circle class="f" cx="16" cy="19" r="1.5"/>',
   spline: '<path d="M3 17c3-9 6-9 9-5s6 4 9-5"/><circle class="f" cx="3" cy="17" r="1.6"/><circle class="f" cx="12" cy="12" r="1.6"/><circle class="f" cx="21" cy="7" r="1.6"/>',
   trim: '<path d="M3 12h5M16 12h5M12 3v18"/><path class="d" d="M8 12h8"/><path d="m7 8 2 2M9 8l-2 2"/>',
   offset: '<path d="M4 20V9a5 5 0 0 1 5-5h11"/><path class="d" d="M8 20v-9a3 3 0 0 1 3-3h9"/>',
