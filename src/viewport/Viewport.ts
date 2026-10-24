@@ -13,6 +13,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import type { Manipulator, MeshPayload, SketchLines } from '../kernel/protocol';
 import { ManipulatorGroup, type ManipulatorHandlers } from './ManipulatorWidget';
+import { CurveHandles, type CurveHandleData, type CurveHandleHandlers } from './CurveHandles';
 import { VertexPicker } from './VertexPicker';
 import { VIEW_DIRECTIONS, ViewCube, type StandardView } from './ViewCube';
 import { DrawPlane, type DrawOverlay } from './DrawPlane';
@@ -69,6 +70,7 @@ export class Viewport {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
   private readonly viewCube: ViewCube;
   private readonly manipulator: ManipulatorGroup;
+  private readonly curveHandles: CurveHandles;
   private readonly vertexPicker: VertexPicker;
   /** Modo enganchar vértices (líneas 3D): clic en un vértice → `onPick(índice)`. */
   private vertexHandlers: { onPick: (index: number) => void } | null = null;
@@ -154,6 +156,8 @@ export class Viewport {
 
     this.manipulator = new ManipulatorGroup(container, () => (this.needsRender = true));
     this.scene.add(this.manipulator.group);
+    this.curveHandles = new CurveHandles(() => (this.needsRender = true));
+    this.scene.add(this.curveHandles.group);
     this.vertexPicker = new VertexPicker(() => (this.needsRender = true));
     this.scene.add(this.vertexPicker.group);
     this.drawPlane = new DrawPlane(container);
@@ -365,6 +369,12 @@ export class Viewport {
     this.vertexPicker.setChain(indices);
   }
 
+  /** Asas de la curva 3D seleccionada (null para ocultarlas). */
+  setCurveHandles(data: CurveHandleData | null, handlers: CurveHandleHandlers | null) {
+    this.curveHandles.set(data, handlers);
+    this.needsRender = true;
+  }
+
   /** Manipulador 3D de la feature seleccionada (null para ocultarlo). */
   setManipulator(specs: Manipulator[], handlersFor: ((m: Manipulator) => ManipulatorHandlers) | null) {
     this.manipulator.set(specs, handlersFor);
@@ -543,6 +553,7 @@ export class Viewport {
     this.renderer.setAnimationLoop(null);
     this.viewCube.dispose();
     this.manipulator.dispose();
+    this.curveHandles.dispose();
     this.vertexPicker.dispose();
     this.drawPlane.dispose();
     this.resizeObserver.disconnect();
@@ -560,6 +571,7 @@ export class Viewport {
     if (!this.needsRender) return;
     this.needsRender = false;
     this.manipulator.update(this.camera, (p) => this.worldPerPixel(p), this.size());
+    this.curveHandles.update((p) => this.worldPerPixel(p));
     this.drawPlane.update(this.camera, (p) => this.worldPerPixel(p), this.size());
     this.updateMeasureLabel();
     if (this.vertexHandlers) this.vertexPicker.updateVisibility((p) => this.occluded(p));
@@ -867,7 +879,16 @@ export class Viewport {
 
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
-    // El asa del manipulador tiene prioridad sobre la órbita y la selección.
+    // Las asas de una curva 3D y el manipulador tienen prioridad sobre la órbita y la selección.
+    if (!this.drawHandlers && !this.vertexHandlers && this.curveHandles.active) {
+      const h = this.curveHandles.hitTest(this.rayFrom(ev));
+      if (h >= 0) {
+        this.curveHandles.beginDrag(h, this.camera);
+        this.controls.enabled = false;
+        this.renderer.domElement.setPointerCapture(ev.pointerId);
+        return;
+      }
+    }
     if (!this.drawHandlers && !this.vertexHandlers && this.manipulator.active && this.manipulator.hitTest(this.rayFrom(ev))) {
       this.manipulator.beginDrag();
       this.controls.enabled = false;
@@ -878,6 +899,12 @@ export class Viewport {
   };
 
   private onPointerUp = (ev: PointerEvent) => {
+    if (this.curveHandles.isDragging) {
+      this.curveHandles.endDrag();
+      this.controls.enabled = true;
+      this.renderer.domElement.releasePointerCapture(ev.pointerId);
+      return;
+    }
     if (this.manipulator.isDragging) {
       this.manipulator.endDrag();
       this.controls.enabled = true;
@@ -924,6 +951,10 @@ export class Viewport {
   };
 
   private onPointerMove = (ev: PointerEvent) => {
+    if (this.curveHandles.isDragging) {
+      this.curveHandles.drag(this.rayFrom(ev));
+      return;
+    }
     if (this.manipulator.isDragging) {
       this.manipulator.drag(this.rayFrom(ev), ev.shiftKey);
       return;
@@ -937,6 +968,15 @@ export class Viewport {
       const uv = this.drawPlane.intersect(this.rayFrom(ev).ray);
       if (uv) this.drawHandlers.move(uv, this.screenOf(ev), ev);
       return;
+    }
+    if (this.curveHandles.active) {
+      const h = this.curveHandles.hitTest(this.rayFrom(ev));
+      this.curveHandles.setHover(h);
+      if (h >= 0) {
+        this.renderer.domElement.style.cursor = 'grab';
+        return this.setHovered(null);
+      }
+      this.renderer.domElement.style.cursor = '';
     }
     if (this.manipulator.active) {
       const over = this.manipulator.hitTest(this.rayFrom(ev));

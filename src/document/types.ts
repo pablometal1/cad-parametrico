@@ -460,13 +460,23 @@ export interface VertexRef {
 }
 
 /**
- * Curva 3D: líneas rectas que unen vértices del modelo, en orden (cerrada: vuelve al primero).
- * No cambia el sólido; sirve de borde para un parche.
+ * Asas de un tramo de curva 3D (como en Plasticity): desplazamiento del primer control respecto del
+ * vértice inicial y del segundo respecto del final. Siguen al modelo si los vértices se mueven.
+ */
+export type Curve3dHandles = [Vec3, Vec3];
+
+/**
+ * Curva 3D que une vértices del modelo, en orden (cerrada: vuelve al primero). Cada tramo es una
+ * Bézier: recto si no tiene asas, o suave con tangentes automáticas si `smooth`; las asas que se
+ * arrastran en el visor quedan en `handles` (una entrada por tramo, null = automático).
+ * No cambia el sólido (salvo marcar las caras por donde pasa); sirve de borde para un parche.
  */
 export interface Curve3dFeature extends FeatureBase {
   type: 'curve3d';
   points: VertexRef[];
   closed: boolean;
+  smooth?: boolean;
+  handles?: (Curve3dHandles | null)[];
 }
 
 /** Abombar una cara plana: el borde queda fijo y el centro sube (o baja) `height` mm. */

@@ -1,7 +1,7 @@
 // Motor de recálculo: recorre el documento y regenera el sólido, reutilizando resultados en cache.
 import { activeCount } from '../document/ops';
 import type { CadDocument, CopyFeature, Feature, FeatureId, ProfileFeature, ShellFeature } from '../document/types';
-import type { PlaneFrame, Vec3 } from '../document/planes';
+import type { PlaneFrame } from '../document/planes';
 import { describePlane, evaluatePlane } from './features/plane';
 import { describeError, FeatureError, hashString } from './occtUtils';
 import { resolveFace, type NamedShape } from './naming';
@@ -16,7 +16,8 @@ import { runThread } from './features/thread';
 import { runImport } from './features/import';
 import { runDraft, runPushPull } from './features/direct';
 import { runCombine, runMove, runSplit } from './features/bodies';
-import { evaluateCurve3d, imprintCurve, runDome, runPatch } from './features/surface';
+import { evaluateCurve3d, imprintCurve, runDome, runPatch, type Curve3dGeometry } from './features/surface';
+import type { BezierSegment } from '../document/curve3d';
 import { describeSketch, evaluateSketch, type EvaluatedSketch } from './features/sketch';
 import type { FeatureResult, FeatureStatus } from './protocol';
 
@@ -31,7 +32,7 @@ interface CacheEntry {
   /** Para planos de construcción: su sistema de coordenadas. */
   plane?: PlaneFrame;
   /** Para curvas 3D: los puntos de la polilínea (cerrada: el último repite el primero). */
-  curve?: Vec3[];
+  curve?: Curve3dGeometry;
   /** Importación como referencia: el cuerpo que se muestra aparte (propiedad de la entrada). */
   reference?: NamedShape;
   status: Extract<FeatureStatus, 'ok' | 'error'>;
@@ -49,7 +50,7 @@ export interface RecomputeOutput {
   /** Planos de construcción evaluados en este recálculo. */
   planes: Map<FeatureId, PlaneFrame>;
   /** Curvas 3D evaluadas en este recálculo. */
-  curves: Map<FeatureId, Vec3[]>;
+  curves: Map<FeatureId, Curve3dGeometry>;
   /** Piezas importadas como referencia (se muestran, no se exportan). */
   references: { id: FeatureId; shape: NamedShape }[];
 }
@@ -81,7 +82,7 @@ interface Context {
   input: NamedShape | null;
   sketches: Map<FeatureId, EvaluatedSketch>;
   planes: Map<FeatureId, PlaneFrame>;
-  curves: Map<FeatureId, Vec3[]>;
+  curves: Map<FeatureId, Curve3dGeometry>;
   doc: CadDocument;
   index: number;
 }
@@ -116,7 +117,7 @@ export class RecomputeEngine {
     const results: FeatureResult[] = [];
     const sketches = new Map<FeatureId, EvaluatedSketch>();
     const planes = new Map<FeatureId, PlaneFrame>();
-    const curves = new Map<FeatureId, Vec3[]>();
+    const curves = new Map<FeatureId, Curve3dGeometry>();
     const references: RecomputeOutput['references'] = [];
     /** Clave de cada plano de construcción calculado (para sketches/planos que dependen de él). */
     const planeKeys = new Map<FeatureId, string>();
@@ -269,7 +270,7 @@ export class RecomputeEngine {
           // Los tramos que van por una cara la parten; los que cruzan el aire solo quedan como curva.
           const curve = evaluateCurve3d(feature, ctx.input);
           const n = feature.closed ? feature.points.length : feature.points.length - 1;
-          const imprinted = ctx.input ? imprintCurve(feature, ctx.input, curve) : null;
+          const imprinted = ctx.input ? imprintCurve(feature.id, ctx.input, curve) : null;
           const added = imprinted ? imprinted.shape.faces.length - ctx.input!.shape.faces.length : 0;
           const info = `${n} tramo${n === 1 ? '' : 's'}` + (added ? ` · ${added === 1 ? 'parte 1 cara' : `${added} caras nuevas`}` : '');
           if (imprinted) return { key, output: imprinted, owned: true, curve, status: 'ok', info, timeMs: elapsed(t0) };
@@ -453,10 +454,10 @@ function elapsed(t0: number) {
 }
 
 /** Polilíneas de las curvas 3D que usa una feature, con errores claros si no están disponibles. */
-function resolveCurves(ids: FeatureId[], ctx: Context): Vec3[][] {
+function resolveCurves(ids: FeatureId[], ctx: Context): BezierSegment[][] {
   return ids.map((id) => {
     const c = ctx.curves.get(id);
-    if (c) return c;
+    if (c) return c.segments;
     const f = ctx.doc.features.find((x) => x.id === id);
     if (!f) throw new FeatureError('Una curva 3D del borde fue borrada');
     throw new FeatureError(`La curva "${f.name}" no está disponible (suprimida, con error o más abajo en el historial)`);

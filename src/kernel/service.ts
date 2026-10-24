@@ -1,6 +1,7 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
 import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
+import { sampleSegments } from '../document/curve3d';
 import { area, volumeProps } from './features/measure';
 import { loadFonts } from '../sketch/text';
 import { measureArea } from 'replicad';
@@ -62,7 +63,9 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         reference: new Float32Array(s.reference),
         plane: { origin: s.frame.origin, xDir: s.frame.xDir, yDir: s.frame.yDir, normal: s.frame.normal },
         bounds: sketchBounds(s),
-      })).concat([...curves].map(([id, pts]) => ({
+      })).concat([...curves].map(([id, c]) => {
+        const pts = sampleSegments(c.segments);
+        return {
         // Las curvas 3D se dibujan como las líneas de un sketch (sin plano).
         id,
         segments: new Float32Array(pts.slice(1).flatMap((p, i) => [...pts[i], ...p])),
@@ -70,7 +73,9 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
         reference: new Float32Array(0),
         plane: { origin: [0, 0, 0], xDir: [1, 0, 0], yDir: [0, 1, 0], normal: [0, 0, 1] },
         bounds: [0, 0, 0, 0],
-      }))),
+        };
+      })),
+      curves: [...curves].map(([id, c]) => ({ id, vertices: c.vertices, segments: c.segments })),
       parameters: evaluated.parameters,
       planes: [...planes].map(([id, f]) => ({ id, frame: { origin: f.origin, xDir: f.xDir, yDir: f.yDir, normal: f.normal } })),
       references: references.flatMap((r) => {
@@ -263,7 +268,7 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   }
 
   private computeMassProperties(shape: NamedShape['shape']): MassProperties {
-    const vol = volumeProps(shape, true);
+    const vol = volumeProps(shape);
     try {
       const c = vol.CentreOfMass();
       const center: [number, number, number] = [c.X(), c.Y(), c.Z()];

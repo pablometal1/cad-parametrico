@@ -172,6 +172,8 @@ export interface RecomputeResult {
   references: { id: string; mesh: MeshPayload }[];
   /** Planos de construcción evaluados (para dibujarlos y apoyar sketches). */
   planes: { id: string; frame: { origin: V3; xDir: V3; yDir: V3; normal: V3 } }[];
+  /** Curvas 3D evaluadas: vértices y tramos Bézier [inicio, control, control, fin] (para sus asas). */
+  curves: { id: string; vertices: V3[]; segments: [V3, V3, V3, V3][] }[];
   totalMs: number;
 }
 

@@ -8,6 +8,7 @@ import { evaluateDocument, evaluateText, getFieldValue, setFieldValue } from '..
 import { parseExpression, plainNumber } from '../document/expressions';
 import { History, type RecordOptions } from '../document/history';
 import * as ops from '../document/ops';
+import { handlesAfter, type BezierSegment } from '../document/curve3d';
 import { parseDocument } from '../document/serialize';
 import type {
   BasePlane, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature } from '../document/types';
@@ -138,6 +139,8 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
   /** Planos de construcción del último recálculo. */
   const [planeFrames, setPlaneFrames] = createSignal<Map<FeatureId, RecomputeResult['planes'][number]['frame']>>(new Map());
+  /** Curvas 3D evaluadas (vértices y tramos), para mostrar y arrastrar sus asas. */
+  const [curveGeometry, setCurveGeometry] = createSignal<Map<FeatureId, RecomputeResult['curves'][number]>>(new Map());
 
   /** Error del último recálculo que no es de una feature (malla, memoria…); null si anduvo. */
   const [recomputeError, setRecomputeError] = createSignal<string | null>(null);
@@ -165,6 +168,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
           callbacks.onSketches(r.sketches);
           callbacks.onReferences?.(r.references);
           setPlaneFrames(new Map(r.planes.map((p) => [p.id, p.frame])));
+          setCurveGeometry(new Map(r.curves.map((c) => [c.id, c])));
         } catch (err) {
           // Un error inesperado (no de una feature) puede dejar a OpenCascade en mal estado:
           // se reinicia el kernel y se reintenta una vez. Si vuelve a fallar se avisa, pero la app
@@ -271,8 +275,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     });
   }
 
-  /** Termina la Línea 3D y la guarda como curva (necesita al menos 2 vértices). */
-  async function finishLine3d(closed = false) {
+  /**
+   * Termina la Línea 3D y la guarda como curva (necesita al menos 2 vértices). Con `surface`, la
+   * cierra y la rellena con un parche en el mismo paso (superficie por vértices).
+   */
+  async function finishLine3d(closed = false, surface = false) {
     const l = lining();
     if (!l) return;
     if (l.chain.length < 2) {
@@ -282,7 +289,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     setLining(null);
     const refs = await withRefs(() => kernel.vertexRefs(l.chain));
     if (!refs) return;
-    addWithDialog(ops.makeCurve3d(doc(), refs, closed && l.chain.length >= 3));
+    if (!surface) return addWithDialog(ops.makeCurve3d(doc(), refs, closed && l.chain.length >= 3));
+    if (l.chain.length < 3) return setNotice('Para una superficie hacen falta al menos 3 vértices');
+    const curve = ops.makeCurve3d(doc(), refs, true);
+    apply((d) => ops.addFeature(d, curve), { coalesce: `dialog:${curve.id}`, sticky: true });
+    addWithDialog(ops.makePatch(doc(), [], { curves: [curve.id] }));
   }
 
   /** Agrega una feature nueva y abre su panel; la creación y los ajustes del panel son un solo paso. */
@@ -309,6 +320,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   return {
     doc,
     planeFrames,
+    curveGeometry,
     recomputeError,
     evaluated,
     results,
@@ -756,6 +768,13 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (!refs) return;
       if (refs[0].type !== 'PLANE') return setNotice('Abombar funciona con caras planas');
       addWithDialog(ops.makeDome(doc(), refs[0]));
+    },
+
+    /** Guarda las asas arrastradas en el visor (los tramos tocados quedan fijos). */
+    moveCurveHandles(id: FeatureId, segments: BezierSegment[], touched: number[]) {
+      const f = ops.findFeature(doc(), id);
+      if (f?.type !== 'curve3d') return;
+      apply((d) => ops.updateFeature<Curve3dFeature>(d, id, { handles: handlesAfter(segments, touched, f.handles) }));
     },
 
     /** Parche sobre las aristas elegidas (un contorno cerrado). */

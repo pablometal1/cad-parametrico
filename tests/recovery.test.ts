@@ -16,7 +16,7 @@ beforeAll(async () => {
   await initSolver();
 }, 60_000);
 
-const EMPTY: RecomputeResult = { features: [], mesh: null, sketches: [], parameters: [], planes: [], references: [], totalMs: 0 };
+const EMPTY: RecomputeResult = { features: [], mesh: null, sketches: [], parameters: [], planes: [], curves: [], references: [], totalMs: 0 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /** Kernel simulado: `fails` dice si cada llamada a recompute falla. */

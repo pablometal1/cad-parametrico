@@ -3,7 +3,7 @@ import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
-  type Parameter, type PlaneReference, type SketchSpline, type LoftFeature, type LoftSection, NURBS_MAX_DEGREE,
+  type Parameter, type PlaneReference, type SketchSpline, type LoftFeature, type LoftSection, type Curve3dFeature, type Curve3dHandles, NURBS_MAX_DEGREE,
 } from './types';
 import { isValidName } from './expressions';
 
@@ -143,7 +143,17 @@ function validateFeature(raw: unknown, path: string): Feature {
         if (!edges.length) throw new DocumentFormatError(`${p}.edges`, 'un vértice necesita al menos una arista');
         return { edges, point: pt as [number, number, number] };
       });
-      return { ...base, type: 'curve3d', points, closed: bool(o.closed, `${path}.closed`) };
+      const curve: Curve3dFeature = { ...base, type: 'curve3d', points, closed: bool(o.closed, `${path}.closed`) };
+      if (o.smooth !== undefined) curve.smooth = bool(o.smooth, `${path}.smooth`);
+      if (o.handles !== undefined) {
+        curve.handles = list(o.handles, `${path}.handles`, (v, p): Curve3dHandles | null =>
+          v === null ? null : (() => {
+            const pair = list(v, p, vec3);
+            if (pair.length !== 2) throw new DocumentFormatError(p, 'un tramo tiene dos asas');
+            return [pair[0], pair[1]];
+          })());
+      }
+      return curve;
     }
     case 'patch':
       return {

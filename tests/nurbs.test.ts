@@ -135,7 +135,8 @@ describe('NURBS en el sketch', () => {
       // Arriba, abajo y una sola cara B-spline alrededor.
       expect(shape.faces.length).toBe(3);
       const area = polygonArea(sampleNurbs(pts, true, 3, 400).slice(0, -1));
-      expect(volume(shape)).toBeCloseTo(area * 4, 1);
+      // La integración de volumen de OCCT erra ~1/5000 en caras B-spline (ver measure.ts).
+      expect(Math.abs(volume(shape) - area * 4) / (area * 4)).toBeLessThan(5e-4);
     } finally {
       dispose();
     }

@@ -361,6 +361,24 @@ export function App() {
     viewport?.setSketchPlanes(sketchLines(), store.editing() ? new Set() : planes);
   });
 
+  // Asas de la curva 3D seleccionada (o de la curva del parche seleccionado): se arrastran en el
+  // visor y la curva, y el parche que la usa, se recalculan al soltar.
+  createEffect(() => {
+    const sel = store.selectedFeature();
+    const geometry = store.curveGeometry();
+    const id = sel?.type === 'curve3d' ? sel.id : sel?.type === 'patch' ? sel.curves?.[0] : undefined;
+    const f = id ? findFeature(store.doc(), id) : undefined;
+    const g = id ? geometry.get(id) : undefined;
+    if (!f || f.type !== 'curve3d' || !g || store.editing() || store.lining() || store.drawing() || store.picking()) {
+      viewport?.setCurveHandles(null, null);
+      return;
+    }
+    viewport?.setCurveHandles(
+      { segments: g.segments, closed: f.closed, keepTangent: !!f.smooth },
+      { onCommit: (segments, touched) => store.moveCurveHandles(f.id, segments, touched) },
+    );
+  });
+
   // Propiedades de la pieza (volumen, masa…) tras cada recálculo.
   let massRequest = 0;
   createEffect(() => {
@@ -710,6 +728,10 @@ export function App() {
               <span class="draw-title with-icon"><Icon name="curve3d" size={16} /> Línea 3D · {l().chain.length} vértices</span>
               <button class="primary with-icon" disabled={l().chain.length < 2} onClick={() => void store.finishLine3d()} {...tip('Terminar', 'Enter')}><Icon name="check" size={16} />Terminar</button>
               <button disabled={l().chain.length < 3} onClick={() => void store.finishLine3d(true)} {...tip('Cerrar', undefined, 'Une el último vértice con el primero (o hacé clic en el primero)')}>Cerrar</button>
+              <button class="with-icon" disabled={l().chain.length < 3} onClick={() => void store.finishLine3d(true, true)}
+                {...tip('Superficie', undefined, 'Cierra la curva por estos vértices y la rellena con una superficie (parche). Después se ajusta arrastrando las asas de la curva')}>
+                <Icon name="patch" size={16} />Superficie
+              </button>
               <button onClick={() => store.cancelLine3d()} {...tip('Cancelar', 'Esc')}>Cancelar</button>
               <span class="muted draw-hint">Clic en los vértices del modelo · clic en el primero cierra · Backspace quita el último · arrastrar: orbitar</span>
             </div>

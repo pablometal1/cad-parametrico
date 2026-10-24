@@ -1,6 +1,7 @@
 // Superficies libres (estilo hard surface): parche que rellena un contorno de aristas y abombado
 // de una cara plana. La superficie se arma con BRepOffsetAPI_MakeFilling.
-import { cast, getOC, makeLine, type AnyShape, type Edge, type Face } from 'replicad';
+import { cast, getOC, makeBezierCurve, makeLine, type AnyShape, type Edge, type Face } from 'replicad';
+import { curveSegments, isStraight, segmentCount, type BezierSegment } from '../../document/curve3d';
 import type { Curve3dFeature, DomeFeature, PatchFeature, Vec3 } from '../../document/types';
 import { historyOf, NameBuilder, resolveEdge, resolveFace, resolveVertex, ShapeTable, type NamedShape } from '../naming';
 import { FeatureError, isValidShape } from '../occtUtils';
@@ -58,8 +59,8 @@ function loopFrame(edges: Edge[]): { center: Vec3; normal: Vec3 } {
  * Parche: superficie que rellena un contorno cerrado de aristas del modelo (abombada `height` mm
  * en el centro si no es 0), engrosada `thickness` mm y combinada con el sólido.
  */
-export function runPatch(feature: PatchFeature, input: NamedShape | null, curves: Vec3[][] = []): NamedShape {
-  const curveEdges = curves.flatMap((pts) => pts.slice(1).map((p, i) => makeLine(pts[i], p)));
+export function runPatch(feature: PatchFeature, input: NamedShape | null, curves: BezierSegment[][] = []): NamedShape {
+  const curveEdges = curves.flatMap((segs) => segmentEdges(segs));
   if (!input && !curveEdges.length) throw new FeatureError('No hay aristas ni curvas para el parche');
   if (feature.edges.length + curveEdges.length < 2) throw new FeatureError('Elegí las aristas o curvas de un contorno cerrado (al menos 2)');
   if (!(feature.thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${feature.thickness})`);
@@ -117,8 +118,19 @@ export function thickenSheet(sheet: AnyShape, thickness: number, what: string): 
   }
 }
 
-/** Puntos de una curva 3D en el sólido de entrada (cerrada: el último repite el primero). */
-export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | null): Vec3[] {
+/** Aristas de los tramos de una curva 3D: líneas o Bézier cúbicas. El llamador es dueño. */
+export function segmentEdges(segs: BezierSegment[]): Edge[] {
+  return segs.map((s) => (isStraight(s) ? makeLine(s[0], s[3]) : makeBezierCurve(s)));
+}
+
+/** Curva 3D evaluada: los vértices del modelo por los que pasa y sus tramos Bézier. */
+export interface Curve3dGeometry {
+  vertices: Vec3[];
+  segments: BezierSegment[];
+}
+
+/** Vértices y tramos de una curva 3D en el sólido de entrada. */
+export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | null): Curve3dGeometry {
   if (feature.points.length < 2) throw new FeatureError('Una curva 3D necesita al menos 2 vértices');
   if (!input) throw new FeatureError('No hay un modelo con vértices para la curva');
   const pts = feature.points.map((v) => resolveVertex(input, v));
@@ -128,7 +140,11 @@ export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | nul
     }
   }
   if (feature.closed && pts.length < 3) throw new FeatureError('Una curva cerrada necesita al menos 3 vértices');
-  return feature.closed ? [...pts, pts[0]] : pts;
+  const n = segmentCount(pts.length, feature.closed);
+  if (feature.handles && feature.handles.length !== n) {
+    throw new FeatureError(`La curva tiene ${n} tramos pero guarda asas para ${feature.handles.length}: volvé a crearla`);
+  }
+  return { vertices: pts, segments: curveSegments(pts, feature.closed, !!feature.smooth, feature.handles) };
 }
 
 /**
@@ -136,11 +152,11 @@ export function evaluateCurve3d(feature: Curve3dFeature, input: NamedShape | nul
  * línea sobre una cara en SketchUp), así cada parte se puede empujar, inclinar o redondear aparte.
  * Devuelve null si ningún tramo toca una cara (el modelo queda igual).
  */
-export function imprintCurve(feature: Curve3dFeature, input: NamedShape, pts: Vec3[]): NamedShape | null {
+export function imprintCurve(featureId: string, input: NamedShape, curve: Curve3dGeometry): NamedShape | null {
   const oc = getOC();
   const keep: Keep[] = [];
   try {
-    const lines = pts.slice(1).map((p, i) => makeLine(pts[i], p));
+    const lines = segmentEdges(curve.segments);
     keep.push(...lines);
     const args = new oc.NCollection_List_TopoDS_Shape();
     const tools = new oc.NCollection_List_TopoDS_Shape();
@@ -162,7 +178,7 @@ export function imprintCurve(feature: Curve3dFeature, input: NamedShape, pts: Ve
     const nb = new NameBuilder(result);
     // Las dos partes de una cara partida heredan su nombre; se distinguen por la huella geométrica.
     nb.carry(input, history);
-    return nb.finish(feature.id);
+    return nb.finish(featureId);
   } finally {
     keep.forEach((k) => k.delete());
   }
@@ -210,7 +226,7 @@ export function runDome(feature: DomeFeature, input: NamedShape | null): NamedSh
     if (pieces.solids.length < 2) throw new FeatureError('La superficie del abombado no se separa de la cara: probá con otra altura');
     // La parte del abombado es la que queda más cerca del plano de la cara.
     const along = (s: AnyShape) => {
-      const props = volumeProps(s, true);
+      const props = volumeProps(s);
       const g = props.CentreOfMass();
       const d = (g.X() - c[0]) * n[0] + (g.Y() - c[1]) * n[1] + (g.Z() - c[2]) * n[2];
       g.delete();

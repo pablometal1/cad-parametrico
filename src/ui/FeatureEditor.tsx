@@ -1,5 +1,5 @@
 // Panel de parámetros de la feature seleccionada en el timeline.
-import { Icon } from './icons';
+import { Icon, tip } from './icons';
 import { For, Match, Show, Switch } from 'solid-js';
 import type {
   BasePlane, BooleanOperation, ChamferFeature, ExtrudeDirection, ExtrudeFeature, FilletFeature, ProfileFeature,
@@ -792,19 +792,38 @@ function PatchPanel(props: { store: CadStore; feature: PatchFeature }) {
 function Curve3dPanel(props: { store: CadStore; feature: Curve3dFeature }) {
   const f = () => props.feature;
   const update = (patch: Partial<Curve3dFeature>) => props.store.updateFeature<Curve3dFeature>(f().id, patch);
+  /** Al abrir o cerrar cambia la cantidad de tramos: se agrega o se quita el último. */
+  const setClosed = (closed: boolean) => {
+    const h = f().handles;
+    update({ closed, handles: h ? (closed ? [...h, null] : h.slice(0, -1)) : undefined });
+  };
+  const edited = () => (f().handles ?? []).filter((h) => h).length;
   return (
     <>
       <h3>Curva 3D</h3>
       <label class="field">
         <span class="field-label">Cerrada</span>
         <span class="field-input">
-          <input type="checkbox" checked={f().closed} disabled={f().points.length < 3} onChange={(e) => update({ closed: e.currentTarget.checked })} />
+          <input type="checkbox" checked={f().closed} disabled={f().points.length < 3} onChange={(e) => setClosed(e.currentTarget.checked)} />
           <span class="muted">une el último vértice con el primero</span>
         </span>
       </label>
+      <label class="field">
+        <span class="field-label">Suave</span>
+        <span class="field-input">
+          <input type="checkbox" checked={!!f().smooth} onChange={(e) => update({ smooth: e.currentTarget.checked })} />
+          <span class="muted">curva continua por los vértices (si no, tramos rectos)</span>
+        </span>
+      </label>
+      <Show when={edited() > 0}>
+        <button class="with-icon" onClick={() => update({ handles: undefined })} {...tip('Restablecer asas', undefined, 'Vuelve los tramos editados a su forma automática')}>
+          <Icon name="undo" size={14} />Restablecer asas ({edited()})
+        </button>
+      </Show>
       <p class="hint">
-        {plural(f().points.length, 'vértice', 'vértices')} del modelo, unidos con líneas rectas. Un tramo que va por una cara la parte en dos (después
-        podés empujar/tirar, inclinar o redondear cada parte). Siguen al modelo si cambian sus cotas. Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie.
+        {plural(f().points.length, 'vértice', 'vértices')} del modelo. Arrastrá las asas azules en el visor para curvar cada tramo (con «Suave», la del
+        tramo vecino gira con ella y la tangente queda continua). Las asas siguen al modelo si cambian sus cotas. Un tramo que va por una cara la parte en dos.
+        Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie; si ya tiene parche, editar la curva lo recalcula.
       </p>
     </>
   );
