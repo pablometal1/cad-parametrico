@@ -160,6 +160,7 @@ function validateFeature(raw: unknown, path: string): Feature {
         ...base, type: 'patch', edges: list(o.edges, `${path}.edges`, edgeRef), height: num(o.height, `${path}.height`),
         ...(o.curves !== undefined ? { curves: list(o.curves, `${path}.curves`, str) } : {}),
         thickness: num(o.thickness, `${path}.thickness`), operation: oneOf(o.operation, ['new', 'join', 'cut'] as const, `${path}.operation`),
+        ...(o.tangent !== undefined ? { tangent: bool(o.tangent, `${path}.tangent`) } : {}),
       };
     case 'dome':
       return { ...base, type: 'dome', face: faceRef(o.face, `${path}.face`), height: num(o.height, `${path}.height`) };

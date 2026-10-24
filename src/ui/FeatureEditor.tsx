@@ -782,8 +782,19 @@ function PatchPanel(props: { store: CadStore; feature: PatchFeature }) {
       <h3>Parche</h3>
       <Num store={props.store} id={f().id} path="height" label="Abombado" unit="mm" />
       <Num store={props.store} id={f().id} path="thickness" label="Espesor" unit="mm" />
+      <label class="field">
+        <span class="field-label">Tangente</span>
+        <span class="field-input">
+          <input type="checkbox" checked={!!f().tangent} onChange={(e) => update({ tangent: e.currentTarget.checked })} />
+          <span class="muted">sale tangente a las caras del modelo que tocan el borde</span>
+        </span>
+      </label>
       <SelectField label="Operación" value={f().operation} options={PATCH_OPS} onChange={(operation) => update({ operation })} />
-      <p class="hint">{plural(f().edges.length, 'arista', 'aristas')}{f().curves?.length ? ` + ${plural(f().curves!.length, 'curva 3D', 'curvas 3D')}` : ''}. Tienen que formar un contorno cerrado; abombado 0 = la superficie más plana posible.</p>
+      <p class="hint">
+        {plural(f().edges.length, 'arista', 'aristas')}{f().curves?.length ? ` + ${plural(f().curves!.length, 'curva 3D', 'curvas 3D')}` : ''}. Tienen que formar un
+        contorno cerrado; abombado 0 = la superficie más plana posible. Espesor 0 = superficie sin espesor (cuerpo nuevo, como en Plasticity; no se
+        exporta a STL/3MF): poné un espesor para poder imprimirla, unirla o cortar con ella.
+      </p>
       <PickButton onClick={() => props.store.beginPick(f().id)}>Elegir aristas…</PickButton>
     </>
   );

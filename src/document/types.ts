@@ -438,7 +438,9 @@ export interface MoveFeature extends FeatureBase {
 
 /**
  * Parche (superficie libre): rellena un contorno cerrado de aristas del modelo con una superficie
- * suave, abombada `height` mm en el centro (0 = la más plana posible), engrosada `thickness` mm.
+ * suave, abombada `height` mm en el centro (0 = la más plana posible). Con `thickness` 0 queda como
+ * superficie sin espesor (solo como cuerpo nuevo); si no, se engrosa esos mm. Con `tangent`, sale
+ * tangente a las caras del modelo que tocan el borde (como el parche de Plasticity).
  */
 export interface PatchFeature extends FeatureBase {
   type: 'patch';
@@ -448,6 +450,7 @@ export interface PatchFeature extends FeatureBase {
   height: number;
   thickness: number;
   operation: 'new' | 'join' | 'cut';
+  tangent?: boolean;
 }
 
 /**

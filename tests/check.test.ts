@@ -23,7 +23,7 @@ function withShape<T>(doc: CadDocument, fn: (s: NamedShape) => T): T {
   }
 }
 
-const OK = { valid: true, openEdges: 0, flippedEdges: 0, invertedBodies: 0, overlappingPairs: 0, checkedOverlap: true };
+const OK = { valid: true, openEdges: 0, flippedEdges: 0, invertedBodies: 0, overlappingPairs: 0, checkedOverlap: true, sheetFaces: 0 };
 
 describe('comprobación para imprimir', () => {
   it('caja, redondeo y agujero pasante: todo bien', () => {

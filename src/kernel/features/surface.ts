@@ -10,12 +10,18 @@ import { volume, volumeProps } from './measure';
 
 type Keep = { delete(): void };
 
+/** Arista del borde de un parche; con `support`, la superficie sale tangente a esa cara. */
+type Boundary = { edge: Edge; support: Face | null };
+
 /** Superficie que pasa por las aristas (cerradas en un contorno) y, si se da, por un punto. */
-function fillSurface(edges: Edge[], point: Vec3 | null, keep: Keep[]): AnyShape {
+function fillSurface(boundary: Boundary[], point: Vec3 | null, keep: Keep[]): AnyShape {
   const oc = getOC();
   const mf = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 1e-2, 0.1, 8, 9);
   keep.push(mf);
-  for (const e of edges) mf.Add(oc.TopoDS.Edge(e.wrapped), oc.GeomAbs_Shape.GeomAbs_C0, true);
+  for (const b of boundary) {
+    if (b.support) mf.Add(oc.TopoDS.Edge(b.edge.wrapped), oc.TopoDS.Face(b.support.wrapped), oc.GeomAbs_Shape.GeomAbs_G1, true);
+    else mf.Add(oc.TopoDS.Edge(b.edge.wrapped), oc.GeomAbs_Shape.GeomAbs_C0, true);
+  }
   if (point) {
     const p = new oc.gp_Pnt(...point);
     keep.push(p);
@@ -37,6 +43,47 @@ function fillSurface(edges: Edge[], point: Vec3 | null, keep: Keep[]): AnyShape 
   return s;
 }
 
+/**
+ * Cara del modelo a la que la superficie sale tangente en una arista: de las caras que la tocan,
+ * la más "parada" respecto del contorno (en la tapa de una caja, la pared y no la tapa misma).
+ */
+function supportFace(input: NamedShape, edge: Edge, loopNormal: Vec3): Face | null {
+  const mid = edge.pointAt(0.5);
+  let best: { face: Face; score: number } | null = null;
+  for (const face of input.shape.faces) {
+    if (!face.edges.some((e) => e.isSame(edge))) continue;
+    const n = face.normalAt(mid).toTuple();
+    const score = Math.abs(n[0] * loopNormal[0] + n[1] * loopNormal[1] + n[2] * loopNormal[2]);
+    if (!best || score < best.score) best = { face, score };
+  }
+  mid.delete();
+  return best?.face ?? null;
+}
+
+/** ¿La superficie tiene normales bien definidas? (tangente a paredes que no la dejan cerrar, degenera). */
+function smoothSurface(surface: AnyShape): boolean {
+  const f = surface.faces[0];
+  for (const [u, v] of [[0.5, 0.5], [0.25, 0.5], [0.5, 0.25], [0.75, 0.75], [0.1, 0.5], [0.5, 0.9]]) {
+    const p = f.pointOnSurface(u, v);
+    const n = f.normalAt(p).toTuple();
+    p.delete();
+    if (Math.abs(Math.hypot(n[0], n[1], n[2]) - 1) > 1e-3) return false;
+  }
+  return isValidShape(surface);
+}
+
+/** Arista recta del modelo con esos extremos (un tramo recto de una curva 3D que va por ella). */
+function modelEdgeAlong(table: ShapeTable<Edge>, s: BezierSegment): Edge | null {
+  if (!isStraight(s)) return null;
+  const near = (p: number[], q: Vec3) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 1e-6;
+  for (const e of table.items) {
+    if (e.geomType !== 'LINE') continue;
+    const [a, b] = [e.startPoint.toTuple(), e.endPoint.toTuple()];
+    if ((near(a, s[0]) && near(b, s[3])) || (near(a, s[3]) && near(b, s[0]))) return e;
+  }
+  return null;
+}
+
 /** Centro y normal media de un contorno (normal de Newell sobre puntos de las aristas). */
 function loopFrame(edges: Edge[]): { center: Vec3; normal: Vec3 } {
   const pts: Vec3[] = [];
@@ -56,23 +103,50 @@ function loopFrame(edges: Edge[]): { center: Vec3; normal: Vec3 } {
 }
 
 /**
- * Parche: superficie que rellena un contorno cerrado de aristas del modelo (abombada `height` mm
- * en el centro si no es 0), engrosada `thickness` mm y combinada con el sólido.
+ * Parche: superficie que rellena un contorno cerrado de aristas del modelo y curvas 3D (abombada
+ * `height` mm en el centro si no es 0). Con espesor 0 queda como superficie (sin volumen, como en
+ * Plasticity); si no, se engrosa hacia afuera de la pieza y se combina. Con `tangent`, sale
+ * tangente a las caras del modelo que tocan el borde.
  */
 export function runPatch(feature: PatchFeature, input: NamedShape | null, curves: BezierSegment[][] = []): NamedShape {
-  const curveEdges = curves.flatMap((segs) => segmentEdges(segs));
-  if (!input && !curveEdges.length) throw new FeatureError('No hay aristas ni curvas para el parche');
-  if (feature.edges.length + curveEdges.length < 2) throw new FeatureError('Elegí las aristas o curvas de un contorno cerrado (al menos 2)');
-  if (!(feature.thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${feature.thickness})`);
+  if (!input && !curves.length) throw new FeatureError('No hay aristas ni curvas para el parche');
+  if (feature.edges.length + curves.reduce((n, c) => n + c.length, 0) < 2) throw new FeatureError('Elegí las aristas o curvas de un contorno cerrado (al menos 2)');
+  if (!(feature.thickness >= 0)) throw new FeatureError(`El espesor no puede ser negativo (es ${feature.thickness})`);
+  const sheet = feature.thickness === 0;
+  if (sheet && feature.operation !== 'new') {
+    throw new FeatureError('Una superficie sin espesor no puede unirse ni cortar: indicá un espesor, o usá «Cuerpo nuevo»');
+  }
   if (!Number.isFinite(feature.height)) throw new FeatureError('La altura no es un número válido');
   const table = input ? ShapeTable.edges(input.shape) : null;
   const modelEdges = input ? [...new Set(feature.edges.map((r) => resolveEdge(input, r)))].map((i) => table!.items[i]) : [];
-  const edges = [...modelEdges, ...curveEdges];
-  const keep: Keep[] = [...curveEdges];
+  const keep: Keep[] = [];
   try {
-    const { center, normal } = loopFrame(edges);
+    // Un tramo recto de curva que va justo por una arista del modelo usa esa arista (así puede
+    // salir tangente a su cara).
+    const curveBoundary: { edge: Edge; model: boolean }[] = curves.flatMap((segs) => segs.map((sg) => {
+      const along = table && feature.tangent ? modelEdgeAlong(table, sg) : null;
+      if (along) return { edge: along, model: true };
+      const [e] = segmentEdges([sg]);
+      keep.push(e);
+      return { edge: e, model: false };
+    }));
+    const all = [...modelEdges.map((edge) => ({ edge, model: true })), ...curveBoundary];
+    const { center, normal } = loopFrame(all.map((b) => b.edge));
+    const boundary: Boundary[] = all.map((b) => ({
+      edge: b.edge,
+      support: feature.tangent && b.model && input ? supportFace(input, b.edge, normal) : null,
+    }));
     const point = Math.abs(feature.height) > 1e-9 ? (center.map((v, k) => v + normal[k] * feature.height) as Vec3) : null;
-    const surface = fillSurface(edges, point, keep);
+    const surface = fillSurface(boundary, point, keep);
+    if (boundary.some((b) => b.support) && !point && !smoothSurface(surface)) {
+      surface.delete();
+      throw new FeatureError('Tangente a esas caras la superficie no cierra plana: poné un abombado (por ejemplo la mitad del ancho)');
+    }
+    if (sheet) {
+      const nb = new NameBuilder(surface);
+      nb.add(surface.faces[0].wrapped, `${feature.id}:patch`);
+      return combine('new', input, nb.finish(feature.id), feature.id);
+    }
     keep.push(surface);
     // Se engrosa hacia afuera de la pieza (lejos de su centro), así la superficie queda a la vista
     // y no se mete dentro del sólido.
@@ -214,7 +288,7 @@ export function runDome(feature: DomeFeature, input: NamedShape | null): NamedSh
   const keep: Keep[] = [];
   try {
     const top = c.map((v, k) => v + n[k] * h) as Vec3;
-    const surface = fillSurface(face.edges, top, keep);
+    const surface = fillSurface(face.edges.map((edge) => ({ edge, support: null })), top, keep);
     keep.push(surface);
     // Prisma de la cara hacia el lado del abombado, más alto que la superficie.
     const reach = (Math.abs(h) * 1.5 + 1) * Math.sign(h);

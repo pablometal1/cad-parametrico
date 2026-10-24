@@ -10,7 +10,8 @@ import { getOC, type AnyShape } from 'replicad';
 export function volumeProps(shape: AnyShape) {
   const oc = getOC();
   const props = new oc.GProp_GProps();
-  oc.BRepGProp.VolumeProperties(shape.wrapped, props, false, false, false);
+  // Solo cáscaras cerradas: una superficie sin espesor suelta no tiene volumen (contada, falsea el total).
+  oc.BRepGProp.VolumeProperties(shape.wrapped, props, true, false, false);
   return props;
 }
 

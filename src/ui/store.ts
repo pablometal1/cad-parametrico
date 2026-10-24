@@ -295,7 +295,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     apply((d) => ops.addFeature(d, curve), { coalesce: `dialog:${curve.id}`, sticky: true });
     // Cuerpo aparte (como en Plasticity): unida, una superficie por vértices de la pieza queda
     // sobre ella o adentro y no se ve.
-    addWithDialog(ops.makePatch(doc(), [], { curves: [curve.id], operation: 'new' }));
+    addWithDialog(ops.makePatch(doc(), [], { curves: [curve.id], operation: 'new', thickness: 0 }));
   }
 
   /** Agrega una feature nueva y abre su panel; la creación y los ajustes del panel son un solo paso. */
@@ -788,12 +788,13 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
         : doc().features.filter((f): f is Curve3dFeature => f.type === 'curve3d' && f.closed && !used.has(f.id)).at(-1);
       if (sel && edges.length === 0) {
         if (!sel.closed) return setNotice('La curva 3D tiene que estar cerrada para hacer un parche (activá «Cerrada» en su panel)');
-        return addWithDialog(ops.makePatch(doc(), [], { curves: [sel.id], operation: 'new' }));
+        return addWithDialog(ops.makePatch(doc(), [], { curves: [sel.id], operation: 'new', thickness: 0 }));
       }
       if (edges.length < 2) return setNotice('Seleccioná las aristas de un contorno cerrado (Shift + clic) y volvé a tocar Parche');
       const refs = await withRefs(() => kernel.edgeRefs(edges));
       if (!refs) return;
-      addWithDialog(ops.makePatch(doc(), refs));
+      // Como en Plasticity: superficie sin espesor y tangente a las caras vecinas.
+      addWithDialog(ops.makePatch(doc(), refs, { operation: 'new', thickness: 0, tangent: true }));
     },
 
     /** Mover o copiar: los cuerpos de las caras elegidas (ninguna: todos). */

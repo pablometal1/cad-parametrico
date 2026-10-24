@@ -137,6 +137,8 @@ export interface PartCheck {
   overlappingPairs: number;
   /** false si había demasiados cuerpos para compararlos todos. */
   checkedOverlap: boolean;
+  /** Caras sueltas (superficies sin espesor): no forman sólido y no se exportan a STL/3MF. */
+  sheetFaces: number;
 }
 
 export interface EdgeInfo {

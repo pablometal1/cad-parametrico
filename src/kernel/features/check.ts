@@ -53,5 +53,6 @@ export function checkPart(shape: AnyShape): PartCheck {
     invertedBodies,
     overlappingPairs,
     checkedOverlap: solids.length <= MAX_OVERLAP_BODIES,
+    sheetFaces: shape.faces.length - solids.reduce((n, sd) => n + sd.faces.length, 0),
   };
 }

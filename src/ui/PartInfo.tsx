@@ -36,6 +36,9 @@ export function checkProblems(c: PartCheck): string[] {
   if (c.overlappingPairs > 0) {
     out.push(`${pl(c.overlappingPairs, 'par de cuerpos se superpone', 'pares de cuerpos se superponen')}: usá "Unir" para que sea una sola pieza`);
   }
+  if (c.sheetFaces > 0) {
+    out.push(`${pl(c.sheetFaces, 'superficie sin espesor', 'caras de superficie sin espesor')}: no se imprime${c.sheetFaces === 1 ? '' : 'n'} (poné un espesor en el parche o la solevación)`);
+  }
   return out;
 }
 

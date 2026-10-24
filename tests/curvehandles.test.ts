@@ -167,4 +167,34 @@ describe('superficie por vértices con asas', () => {
     const apart = addFeature(doc, makePatch(doc, [], { curves: [c.id], operation: 'new' }));
     expect(k.recompute(apart).features.at(-1)!.status).toBe('ok');
   });
+
+  it('espesor 0: queda como superficie sin espesor (cuerpo aparte) y la comprobación lo avisa', async () => {
+    const { k, doc } = await boxPatch({ smooth: true });
+    const patch = doc.features.at(-1)!;
+    const r = k.recompute(updateFeature(doc, patch.id, { thickness: 0 } as never));
+    expect(r.features.at(-1)!.status).toBe('ok');
+    const m = k.massProperties();
+    expect(m.bodies).toBe(1);
+    expect(m.volume).toBeCloseTo(4000, 3);
+    expect(m.check.sheetFaces).toBe(1);
+    // Sin espesor no puede unirse.
+    const joined = k.recompute(updateFeature(doc, patch.id, { thickness: 0, operation: 'join' } as never));
+    expect(joined.features.at(-1)!.error ?? '').toMatch(/sin espesor/);
+  });
+
+  it('tangente a las caras: sale vertical desde las paredes de la caja (como el parche de Plasticity)', async () => {
+    const { k, doc } = await boxPatch();
+    const patch = doc.features.at(-1)!;
+    const r = k.recompute(updateFeature(doc, patch.id, { thickness: 0, tangent: true, height: 6 } as never));
+    expect(r.features.at(-1)!.status).toBe('ok');
+    const shape = (k as unknown as { current: { shape: import('replicad').AnyShape } }).current.shape;
+    const sheet = shape.faces.find((f) => f.geomType === 'BSPLINE_SURFACE')!;
+    // Cerca del borde la normal es casi horizontal: la superficie continúa la pared.
+    const p = sheet.pointOnSurface(0.5, 0.01);
+    const n = sheet.normalAt(p).toTuple();
+    expect(Math.abs(n[2])).toBeLessThan(0.3);
+    // Sin abombado no puede cerrar tangente a paredes verticales: lo dice.
+    const flat = k.recompute(updateFeature(doc, patch.id, { thickness: 0, tangent: true, height: 0 } as never));
+    expect(flat.features.at(-1)!.error ?? '').toMatch(/abombado/);
+  });
 });
