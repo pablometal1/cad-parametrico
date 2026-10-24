@@ -67,7 +67,19 @@ export function combine(op: BooleanOperation, input: NamedShape | null, tool: Na
       result.delete();
       throw new FeatureError('El resultado de la operación booleana no es un sólido válido');
     }
-    if (op === 'cut' && Math.abs(volume(input.shape) - volume(result)) <= 1e-9 * Math.max(1, volume(input.shape))) {
+    // OCCT a veces devuelve un sólido "válido" pero absurdo (p. ej. con aristas que coinciden justo
+    // con las del sólido): una unión más chica que sus partes o un corte que agrega material.
+    const [vi, vt, vr] = [volume(input.shape), volume(tool.shape), volume(result)];
+    const tol = 1e-3 * Math.max(1, vi, vt);
+    if ((op === 'join' && (vr < Math.max(vi, vt) - tol || vr > vi + vt + tol)) || (op === 'cut' && vr > vi + tol) || (op === 'intersect' && vr > Math.min(vi, vt) + tol)) {
+      result.delete();
+      throw new FeatureError(
+        op === 'join' ? 'La unión dio un resultado incoherente: probá con «Nuevo cuerpo» o cambiá la forma un poco'
+          : op === 'cut' ? 'El corte dio un resultado incoherente: probá cambiando la forma un poco'
+            : 'La intersección dio un resultado incoherente: probá cambiando la forma un poco',
+      );
+    }
+    if (op === 'cut' && Math.abs(vi - vr) <= 1e-9 * Math.max(1, vi)) {
       // No es error para OCCT, pero casi siempre indica un corte que no toca el sólido.
       result.delete();
       throw new FeatureError('El corte no intersecta el sólido');

@@ -74,7 +74,19 @@ export function runPatch(feature: PatchFeature, input: NamedShape | null, curves
     const point = Math.abs(feature.height) > 1e-9 ? (center.map((v, k) => v + normal[k] * feature.height) as Vec3) : null;
     const surface = fillSurface(edges, point, keep);
     keep.push(surface);
-    const solid = thickenSheet(surface, feature.thickness, 'el parche');
+    // Se engrosa hacia afuera de la pieza (lejos de su centro), así la superficie queda a la vista
+    // y no se mete dentro del sólido.
+    let side = 1;
+    if (input) {
+      const [lo, hi] = input.shape.boundingBox.bounds;
+      const mid = [0, 1, 2].map((k) => (lo[k] + hi[k]) / 2);
+      const f = surface.faces[0];
+      const c = f.center;
+      const nrm = f.normalAt(c).toTuple();
+      const out = c.toTuple().map((v, k) => v - mid[k]);
+      if (nrm[0] * out[0] + nrm[1] * out[1] + nrm[2] * out[2] < 0) side = -1;
+    }
+    const solid = thickenSheet(surface, side * feature.thickness, 'el parche');
     const nb = new NameBuilder(solid);
     nb.add(solid.faces[0].wrapped, `${feature.id}:patch`);
     const tool = nb.finish(feature.id);
@@ -85,12 +97,12 @@ export function runPatch(feature: PatchFeature, input: NamedShape | null, curves
 }
 
 /**
- * Engrosa una superficie abierta `thickness` mm hacia el lado de su normal. `what` nombra la pieza
+ * Engrosa una superficie abierta `thickness` mm hacia el lado de su normal (negativo: al otro lado). `what` nombra la pieza
  * en los mensajes ("el parche", "la solevación"). El llamador es dueño del sólido devuelto.
  */
 export function thickenSheet(sheet: AnyShape, thickness: number, what: string): AnyShape {
   const oc = getOC();
-  if (!(thickness > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${thickness})`);
+  if (!(Math.abs(thickness) > 0)) throw new FeatureError(`El espesor debe ser mayor que 0 (es ${thickness})`);
   const ts = new oc.BRepOffsetAPI_MakeThickSolid();
   const r = new oc.Message_ProgressRange();
   try {

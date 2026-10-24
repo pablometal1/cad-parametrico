@@ -141,4 +141,30 @@ describe('superficie por vértices con asas', () => {
     bad.features[2].handles[0] = [[0, 0, 5]];
     expect(() => parseDocument(JSON.stringify(bad))).toThrow(DocumentFormatError);
   });
+
+  it('el parche se engrosa hacia afuera de la pieza (queda a la vista, no adentro)', async () => {
+    const { k, doc } = await boxPatch();
+    k.recompute(doc);
+    const m = k.massProperties();
+    expect(m.bodies).toBe(2);
+    // La tapa de 2 mm queda arriba de la caja (z de 10 a 12), no dentro de ella.
+    expect(m.bboxMax[2]).toBeCloseTo(12, 6);
+  });
+
+  it('una unión incoherente se rechaza con un mensaje claro en lugar de dejar un sólido roto', async () => {
+    // Superficie alabeada por cuatro vértices alternados arriba y abajo: atraviesa la caja y
+    // OCCT devuelve una unión más chica que la caja sola.
+    const k = await service();
+    let doc = build({ profile: rect(20, 20), distance: 10 });
+    k.recompute(doc);
+    const twisted: Vec3[] = [[-10, -10, 0], [10, -10, 10], [10, 10, 0], [-10, 10, 10]];
+    const c = makeCurve3d(doc, k.vertexRefs(twisted.map((p) => vertexAt(k.vertices(), p))), true);
+    doc = addFeature(doc, c);
+    const joined = addFeature(doc, makePatch(doc, [], { curves: [c.id], operation: 'join' }));
+    const r = k.recompute(joined);
+    expect(r.features.at(-1)!.error ?? '').toMatch(/incoherente/);
+    // Como cuerpo aparte sí sale.
+    const apart = addFeature(doc, makePatch(doc, [], { curves: [c.id], operation: 'new' }));
+    expect(k.recompute(apart).features.at(-1)!.status).toBe('ok');
+  });
 });
