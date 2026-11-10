@@ -1,13 +1,21 @@
 // Features de terminación sobre el sólido existente: redondeo, chaflán y vaciado.
 import { cast, getOC, makeCompound, type AnyShape } from 'replicad';
 import type { ChamferFeature, FilletFeature, ShellFeature } from '../../document/types';
-import { edgeNames, historyOf, NameBuilder, resolveEdge, resolveFace, ShapeTable, type History, type NamedShape, type OcShape } from '../naming';
+import { edgeNames, historyOf, NameBuilder, resolveEdge, resolveFace, type History, type NamedShape, type OcShape } from '../naming';
 import { describeError, FeatureError, isValidShape } from '../occtUtils';
+import { engineEdgeFeatureWorks, executeFilletEngine, type EdgeFeatureReport } from './filletEngine';
 import { volume } from './measure';
 
 /** Redondeo o chaflán de las aristas referenciadas. */
 export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: NamedShape | null): NamedShape {
-  const oc = getOC();
+  return runEdgeFeatureNoted(feature, input).shape;
+}
+
+/**
+ * Redondeo o chaflán, con el aviso para el historial si la medida pedida no entraba y el motor
+ * aplicó una menor (nunca se reduce en silencio).
+ */
+export function runEdgeFeatureNoted(feature: FilletFeature | ChamferFeature, input: NamedShape | null): { shape: NamedShape; warning?: string } {
   const isFillet = feature.type === 'fillet';
   const size = isFillet ? feature.radius : feature.distance;
   const what = isFillet ? 'redondear' : 'achaflanar';
@@ -18,74 +26,57 @@ export function runEdgeFeature(feature: FilletFeature | ChamferFeature, input: N
   if (size2 !== undefined && !(size2 > 0)) throw new FeatureError(`El radio final debe ser mayor que 0 (es ${size2})`);
   const variable = size2 !== undefined && Math.abs(size2 - size) > 1e-12;
 
-  const table = ShapeTable.edges(input.shape);
   const indices = [...new Set(feature.edges.map((ref) => resolveEdge(input, ref)))];
-
-  const builder = isFillet
-    ? new oc.BRepFilletAPI_MakeFillet(input.shape.wrapped, oc.ChFi3d_FilletShape.ChFi3d_Rational)
-    : new oc.BRepFilletAPI_MakeChamfer(input.shape.wrapped);
-  const range = new oc.Message_ProgressRange();
+  let result: NamedShape | null = null;
+  const report: EdgeFeatureReport = {};
   try {
-    for (const i of indices) {
-      const edge = oc.TopoDS.Edge(table.items[i].wrapped);
-      if (variable) (builder as InstanceType<typeof oc.BRepFilletAPI_MakeFillet>).Add(size, size2!, edge);
-      else builder.Add(size, edge);
-    }
-    builder.Build(range);
-    if (!builder.IsDone()) throw new Error('not done');
-    const result = cast(builder.Shape());
-    checkResult(result, `No se pudo ${what}`);
-    const history = historyOf(builder);
-    const nb = new NameBuilder(result);
-    nb.carry(input, history);
-    const { names } = edgeNames(input);
-    const kind = isFillet ? 'fillet' : 'chamfer';
-    for (const i of indices) nb.generated(history, table.items[i].wrapped, `${feature.id}:${kind}:${names[i]}`);
-    return nb.finish(feature.id);
-  } catch (err) {
-    if (err instanceof FeatureError && !err.message.endsWith('no es un sólido válido')) throw err;
-    if (variable) {
-      throw new FeatureError(
-        `No se pudo redondear con radio de ${fmtNum(size)} a ${fmtNum(size2!)} mm: ningún radio puede superar el ancho de las caras que toca`,
-      );
-    }
-    // Busca el valor más grande que sí entra, para que el mensaje diga cuánto probar.
-    const max = largestThatWorks(size, (v) => edgeFeatureWorks(input, indices, isFillet, v));
-    const what = isFillet ? `redondear con radio ${fmtNum(size)} mm` : `achaflanar con ${fmtNum(size)} mm`;
-    const hint =
-      max === null
-        ? `No se pudo ${what}: ninguna medida entra en estas aristas; probá con otras`
-        : `No se pudo ${what}: en estas aristas entra hasta ≈ ${fmtMax(max)} mm ` +
-          '(no puede superar el ancho de las caras que toca; en una pieza vaciada, el espesor de la pared)';
-    throw new FeatureError(err instanceof Error && (err.message === 'not done' || err instanceof FeatureError) ? hint : `${hint} (${describeError(err)})`);
-  } finally {
-    builder.delete();
-    range.delete();
+    result = executeFilletEngine(input, indices, {
+      featureId: feature.id,
+      isFillet,
+      size,
+      size2,
+      variable,
+      report,
+    });
+  } catch {
+    result = null;
   }
+  if (result) return { shape: result, warning: reductionWarning(report, isFillet, size) };
+
+  if (variable) {
+    throw new FeatureError(
+      `No se pudo redondear con radio de ${fmtNum(size)} a ${fmtNum(size2!)} mm: ningún radio puede superar el ancho de las caras que toca`,
+    );
+  }
+  // Busca el valor más grande que sí entra, para que el mensaje diga cuánto probar.
+  let max: number | null = null;
+  try {
+    max = largestThatWorks(size, (v) => edgeFeatureWorks(input, indices, isFillet, v));
+  } catch {
+    max = null;
+  }
+  const action = isFillet ? `redondear con radio ${fmtNum(size)} mm` : `achaflanar con ${fmtNum(size)} mm`;
+  const hint =
+    max === null
+      ? `No se pudo ${action}: ninguna medida entra en estas aristas; probá con otras`
+      : `No se pudo ${action}: en estas aristas entra hasta ≈ ${fmtMax(max)} mm ` +
+        '(no puede superar el ancho de las caras que toca; en una pieza vaciada, el espesor de la pared)';
+  throw new FeatureError(hint);
+}
+
+/** Texto del aviso cuando se aplicó una medida menor que la pedida. */
+function reductionWarning(report: EdgeFeatureReport, isFillet: boolean, size: number): string | undefined {
+  if (!report.kind || report.min === undefined) return undefined;
+  const what = isFillet ? 'Radio' : 'Chaflán';
+  const [asked, got] = [fmtNum(size), fmtMax(report.min)];
+  if (report.kind === 'local') return `${what} reducido hasta ${got} mm solo en los tramos donde ${asked} mm no entra (una cara vecina es más angosta); el resto conserva ${asked} mm`;
+  if (report.kind === 'edges') return `${what} reducido a ${got} mm en las aristas donde ${asked} mm no entra; las demás conservan ${asked} mm`;
+  return `${what} reducido a ${got} mm: ${asked} mm no entra en estas aristas (no puede superar el ancho de las caras que toca; en una pieza vaciada, el espesor de la pared)`;
 }
 
 /** ¿Se puede redondear/achaflanar esas aristas con esa medida? (sin quedarse con el resultado) */
-function edgeFeatureWorks(input: NamedShape, indices: number[], isFillet: boolean, size: number): boolean {
-  const oc = getOC();
-  const table = ShapeTable.edges(input.shape);
-  const builder = isFillet
-    ? new oc.BRepFilletAPI_MakeFillet(input.shape.wrapped, oc.ChFi3d_FilletShape.ChFi3d_Rational)
-    : new oc.BRepFilletAPI_MakeChamfer(input.shape.wrapped);
-  const range = new oc.Message_ProgressRange();
-  try {
-    for (const i of indices) builder.Add(size, table.items[i].wrapped);
-    builder.Build(range);
-    if (!builder.IsDone()) return false;
-    const result = cast(builder.Shape());
-    const ok = result.solids.length > 0 && isValidShape(result);
-    result.delete();
-    return ok;
-  } catch {
-    return false;
-  } finally {
-    builder.delete();
-    range.delete();
-  }
+export function edgeFeatureWorks(input: NamedShape, indices: number[], isFillet: boolean, size: number): boolean {
+  return engineEdgeFeatureWorks(input, indices, isFillet, size);
 }
 
 /**
@@ -93,21 +84,25 @@ function edgeFeatureWorks(input: NamedShape, indices: number[], isFillet: boolea
  * siquiera el 1 % funciona. Se corta a los 1.5 s para no trabar el recálculo en piezas grandes.
  */
 export function largestThatWorks(failed: number, works: (v: number) => boolean): number | null {
-  let lo = failed * 0.01;
-  if (!works(lo)) return null;
-  let hi = failed;
-  const start = performance.now();
-  for (let k = 0; k < 12 && performance.now() - start < 1500; k++) {
-    const mid = (lo + hi) / 2;
-    if (works(mid)) lo = mid;
-    else hi = mid;
-    if (hi - lo < Math.max(0.005, failed * 0.002)) break;
+  try {
+    let lo = failed * 0.01;
+    if (!works(lo)) return null;
+    let hi = failed;
+    const start = performance.now();
+    for (let k = 0; k < 12 && performance.now() - start < 1500; k++) {
+      const mid = (lo + hi) / 2;
+      if (works(mid)) lo = mid;
+      else hi = mid;
+      if (hi - lo < Math.max(0.005, failed * 0.002)) break;
+    }
+    return lo;
+  } catch {
+    return null;
   }
-  return lo;
 }
 
 /** Redondea hacia abajo con 2 decimales (el valor que se muestra tiene que funcionar). */
-function fmtMax(v: number) {
+export function fmtMax(v: number) {
   const r = Math.floor(v * 100) / 100;
   return r > 0 ? String(r) : String(Math.floor(v * 1000) / 1000);
 }
@@ -396,11 +391,4 @@ function insideBox(inner: AnyShape, outer: AnyShape): boolean {
   const [b0, b1] = outer.boundingBox.bounds;
   const tol = 1e-4 * Math.max(1, ...b1.map((v, i) => v - b0[i]));
   return [0, 1, 2].every((i) => a0[i] >= b0[i] - tol && a1[i] <= b1[i] + tol);
-}
-
-function checkResult(result: AnyShape, prefix: string) {
-  if (result.solids.length === 0 || !isValidShape(result)) {
-    result.delete();
-    throw new FeatureError(`${prefix}: el resultado no es un sólido válido`);
-  }
 }

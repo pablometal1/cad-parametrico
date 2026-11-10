@@ -52,16 +52,21 @@ export function readImport(format: ImportFeature['format'], data: string): { sha
 function readSTEP(path: string): AnyShape {
   const oc = getOC();
   const reader = new oc.STEPControl_Reader();
+  const range = new oc.Message_ProgressRange();
   try {
     if (reader.ReadFile(path) !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new FeatureError('No se pudo leer el archivo STEP');
-    reader.TransferRoots(new oc.Message_ProgressRange());
+    reader.TransferRoots(range);
     const shape = cast(reader.OneShape());
-    if (shape.faces.length === 0) throw new FeatureError('El archivo STEP no tiene caras');
+    if (shape.faces.length === 0) {
+      shape.delete();
+      throw new FeatureError('El archivo STEP no tiene caras');
+    }
     return shape;
   } catch (err) {
     if (err instanceof FeatureError) throw err;
     throw new FeatureError(`No se pudo leer el archivo STEP (${describeError(err)})`);
   } finally {
+    range.delete();
     reader.delete();
   }
 }
@@ -156,13 +161,16 @@ function readSTL(path: string): { shape: AnyShape; note: string } {
       face.delete();
       wire.delete();
     }
-    let result: AnyShape = cast(shell);
+    let result: AnyShape;
     // Pocas caras: se unifican las coplanares (booleanas más limpias). Con muchas, no vale la pena.
     if (mesh.triangles.length / 3 <= UNIFY_MAX_TRIANGLES) {
       const unify = new oc.ShapeUpgrade_UnifySameDomain(shell, true, true, false);
       unify.Build();
       result = cast(unify.Shape());
       unify.delete();
+      shell.delete();
+    } else {
+      result = cast(shell);
     }
     const tight = checkWatertight(mesh);
     if (tight.boundaryEdges > 0 || tight.nonManifoldEdges > 0) {
@@ -179,7 +187,10 @@ function readSTL(path: string): { shape: AnyShape; note: string } {
       const solid = oc.TopoDS.Solid(maker.Solid());
       oc.BRepLib.OrientClosedSolid(solid);
       const shape = cast(solid);
-      if (shape.solids.length > 0 && volume(shape) > 0) return { shape, note: repaired ? `sólido, reparado: ${repaired}` : 'sólido' };
+      if (shape.solids.length > 0 && volume(shape) > 0) {
+        result.delete();
+        return { shape, note: repaired ? `sólido, reparado: ${repaired}` : 'sólido' };
+      }
       shape.delete();
     } catch {
       // sigue como superficie

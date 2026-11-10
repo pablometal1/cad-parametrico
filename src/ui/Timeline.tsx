@@ -132,6 +132,9 @@ export function Timeline(props: { store: CadStore }) {
                       <Show when={status() === 'ok' && result()?.info}>
                         <span class="feature-info">{result()?.info}</span>
                       </Show>
+                      <Show when={status() === 'ok' && result()?.warning}>
+                        <span class="feature-warning">{result()?.warning}</span>
+                      </Show>
                     </span>
                     <span class="feature-actions" onClick={(e) => e.stopPropagation()}>
                       <Show when={f.type === 'sketch'}>

@@ -30,7 +30,7 @@ function run(doc: CadDocument) {
   const e = new RecomputeEngine();
   const out = e.run(doc);
   const last = out.results[out.results.length - 1];
-  const res = { status: last.status, error: last.error ?? '' };
+  const res = { status: last.status, error: last.error ?? '', warning: last.warning ?? '' };
   e.dispose();
   return res;
 }
@@ -45,13 +45,6 @@ function withShape<T>(doc: CadDocument, fn: (s: NamedShape) => T): T {
   }
 }
 
-/** El "≈ X mm" que sugiere el mensaje de error. */
-function suggested(error: string) {
-  const m = error.match(/≈ ([\d.]+) mm/);
-  if (!m) throw new Error(`El mensaje no sugiere un máximo: ${error}`);
-  return Number(m[1]);
-}
-
 describe('límites de redondeo y vaciado', () => {
   it('bisección: encuentra el mayor valor que funciona', () => {
     const v = largestThatWorks(10, (x) => x <= 3.7)!;
@@ -60,27 +53,37 @@ describe('límites de redondeo y vaciado', () => {
     expect(largestThatWorks(10, () => false)).toBeNull();
   });
 
-  it('pared de 0,2 mm: el redondeo exterior dice cuánto entra, y ese valor funciona', () => {
+  it('pared de 0,2 mm: el redondeo exterior se hace con el radio que entra y lo avisa (no falla ni reduce en silencio)', () => {
     const base = build({ profile: rect(10, 10), distance: 20 });
     const doc = addFeature(base, makeShell(base, [withShape(base, topFace)], 0.2));
+    /** El "reducido a X mm" del aviso. */
+    const applied = (warning: string) => {
+      const m = warning.match(/reducido (?:a|hasta) ([\d.]+) mm/);
+      if (!m) throw new Error(`El aviso no dice el radio aplicado: "${warning}"`);
+      return Number(m[1]);
+    };
 
     // Arista vertical exterior: el arco no puede atravesar la esquina interior.
     // Límite geométrico: r·(1 − 1/√2) = 0,2 → r ≈ 0,683.
     const vertical = withShape(doc, (s) => edgeRefOf(s, edgeIdx(s, [5, 5, 10])));
-    const failed = run(addFeature(doc, makeFillet(doc, [vertical], 2)));
-    expect(failed.status).toBe('error');
-    expect(failed.error).toMatch(/pared/);
-    const max = suggested(failed.error);
-    expect(max).toBeGreaterThan(0.6);
+    const adapted = run(addFeature(doc, makeFillet(doc, [vertical], 2)));
+    expect(adapted.status).toBe('ok');
+    expect(adapted.warning).toMatch(/2 mm no entra/);
+    const max = applied(adapted.warning);
+    expect(max).toBeGreaterThan(0.55);
     expect(max).toBeLessThan(0.69);
-    expect(run(addFeature(doc, makeFillet(doc, [vertical], max))).status).toBe('ok');
+    // Con un radio que entra no hay aviso.
+    const exact = run(addFeature(doc, makeFillet(doc, [vertical], 0.5)));
+    expect(exact.status).toBe('ok');
+    expect(exact.warning).toBe('');
 
     // Borde superior: la cara del borde mide 0,2 mm de ancho.
     const rim = withShape(doc, (s) => edgeRefOf(s, edgeIdx(s, [0, -5, 20])));
-    const rimMax = suggested(run(addFeature(doc, makeFillet(doc, [rim], 2))).error);
+    const rimRun = run(addFeature(doc, makeFillet(doc, [rim], 2)));
+    expect(rimRun.status).toBe('ok');
+    const rimMax = applied(rimRun.warning);
     expect(rimMax).toBeLessThan(0.2);
-    expect(rimMax).toBeGreaterThan(0.15);
-    expect(run(addFeature(doc, makeFillet(doc, [rim], rimMax))).status).toBe('ok');
+    expect(rimMax).toBeGreaterThan(0.12);
   });
 
   it('vaciado con espesor mayor que el radio de los redondeos: la pared interior queda en arista viva', () => {

@@ -14,6 +14,7 @@ import { DRAW_KEYS, DRAW_TOOLS, FEATURE_KEYS, FEATURE_TOOLS, PLANE_TOOL, type Fe
 import { TooltipLayer } from './Tooltip';
 import { ShortcutHelp } from './ShortcutHelp';
 import { ParameterTable } from './ParameterTable';
+import { UnitsDialog } from './UnitsDialog';
 import { ExportDialog } from './ExportDialog';
 import { LibraryDialog } from './LibraryDialog';
 import { PartInfo } from './PartInfo';
@@ -72,6 +73,7 @@ export function App() {
   const [mass, setMass] = createSignal<MassProperties | null>(null);
   const [measurement, setMeasurement] = createSignal<Measurement | null>(null);
   const [helpOpen, setHelpOpen] = createSignal(false);
+  const [unitsOpen, setUnitsOpen] = createSignal(false);
   let fileInput!: HTMLInputElement;
   let importInput!: HTMLInputElement;
 
@@ -123,9 +125,6 @@ export function App() {
     else if (id === 'combine') void store.addCombine(sel.faces);
     else if (id === 'split') void store.addSplit(sel.faces);
     else if (id === 'move') void store.addMove(sel.faces);
-    else if (id === 'dome') void store.addDome(sel.faces);
-    else if (id === 'patch') void store.addPatch(sel.edges);
-    else if (id === 'line3d') void store.startLine3d();
     else store.addShell(sel.faces);
   };
   const newProject = () => {
@@ -168,30 +167,19 @@ export function App() {
     if (e.key === '?') {
       e.preventDefault();
       setHelpOpen(!helpOpen());
-      return;
     }
+    if (e.key === '?') return;
     if (e.key === 'Escape') {
       if (helpOpen()) setHelpOpen(false);
       else if (fileMenu() || planeMenu()) {
         setFileMenu(false);
         setPlaneMenu(false);
-      } else if (store.lining()) store.cancelLine3d();
-      else if (store.picking()) store.cancelPick();
+      } else if (store.picking()) store.cancelPick();
       else if (!store.dialog()) viewport?.setSelection({ faces: [], edges: [] });
       return;
     }
     if (k === 'f' && !e.shiftKey) {
       if (ready()) viewport?.fitView();
-      return;
-    }
-    if (store.lining()) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        void store.finishLine3d();
-      } else if (e.key === 'Backspace') {
-        e.preventDefault();
-        store.undoVertex();
-      }
       return;
     }
     if (busy()) return;
@@ -336,7 +324,7 @@ export function App() {
   // (las aristas de un redondeo, la cara de un vaciado…).
   let wasBusy = false;
   createEffect(() => {
-    const busyNow = !!store.dialog() || !!store.editing() || store.drawing() || !!store.lining();
+    const busyNow = !!store.dialog() || !!store.editing() || store.drawing();
     if (wasBusy && !busyNow && !store.picking()) viewport?.setSelection({ faces: [], edges: [] });
     wasBusy = busyNow;
   });
@@ -371,7 +359,7 @@ export function App() {
     const id = sel?.type === 'curve3d' ? sel.id : sel?.type === 'patch' ? sel.curves?.[0] : undefined;
     const f = id ? findFeature(store.doc(), id) : undefined;
     const g = id ? geometry.get(id) : undefined;
-    if (!f || f.type !== 'curve3d' || !g || store.editing() || store.lining() || store.drawing() || store.picking()) {
+    if (!f || f.type !== 'curve3d' || !g || store.editing() || store.drawing() || store.picking()) {
       viewport?.setCurveHandles(null, null);
       return;
     }
@@ -386,6 +374,9 @@ export function App() {
   createEffect(() => {
     store.results();
     if (!ready()) return;
+    // Mientras se arrastra un manejador no se piden: masa y comprobación para imprimir mallan fino y
+    // buscan cuerpos superpuestos, y eso frenaba cada paso del arrastre. Se calculan al soltar.
+    if (store.previewing()) return;
     const req = ++massRequest;
     kernel.massProperties().then(
       (m) => req === massRequest && setMass(m),
@@ -400,17 +391,36 @@ export function App() {
     store.results(); // re-evaluar tras cada recálculo
     const feature = id ? findFeature(store.doc(), id) : undefined;
     const req = ++manipulatorRequest;
-    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || store.lining() || !ready()) {
+    if (!feature || feature.type === 'sketch' || store.editing() || store.picking() || store.drawing() || !ready()) {
       viewport?.setManipulator([], null);
       return;
     }
     kernel.manipulator(feature.id).then(
       (ms) => {
         if (req !== manipulatorRequest) return;
+        let dragRaf: number | null = null;
+        let lastDragValue: number | null = null;
         viewport?.setManipulator(ms, (m) => ({
           // El nombre del parámetro coincide con el campo de la feature (distance, radius, angle, dx…).
-          onDrag: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
-          onCommit: (value) => store.setFieldFromManipulator(m.featureId, m.param, value),
+          onDrag: (value) => {
+            lastDragValue = value;
+            if (dragRaf === null) {
+              dragRaf = requestAnimationFrame(() => {
+                dragRaf = null;
+                if (lastDragValue !== null) {
+                  store.setFieldFromManipulator(m.featureId, m.param, lastDragValue, true);
+                }
+              });
+            }
+          },
+          onCommit: (value) => {
+            if (dragRaf !== null) {
+              cancelAnimationFrame(dragRaf);
+              dragRaf = null;
+            }
+            lastDragValue = null;
+            store.setFieldFromManipulator(m.featureId, m.param, value, false);
+          },
         }));
       },
       () => req === manipulatorRequest && viewport?.setManipulator([], null),
@@ -436,20 +446,24 @@ export function App() {
     );
     const session = createSketchSession(
       { entities: f.entities, constraints: f.constraints },
-      { exprs, scope: () => store.evaluated().scope },
+      { exprs, scope: () => store.evaluated().scope, unit: () => store.doc().units },
     );
     return { feature: f, session };
+  });
+
+  createEffect(() => {
+    viewport?.setUnit(store.doc().units);
   });
 
   onMount(() => {
     viewport = new Viewport(viewportEl, {
       // Elegir sketches y planos haciendo clic en 3D; clic en el vacío deselecciona.
       onFeaturePick: (id) => {
-        if (store.dialog() || store.picking() || store.editing() || store.drawing() || store.lining()) return;
+        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
         store.selectFeature(id);
       },
       onEmptyClick: () => {
-        if (store.dialog() || store.picking() || store.editing() || store.drawing() || store.lining()) return;
+        if (store.dialog() || store.picking() || store.editing() || store.drawing()) return;
         store.selectFeature(null);
       },
       onHoverChange: setHovered,
@@ -492,17 +506,8 @@ export function App() {
   onCleanup(() => viewport?.dispose());
 
   const ready = () => store.kernelState().state === 'ready';
-  const busy = () => !ready() || !!store.editing() || !!store.picking() || store.drawing() || !!store.lining();
+  const busy = () => !ready() || !!store.editing() || !!store.picking() || store.drawing();
 
-  // Línea 3D: el visor muestra los vértices y la cadena elegida.
-  createEffect(() => {
-    const l = store.lining();
-    viewport?.setVertexMode(l?.vertices ?? null, l ? { onPick: (i) => store.pickVertex(i) } : null);
-  });
-  createEffect(() => {
-    const l = store.lining();
-    if (l) viewport?.setVertexChain(l.chain);
-  });
   const singleFace = () => viewSel().faces.length === 1 && viewSel().edges.length === 0;
 
   return (
@@ -518,6 +523,7 @@ export function App() {
             <div class="menu" onMouseLeave={() => setFileMenu(false)}>
               <button onClick={() => { setFileMenu(false); newProject(); }}><Icon name="new" size={16} />Nuevo</button>
               <button onClick={() => { setFileMenu(false); fileInput.click(); }}><Icon name="open" size={16} />Abrir… <span class="kbd">Ctrl+O</span></button>
+              <button onClick={() => { setFileMenu(false); setUnitsOpen(true); }}><Icon name="scale" size={16} />Unidades y escala…</button>
               <button disabled={!ready()} onClick={() => { setFileMenu(false); setLibraryOpen(true); }}><Icon name="library" size={16} />Biblioteca de modelos…</button>
               <button onClick={() => { setFileMenu(false); store.save(); }}><Icon name="save" size={16} />Guardar <span class="kbd">Ctrl+S</span></button>
               <button onClick={() => { setFileMenu(false); saveAs(); }}><Icon name="saveAs" size={16} />Guardar como…</button>
@@ -618,6 +624,8 @@ export function App() {
         <span class="sep" />
         <button class="tb" classList={{ active: paramsOpen() }} onClick={() => setParamsOpen(!paramsOpen())} disabled={!!store.editing()}
           {...tip('Parámetros', 'Shift+X', 'Tabla de valores con nombre, usables en cualquier campo numérico')}><Icon name="params" /></button>
+        <button class="tb" classList={{ active: unitsOpen() }} onClick={() => setUnitsOpen(!unitsOpen())} disabled={!!store.editing()}
+          {...tip('Unidades y Escala', undefined, `Unidad actual: ${store.doc().units}. Cambiar a pulgadas, cm, mm o escalar el modelo`)}><Icon name="scale" /></button>
         <span class="spacer" />
         <button class="tb" onClick={() => viewport?.fitView()} disabled={!ready() || !!store.editing()} {...tip('Encuadrar', 'F')}><Icon name="fit" /></button>
         <button class="tb" classList={{ active: helpOpen() }} onClick={() => setHelpOpen(!helpOpen())} {...tip('Atajos de teclado', '?')}><Icon name="help" /></button>
@@ -654,7 +662,7 @@ export function App() {
               </div>
               <div class="tool-dialog-body">
                 <FeatureEditor store={store} />
-                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole', 'pushpull', 'dome', 'move'].includes(f().type)}>
+                <Show when={['extrude', 'revolve', 'fillet', 'chamfer', 'shell', 'plane', 'hole', 'pushpull', 'dome', 'move', 'patch', 'loft'].includes(f().type)}>
                   <p class="hint">Arrastrá el asa naranja en el modelo o hacé clic en su valor para escribirlo.</p>
                 </Show>
               </div>
@@ -724,21 +732,6 @@ export function App() {
             </div>
           )}
         </Show>
-        <Show when={store.lining()}>
-          {(l) => (
-            <div class="draw-bar">
-              <span class="draw-title with-icon"><Icon name="curve3d" size={16} /> Línea 3D · {l().chain.length} vértices</span>
-              <button class="primary with-icon" disabled={l().chain.length < 2} onClick={() => void store.finishLine3d()} {...tip('Terminar', 'Enter')}><Icon name="check" size={16} />Terminar</button>
-              <button disabled={l().chain.length < 3} onClick={() => void store.finishLine3d(true)} {...tip('Cerrar', undefined, 'Une el último vértice con el primero (o hacé clic en el primero)')}>Cerrar</button>
-              <button class="with-icon" disabled={l().chain.length < 3} onClick={() => void store.finishLine3d(true, true)}
-                {...tip('Superficie', undefined, 'Cierra la curva por estos vértices y la rellena con una superficie (parche). Después se ajusta arrastrando las asas de la curva')}>
-                <Icon name="patch" size={16} />Superficie
-              </button>
-              <button onClick={() => store.cancelLine3d()} {...tip('Cancelar', 'Esc')}>Cancelar</button>
-              <span class="muted draw-hint">Clic en los vértices del modelo · clic en el primero cierra · Backspace quita el último · arrastrar: orbitar</span>
-            </div>
-          )}
-        </Show>
         <Show when={helpOpen()}>
           <ShortcutHelp onClose={() => setHelpOpen(false)} />
         </Show>
@@ -754,6 +747,9 @@ export function App() {
         </Show>
         <Show when={paramsOpen() && !store.editing()}>
           <ParameterTable store={store} onClose={() => setParamsOpen(false)} />
+        </Show>
+        <Show when={unitsOpen() && !store.editing()}>
+          <UnitsDialog store={store} onClose={() => setUnitsOpen(false)} />
         </Show>
         <Show when={store.picking()}>
           {(p) => (
@@ -790,7 +786,7 @@ export function App() {
         </Show>
 
         <h2 class="section-gap">Pieza</h2>
-        <PartInfo props={mass()} />
+        <PartInfo props={mass()} unit={store.doc().units} />
 
         <h2 class="section-gap">Selección</h2>
         <Show
@@ -802,7 +798,7 @@ export function App() {
               <dl class="face-info">
                 <dt>Cara</dt><dd>#{f.index}</dd>
                 <dt>Superficie</dt><dd>{surfaceLabel(f.surfaceType)}</dd>
-                <dt>Área</dt><dd>{f.area.toFixed(2)} mm²</dd>
+                <dt>Área</dt><dd>{f.area.toFixed(2)} {store.doc().units}²</dd>
                 <dt>Centro</dt><dd>{fmtVec(f.center)}</dd>
                 <dt>Normal</dt><dd>{fmtVec(f.normal)}</dd>
               </dl>
@@ -811,9 +807,9 @@ export function App() {
           <Show when={measurement()}>
             {(m) => (
               <dl class="face-info measure-info">
-                <dt class="with-icon"><Icon name="measure" size={14} />Distancia</dt><dd>{fmtNum(m().distance)} mm</dd>
+                <dt class="with-icon"><Icon name="measure" size={14} />Distancia</dt><dd>{fmtNum(m().distance)} {store.doc().units}</dd>
                 <Show when={m().planeDistance !== undefined}>
-                  <dt>Entre planos</dt><dd>{fmtNum(m().planeDistance!)} mm</dd>
+                  <dt>Entre planos</dt><dd>{fmtNum(m().planeDistance!)} {store.doc().units}</dd>
                 </Show>
                 <Show when={m().angle !== undefined}>
                   <dt>Ángulo</dt><dd>{fmtNum(m().angle!)}°</dd>
@@ -826,7 +822,7 @@ export function App() {
               <dl class="face-info">
                 <dt>Arista</dt><dd>#{e.index}</dd>
                 <dt>Tipo</dt><dd>{curveLabel(e.curveType)}</dd>
-                <dt>Longitud</dt><dd>{e.length.toFixed(3)} mm</dd>
+                <dt>Longitud</dt><dd>{e.length.toFixed(3)} {store.doc().units}</dd>
                 <dt>Punto medio</dt><dd>{fmtVec(e.midpoint)}</dd>
               </dl>
             )}
@@ -854,7 +850,7 @@ export function App() {
         })()}
         <span class="spacer" />
         <span>{hovered() ? `${hovered()!.kind === 'face' ? 'Cara' : 'Arista'} #${hovered()!.index}` : ''}</span>
-        <span>mm</span>
+        <button class="status-unit-btn" onClick={() => setUnitsOpen(true)} title="Cambiar unidades y escala del proyecto">{store.doc().units}</button>
       </footer>
     </div>
   );

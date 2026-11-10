@@ -3,6 +3,9 @@
 export const DOCUMENT_FORMAT = 'cad-parametrico';
 export const DOCUMENT_VERSION = 1;
 
+export const VALID_UNITS = ['mm', 'cm', 'm', 'in'] as const;
+export type LengthUnit = (typeof VALID_UNITS)[number];
+
 export type FeatureId = string;
 
 export type BasePlane = 'XY' | 'XZ' | 'YZ';
@@ -512,7 +515,7 @@ export type FeatureType = Feature['type'];
 export interface CadDocument {
   format: typeof DOCUMENT_FORMAT;
   version: typeof DOCUMENT_VERSION;
-  units: 'mm';
+  units: LengthUnit;
   /** Tabla de parámetros con nombre, usables en las expresiones de las features. */
   parameters: Parameter[];
   features: Feature[];

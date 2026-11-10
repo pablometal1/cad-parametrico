@@ -66,6 +66,17 @@ describe('recortar', () => {
     expect(r.data.entities).toEqual([]);
   });
 
+  it('recortar una línea que comparte un extremo con una spline no borra el extremo ni la spline', () => {
+    const b = new SketchBuilder(empty());
+    const shared = b.point([20, 0]);
+    const l = b.line([0, 0], shared);
+    const sp = b.spline([shared, [25, 10], [30, 0]]);
+    b.line([10, -5], [10, 5]);
+    const r = apply(trimCurve(b.data, l, [15, 0]));
+    expect(r.data.entities.some((e) => e.id === shared)).toBe(true);
+    expect(r.data.entities.some((e) => e.id === sp)).toBe(true);
+  });
+
   it('cortar un tramo del medio deja dos líneas que conservan la restricción horizontal', () => {
     const b = new SketchBuilder(empty());
     const l = b.line([0, 0], [30, 0]);

@@ -48,8 +48,8 @@ export function buildExtrudeTool(feature: ExtrudeFeature, sketch: EvaluatedSketc
       const shape = cast(prism.Shape());
       const nb = new NameBuilder(shape);
       nameSweep(nb, historyOf(prism), sketch, profile, feature.id, nameTol);
-      nb.addAll(cast(prism.FirstShape()), `${feature.id}:start`);
-      nb.addAll(cast(prism.LastShape()), `${feature.id}:end`);
+      nb.addCap(prism.FirstShape(), `${feature.id}:start`);
+      nb.addCap(prism.LastShape(), `${feature.id}:end`);
       return nb.finish(feature.id);
     } finally {
       prism.delete();

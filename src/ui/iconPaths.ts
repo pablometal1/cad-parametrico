@@ -22,6 +22,7 @@ export const ICONS = {
   grid: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/>',
   dims: '<path d="M4 7v10M20 7v10M4 12h16M7 9.5 4.5 12 7 14.5M17 9.5l2.5 2.5-2.5 2.5"/>',
   measure: '<path d="m3 16 13-13 5 5-13 13z"/><path d="m7 12 2 2M10 9l2 2M13 6l2 2"/>',
+  scale: '<path d="M3 7h18v10H3z"/><path d="M7 7v4M11 7v2M15 7v4M19 7v2"/>',
   // Sketch y dibujo
   sketch: '<path d="M3 21h8"/><path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="m12.5 6.5 5 5"/>',
   select: '<path d="M6 3.5 18.5 11l-5.8 1.5L10 18.5z"/>',

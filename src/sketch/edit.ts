@@ -3,7 +3,7 @@
 import { AXIS_X, AXIS_Y, ORIGIN, type SketchArc, type SketchCircle, type SketchConstraint, type SketchCurve, type SketchData, type SketchEntityId, type SketchLine } from '../document/types';
 import { SketchBuilder } from './builders';
 import { add, arcParams, cross, dist, dot, len, lineEnds, mul, normAngle, sampleCurve, signedArea, sub } from './geometry';
-import { removeItems, SketchIndex, type Vec2 } from './model';
+import { curvePoints, removeItems, SketchIndex, type Vec2 } from './model';
 
 export type EditResult = { ok: true; data: SketchData; created: SketchEntityId[] } | { ok: false; error: string };
 
@@ -110,10 +110,7 @@ function replaceEntity(d: SketchData, id: SketchEntityId, next: SketchCurve): Sk
 function dropOrphans(d: SketchData, candidates: SketchEntityId[]): SketchData {
   const used = new Set<SketchEntityId>();
   for (const e of d.entities) {
-    if (e.type === 'line') used.add(e.p1).add(e.p2);
-    else if (e.type === 'circle') used.add(e.center);
-    else if (e.type === 'arc') used.add(e.center).add(e.start).add(e.end);
-    else if (e.type === 'text') used.add(e.point);
+    if (e.type !== 'point') for (const p of curvePoints(e)) used.add(p);
   }
   const orphans = candidates.filter((p) => p !== ORIGIN && !used.has(p));
   return orphans.length ? removeItems(d, orphans) : d;
@@ -506,7 +503,7 @@ export function filletCorner(data: SketchData, selection: SketchEntityId[], radi
   let corner: SketchEntityId | null = null;
   let lines: SketchLine[] = [];
   const usesOf = (p: SketchEntityId) =>
-    index.curves().filter((c) => curvePointIds(c).includes(p));
+    index.curves().filter((c) => curvePoints(c).includes(p));
   // Las líneas de construcción (por ejemplo, de una esquina virtual vecina) no cuentan como lados.
   const sides = (p: SketchEntityId) => {
     const all = usesOf(p);
@@ -692,14 +689,14 @@ export function mirrorCurves(data: SketchData, ids: SketchEntityId[], axis: Sket
   // Una curva que está entera sobre la línea de simetría no se copia (quedaría encimada).
   const geo2 = geo.filter((id) => {
     const e = index.get(id)!;
-    return e.type === 'point' || e.type === 'circle' || !curvePointIds(e as SketchCurve).every(onAxis);
+    return e.type === 'point' || e.type === 'circle' || !curvePoints(e as SketchCurve).every(onAxis);
   });
   // Centro de un solo arco (y nada más): en vez de reflejarlo, radio igual. Reflejar centro y
   // extremos de un arco es redundante con la regla que mantiene sus extremos sobre el radio.
   const uses = new Map<SketchEntityId, number>();
   for (const id of geo2) {
     const e = index.get(id)!;
-    for (const p of e.type === 'point' ? [e.id] : curvePointIds(e as SketchCurve)) uses.set(p, (uses.get(p) ?? 0) + 1);
+    for (const p of e.type === 'point' ? [e.id] : curvePoints(e as SketchCurve)) uses.set(p, (uses.get(p) ?? 0) + 1);
   }
   const loneCenters = new Set(
     geo2.flatMap((id) => {
@@ -722,10 +719,6 @@ export function mirrorCurves(data: SketchData, ids: SketchEntityId[], axis: Sket
   }
   const loosePoints = [...points].filter(([o, c]) => o !== c && geo2.includes(o)).map(([, c]) => c);
   return { ok: true, data: b.data, created: [...curves.values(), ...loosePoints] };
-}
-
-function curvePointIds(e: SketchCurve): SketchEntityId[] {
-  return e.type === 'line' ? [e.p1, e.p2] : e.type === 'arc' ? [e.center, e.start, e.end] : e.type === 'spline' ? e.points : [e.center];
 }
 
 function alreadyOn(data: SketchData, point: SketchEntityId, line: SketchEntityId) {

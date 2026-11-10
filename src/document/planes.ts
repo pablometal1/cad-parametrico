@@ -49,9 +49,11 @@ export function toPlane(frame: PlaneFrame, p: Vec3): [number, number] {
   return [dot(r, frame.xDir), dot(r, frame.yDir)];
 }
 
-export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 export function normalize(v: Vec3): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
@@ -93,13 +95,13 @@ export function constructionFrame(
     yDir = normalize(rotate(yDir, k, angle));
     normal = normalize(rotate(normal, k, angle));
     const r = rotate(sub(origin, pivot), k, angle);
-    origin = [0, 1, 2].map((i) => pivot[i] + r[i]) as Vec3;
+    origin = add(pivot, r);
   }
-  const moved = [0, 1, 2].map((i) => origin[i] + normal[i] * distance) as Vec3;
+  const moved = add(origin, scale(normal, distance));
   return { origin: moved, xDir, yDir, normal };
 }
 
 /** Desplaza un plano a lo largo de su normal. */
 export function offsetFrame(f: PlaneFrame, offset: number): PlaneFrame {
-  return offset ? { ...f, origin: [0, 1, 2].map((i) => f.origin[i] + f.normal[i] * offset) as Vec3 } : f;
+  return offset ? { ...f, origin: add(f.origin, scale(f.normal, offset)) } : f;
 }

@@ -11,7 +11,7 @@ import * as ops from '../document/ops';
 import { handlesAfter, type BezierSegment } from '../document/curve3d';
 import { parseDocument } from '../document/serialize';
 import type {
-  BasePlane, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature, LoftFeature, LoftSection } from '../document/types';
+  BasePlane, LengthUnit, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature, LoftFeature, LoftSection } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
@@ -99,8 +99,6 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   const [dialog, setDialog] = createSignal<ToolDialog | null>(null);
   /** Dibujo directo en 3D activo (sobre un plano o cara, sin abrir el editor de sketch). */
   const [drawing, setDrawing] = createSignal(false);
-  /** Herramienta Línea 3D activa: vértices del modelo (xyz) y los elegidos en orden. */
-  const [lining, setLining] = createSignal<{ vertices: Float32Array; chain: number[] } | null>(null);
   const [fileName, setFileName] = createSignal(draft?.fileName ?? 'pieza');
   /** Documento tal como está en el último archivo guardado/abierto (para saber si hay cambios). */
   const [savedDoc, setSavedDoc] = createSignal<CadDocument | null>(draft && !draft.dirty ? draft.doc : draft ? null : doc());
@@ -135,7 +133,10 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
 
   // Recálculo en cola: si llegan cambios mientras el worker trabaja, solo se envía el último documento.
   let pending: CadDocument | null = null;
+  let pendingPreview = false;
   let running = false;
+  /** El último recálculo fue una vista previa de arrastre (malla gruesa; todavía no hay valor final). */
+  const [previewing, setPreviewing] = createSignal(false);
 
   /** Planos de construcción del último recálculo. */
   const [planeFrames, setPlaneFrames] = createSignal<Map<FeatureId, RecomputeResult['planes'][number]['frame']>>(new Map());
@@ -153,9 +154,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     try {
       while (pending) {
         const d = pending;
+        const isPreview = pendingPreview;
         pending = null;
         try {
-          const r = await kernel.recompute(d);
+          const r = await kernel.recompute(d, { preview: isPreview });
+          setPreviewing(isPreview);
           setResults(new Map(r.features.map((f) => [f.id, f])));
           const evaluatedFeatures = r.features.filter((f) => f.status === 'ok' || f.status === 'error');
           setStats({
@@ -196,13 +199,14 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     }
   }
 
-  function setDocument(next: CadDocument) {
+  function setDocument(next: CadDocument, isPreview = false) {
     setDoc(next);
     pending = next;
+    pendingPreview = isPreview;
     void pump();
   }
 
-  function commit(next: CadDocument, opts: CommitOptions = {}) {
+  function commit(next: CadDocument, opts: CommitOptions = {}, isPreview = false) {
     if (opts.history !== false) {
       // Mientras hay un panel de herramienta abierto, sus cambios forman un solo paso.
       const d = dialog();
@@ -210,14 +214,14 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       history.record(opts.base ?? doc(), grouping);
       bumpHistory();
     }
-    setDocument(next);
+    setDocument(next, isPreview);
   }
 
   /** Aplica una operación pura; si falla, no cambia nada y devuelve el error. */
-  function apply(op: (d: CadDocument) => CadDocument, opts: CommitOptions = {}): Error | null {
+  function apply(op: (d: CadDocument) => CadDocument, opts: CommitOptions = {}, isPreview = false): Error | null {
     try {
       const next = op(doc());
-      if (next !== doc()) commit(next, opts);
+      if (next !== doc()) commit(next, opts, isPreview);
       return null;
     } catch (err) {
       return err as Error;
@@ -275,29 +279,6 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     });
   }
 
-  /**
-   * Termina la Línea 3D y la guarda como curva (necesita al menos 2 vértices). Con `surface`, la
-   * cierra y la rellena con un parche en el mismo paso (superficie por vértices).
-   */
-  async function finishLine3d(closed = false, surface = false) {
-    const l = lining();
-    if (!l) return;
-    if (l.chain.length < 2) {
-      setLining(null);
-      return;
-    }
-    setLining(null);
-    const refs = await withRefs(() => kernel.vertexRefs(l.chain));
-    if (!refs) return;
-    if (!surface) return addWithDialog(ops.makeCurve3d(doc(), refs, closed && l.chain.length >= 3));
-    if (l.chain.length < 3) return setNotice('Para una superficie hacen falta al menos 3 vértices');
-    const curve = ops.makeCurve3d(doc(), refs, true);
-    apply((d) => ops.addFeature(d, curve), { coalesce: `dialog:${curve.id}`, sticky: true });
-    // Cuerpo aparte (como en Plasticity): unida, una superficie por vértices de la pieza queda
-    // sobre ella o adentro y no se ve.
-    addWithDialog(ops.makePatch(doc(), [], { curves: [curve.id], operation: 'new', thickness: 0 }));
-  }
-
   /** Agrega una feature nueva y abre su panel; la creación y los ajustes del panel son un solo paso. */
   function addWithDialog(f: Feature) {
     apply((d) => ops.addFeature(d, f), { coalesce: `dialog:${f.id}`, sticky: true });
@@ -322,6 +303,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
   return {
     doc,
     planeFrames,
+    previewing,
     curveGeometry,
     recomputeError,
     evaluated,
@@ -341,44 +323,26 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     fileName,
     dirty,
 
+    /** Unidad activa del proyecto ('mm', 'cm', 'm', 'in'). */
+    units: () => doc().units,
+
+    /** Cambia la unidad de trabajo del proyecto (opcionalmente convirtiendo las dimensiones existentes). */
+    setUnits(unit: LengthUnit, convertGeometry = true) {
+      const prev = doc().units;
+      if (prev === unit) return;
+      apply((d) => ops.setDocumentUnits(d, unit, convertGeometry));
+      setNotice(`Unidad cambiada a ${ops.UNIT_LABELS[unit]}${convertGeometry ? ' (dimensiones convertidas)' : ''}`);
+    },
+
+    /** Escala todas las geometrías y dimensiones del proyecto por un factor multiplicador. */
+    scaleProject(scaleFactor: number) {
+      if (scaleFactor <= 0 || !Number.isFinite(scaleFactor) || scaleFactor === 1) return;
+      apply((d) => ops.scaleDocument(d, scaleFactor));
+      setNotice(`Proyecto escalado ×${scaleFactor}`);
+    },
+
     drawing,
     setDrawing,
-    lining,
-
-    /** Empieza a unir vértices del modelo con líneas 3D. */
-    async startLine3d() {
-      const vertices = await withRefs(() => kernel.vertices());
-      if (!vertices) return;
-      if (vertices.length === 0) return setNotice('No hay vértices en el modelo para unir: creá primero un sólido');
-      batch(() => {
-        setSelectedId(null);
-        setNotice(null);
-        setLining({ vertices, chain: [] });
-      });
-    },
-
-    /** Clic en un vértice: lo suma a la cadena; el primero la cierra y repetir el último la termina. */
-    pickVertex(index: number) {
-      const l = lining();
-      if (!l) return;
-      const chain = l.chain;
-      if (chain.length >= 3 && index === chain[0]) return void finishLine3d(true);
-      if (index === chain.at(-1)) return void finishLine3d(false);
-      setLining({ ...l, chain: [...chain, index] });
-    },
-
-    finishLine3d,
-
-    /** Quita el último vértice elegido. */
-    undoVertex() {
-      const l = lining();
-      if (l?.chain.length) setLining({ ...l, chain: l.chain.slice(0, -1) });
-    },
-
-    cancelLine3d() {
-      setLining(null);
-    },
-
     /**
      * Guarda lo dibujado directamente en 3D: crea el sketch la primera vez y después lo actualiza.
      * Cada figura terminada es un paso del historial. Devuelve el id del sketch.
@@ -737,7 +701,10 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       if (edges.length === 0) return setNotice('Seleccioná una o más aristas en el modelo (Shift + clic para varias)');
       const refs = await withRefs(() => kernel.edgeRefs(edges));
       if (!refs) return;
-      addWithDialog(type === 'fillet' ? ops.makeFillet(doc(), refs) : ops.makeChamfer(doc(), refs));
+      const isFillet = type === 'fillet';
+      const preferred = isFillet ? 2 : 1;
+      const size = typeof kernel.suggestEdgeSize === 'function' ? ((await withRefs(() => kernel.suggestEdgeSize(edges, isFillet, preferred))) ?? preferred) : preferred;
+      addWithDialog(isFillet ? ops.makeFillet(doc(), refs, size) : ops.makeChamfer(doc(), refs, size));
     },
 
     /** Empujar/tirar las caras planas elegidas. */
@@ -781,38 +748,11 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       addWithDialog(ops.makeSplit(doc(), sel?.type === 'plane' ? { kind: 'plane', plane: sel.id } : { kind: 'base', plane: 'XY' }));
     },
 
-    /** Abombar la cara plana elegida. */
-    async addDome(faces: number[]) {
-      if (faces.length !== 1) return setNotice('Seleccioná una cara plana para abombar');
-      const refs = await withRefs(() => kernel.faceRefs(faces));
-      if (!refs) return;
-      if (refs[0].type !== 'PLANE') return setNotice('Abombar funciona con caras planas');
-      addWithDialog(ops.makeDome(doc(), refs[0]));
-    },
-
     /** Guarda las asas arrastradas en el visor (los tramos tocados quedan fijos). */
     moveCurveHandles(id: FeatureId, segments: BezierSegment[], touched: number[]) {
       const f = ops.findFeature(doc(), id);
       if (f?.type !== 'curve3d') return;
       apply((d) => ops.updateFeature<Curve3dFeature>(d, id, { handles: handlesAfter(segments, touched, f.handles) }));
-    },
-
-    /** Parche sobre las aristas elegidas (un contorno cerrado). */
-    async addPatch(edges: number[]) {
-      // Sin aristas elegidas: la curva 3D seleccionada o, si no, la última cerrada que no usa ningún parche.
-      const used = new Set(doc().features.flatMap((f) => (f.type === 'patch' ? f.curves ?? [] : [])));
-      const selected = selectedFeature();
-      const sel = selected?.type === 'curve3d' ? selected
-        : doc().features.filter((f): f is Curve3dFeature => f.type === 'curve3d' && f.closed && !used.has(f.id)).at(-1);
-      if (sel && edges.length === 0) {
-        if (!sel.closed) return setNotice('La curva 3D tiene que estar cerrada para hacer un parche (activá «Cerrada» en su panel)');
-        return addWithDialog(ops.makePatch(doc(), [], { curves: [sel.id], operation: 'new', thickness: 0 }));
-      }
-      if (edges.length < 2) return setNotice('Seleccioná las aristas de un contorno cerrado (Shift + clic) y volvé a tocar Parche');
-      const refs = await withRefs(() => kernel.edgeRefs(edges));
-      if (!refs) return;
-      // Como en Plasticity: superficie sin espesor y tangente a las caras vecinas.
-      addWithDialog(ops.makePatch(doc(), refs, { operation: 'new', thickness: 0, tangent: true }));
     },
 
     /** Mover o copiar: los cuerpos de las caras elegidas (ninguna: todos). */
@@ -1016,7 +956,7 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     },
 
     /** Valor fijado desde un manipulador 3D: reemplaza la expresión del campo, si la había. */
-    setFieldFromManipulator(id: FeatureId, path: string, value: number) {
+    setFieldFromManipulator(id: FeatureId, path: string, value: number, isPreview = false) {
       const f = ops.findFeature(doc(), id);
       if (!f) return;
       const exprs = { ...(f.exprs ?? {}) };
@@ -1025,8 +965,12 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
       const clean = Number(value.toPrecision(12)); // sin ruido de coma flotante en el documento
       const next = { ...setFieldValue(f, path, clean), exprs: Object.keys(exprs).length ? exprs : undefined };
       const { id: _id, type: _type, ...patch } = next;
-      apply((d) => ops.updateFeature(d, id, patch), { coalesce: `drag:${id}:${path}` });
-      if (hadExpr) setNotice(`Se reemplazó la expresión de ${f.name} por el valor arrastrado (Ctrl+Z para volver)`);
+      const before = doc();
+      apply((d) => ops.updateFeature(d, id, patch), { coalesce: `drag:${id}:${path}` }, isPreview);
+      // Al soltar en el mismo valor del último paso el documento no cambia: igual hay que recalcular
+      // en modo final (malla fina, masa y comprobación), porque lo que se ve es la vista previa.
+      if (!isPreview && doc() === before && (pendingPreview || previewing())) setDocument(before, false);
+      if (hadExpr && !isPreview) setNotice(`Se reemplazó la expresión de ${f.name} por el valor arrastrado (Ctrl+Z para volver)`);
     },
 
     deleteFeature(id: FeatureId) {

@@ -1,14 +1,12 @@
 // Geometría de las curvas 3D entre vértices del modelo: un tramo por par de vértices seguidos,
 // cada uno una Bézier cúbica [inicio, control 1, control 2, fin]. La usan el kernel (aristas del
 // parche) y el visor (asas arrastrables y vista previa), así lo que se ve es lo que se construye.
+import { add, scale as mul, sub } from './planes';
 import type { Curve3dHandles, Vec3 } from './types';
 
 /** Tramo: inicio, control de salida, control de llegada, fin. */
 export type BezierSegment = [Vec3, Vec3, Vec3, Vec3];
 
-const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const mul = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
 const len = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
 const unit = (a: Vec3): Vec3 => {
   const l = len(a);

@@ -16,7 +16,7 @@ export const DRAW_TOOLS: { id: DrawTool; label: string; icon: IconName; key: str
 
 export type FeatureTool =
   | 'extrude' | 'revolve' | 'sweep' | 'loft' | 'hole' | 'thread' | 'pattern' | 'mirror' | 'fillet' | 'chamfer' | 'shell'
-  | 'pushpull' | 'draft' | 'combine' | 'split' | 'move' | 'dome' | 'patch' | 'line3d';
+  | 'pushpull' | 'draft' | 'combine' | 'split' | 'move';
 
 export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; key: string; desc: string; sepBefore?: boolean }[] = [
   { id: 'extrude', label: 'Extrusión', icon: 'extrude', key: 'Shift+E', desc: 'Extruir el sketch seleccionado o el último sin usar' },
@@ -35,9 +35,6 @@ export const FEATURE_TOOLS: { id: FeatureTool; label: string; icon: IconName; ke
   { id: 'combine', label: 'Combinar', icon: 'combine', key: 'Shift+J', desc: 'Unir, cortar o intersectar cuerpos: primero una cara del cuerpo destino, después una de cada herramienta' },
   { id: 'split', label: 'Dividir', icon: 'split', key: 'Shift+S', desc: 'Partir los cuerpos con un plano: la cara plana elegida, el plano de construcción elegido o XY' },
   { id: 'move', label: 'Mover/copiar', icon: 'move', key: 'Shift+G', desc: 'Trasladar y girar los cuerpos de las caras elegidas (ninguna: todos), o copiarlos' },
-  { id: 'dome', label: 'Abombar cara', icon: 'dome', key: 'Shift+A', desc: 'La cara plana elegida se abomba con una superficie suave: el borde queda fijo y el centro sube (o baja)', sepBefore: true },
-  { id: 'patch', label: 'Parche', icon: 'patch', key: 'Shift+K', desc: 'Superficie que rellena las aristas elegidas (un contorno cerrado), engrosada como sólido' },
-  { id: 'line3d', label: 'Línea 3D', icon: 'curve3d', key: 'Shift+W', desc: 'Unir vértices del modelo con líneas: sobre una cara la parte en dos; cerrada, sirve de borde para un parche' },
 ];
 
 /** Plano de construcción (va junto al menú de sketch, no entre las operaciones). */

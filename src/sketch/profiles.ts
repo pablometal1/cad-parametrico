@@ -37,6 +37,34 @@ const JOIN_TOL = 1e-6;
 
 export class ProfileError extends Error {}
 
+const isStandaloneLoop = (c: SketchCurve): c is SketchCircle | SketchSpline =>
+  c.type === 'circle' || (c.type === 'spline' && c.closed);
+
+const curveEndpoints = (c: SketchCurve): [SketchEntityId, SketchEntityId] =>
+  c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end]
+    : c.type === 'spline' ? [c.points[0], c.points[c.points.length - 1]] : [c.center, c.center];
+
+function buildCurveGraph(index: SketchIndex, curves: SketchCurve[], branchMessage: string) {
+  const segs = curves.filter((c) => !isStandaloneLoop(c) && curveLength(index, c) > JOIN_TOL);
+  // Agrupa extremos por posición: puntos distintos en el mismo lugar son el mismo vértice.
+  const node = clusterPoints(index, segs.flatMap(curveEndpoints));
+  const adjacency: Adjacency = new Map();
+  for (const c of segs) {
+    const [a, b] = curveEndpoints(c).map((p) => node.get(p)!);
+    for (const [n, at] of [[a, 0], [b, 1]] as const) {
+      if (!adjacency.has(n)) adjacency.set(n, []);
+      adjacency.get(n)!.push({ curve: c, at });
+    }
+  }
+  for (const [n, list] of adjacency) {
+    if (list.length > 2) {
+      const p = representative(index, node, n);
+      throw new ProfileError(`En (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) se unen ${list.length} curvas; ${branchMessage}`);
+    }
+  }
+  return { segs, node, adjacency };
+}
+
 /**
  * Encuentra las regiones extruibles. Lanza ProfileError si la topología no es soportada
  * (más de dos curvas en un mismo vértice).
@@ -47,47 +75,27 @@ export function findProfiles(data: SketchData): ProfileAnalysis {
 
   const loops: ProfileLoop[] = [];
   // Círculos y splines cerradas: cada una es un contorno por sí sola.
-  const standalone = (c: SketchCurve) => c.type === 'circle' || (c.type === 'spline' && c.closed);
-  for (const c of curves) if (standalone(c)) loops.push(circleLoop(index, c as SketchCircle | SketchSpline));
+  for (const c of curves) if (isStandaloneLoop(c)) loops.push(circleLoop(index, c));
 
-  const segs = curves.filter((c) => !standalone(c) && curveLength(index, c) > JOIN_TOL);
-  const ends = (c: SketchCurve): [SketchEntityId, SketchEntityId] =>
-    c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end]
-      : c.type === 'spline' ? [c.points[0], c.points[c.points.length - 1]] : [c.center, c.center];
-
-  // Agrupa extremos por posición: puntos distintos en el mismo lugar son el mismo vértice.
-  const node = clusterPoints(index, segs.flatMap(ends));
-  const adjacency = new Map<number, { curve: SketchCurve; at: 0 | 1 }[]>();
-  for (const c of segs) {
-    const [a, b] = ends(c).map((p) => node.get(p)!);
-    for (const [n, at] of [[a, 0], [b, 1]] as const) {
-      if (!adjacency.has(n)) adjacency.set(n, []);
-      adjacency.get(n)!.push({ curve: c, at });
-    }
-  }
-  for (const [n, list] of adjacency) {
-    if (list.length > 2) {
-      const p = representative(index, node, n);
-      throw new ProfileError(
-        `En (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) se unen ${list.length} curvas; ` +
-          'los perfiles deben ser contornos simples (marcá las curvas sobrantes como construcción)',
-      );
-    }
-  }
+  const { segs, node, adjacency } = buildCurveGraph(
+    index,
+    curves,
+    'los perfiles deben ser contornos simples (marcá las curvas sobrantes como construcción)',
+  );
 
   // Recorre cada componente conexa.
   const visited = new Set<SketchEntityId>();
   let openChains = 0;
   for (const start of segs) {
     if (visited.has(start.id)) continue;
-    const component = collectComponent(start, adjacency, node, ends);
+    const component = collectComponent(start, adjacency, node, curveEndpoints);
     component.forEach((c) => visited.add(c.id));
-    const isClosed = component.every((c) => ends(c).every((p) => adjacency.get(node.get(p)!)!.length === 2));
+    const isClosed = component.every((c) => curveEndpoints(c).every((p) => adjacency.get(node.get(p)!)!.length === 2));
     if (!isClosed) {
       openChains++;
       continue;
     }
-    loops.push(walkLoop(index, start, adjacency, node, ends));
+    loops.push(walkLoop(index, start, adjacency, node, curveEndpoints));
   }
 
   const regions = nestLoops(loops);
@@ -275,41 +283,23 @@ export function findChains(data: SketchData): CurveChain[] {
   const index = new SketchIndex(data);
   const curves = index.curves().filter((c) => !c.construction);
   const chains: CurveChain[] = [];
-  const standalone = (c: SketchCurve) => c.type === 'circle' || (c.type === 'spline' && c.closed);
-  for (const c of curves) if (standalone(c)) chains.push({ edges: [{ curve: c, reversed: false }], closed: true });
+  for (const c of curves) if (isStandaloneLoop(c)) chains.push({ edges: [{ curve: c, reversed: false }], closed: true });
 
-  const segs = curves.filter((c) => !standalone(c) && curveLength(index, c) > JOIN_TOL);
-  const ends = (c: SketchCurve): [SketchEntityId, SketchEntityId] =>
-    c.type === 'line' ? [c.p1, c.p2] : c.type === 'arc' ? [c.start, c.end] : c.type === 'spline' ? [c.points[0], c.points[c.points.length - 1]] : [c.center, c.center];
-  const node = clusterPoints(index, segs.flatMap(ends));
-  const adjacency: Adjacency = new Map();
-  for (const c of segs) {
-    const [a, b] = ends(c).map((p) => node.get(p)!);
-    for (const [n, at] of [[a, 0], [b, 1]] as const) {
-      if (!adjacency.has(n)) adjacency.set(n, []);
-      adjacency.get(n)!.push({ curve: c, at });
-    }
-  }
-  for (const [n, list] of adjacency) {
-    if (list.length > 2) {
-      const p = representative(index, node, n);
-      throw new ProfileError(`En (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) se unen ${list.length} curvas; las paredes deben ser cadenas simples`);
-    }
-  }
+  const { segs, node, adjacency } = buildCurveGraph(index, curves, 'las paredes deben ser cadenas simples');
   const visited = new Set<SketchEntityId>();
   for (const seed of segs) {
     if (visited.has(seed.id)) continue;
-    const component = collectComponent(seed, adjacency, node, ends);
+    const component = collectComponent(seed, adjacency, node, curveEndpoints);
     // Abierta: se arranca por una curva con un extremo libre, saliendo por ese extremo.
-    const free = component.find((c) => ends(c).some((p) => adjacency.get(node.get(p)!)!.length === 1));
+    const free = component.find((c) => curveEndpoints(c).some((p) => adjacency.get(node.get(p)!)!.length === 1));
     const start = free ?? component[0];
-    let reversed = free ? adjacency.get(node.get(ends(free)[1])!)!.length === 1 && adjacency.get(node.get(ends(free)[0])!)!.length !== 1 : false;
+    let reversed = free ? adjacency.get(node.get(curveEndpoints(free)[1])!)!.length === 1 && adjacency.get(node.get(curveEndpoints(free)[0])!)!.length !== 1 : false;
     const edges: LoopEdge[] = [];
     let curve: SketchCurve = start;
     for (let guard = 0; guard <= component.length; guard++) {
       edges.push({ curve, reversed });
       visited.add(curve.id);
-      const exit = node.get(ends(curve)[reversed ? 0 : 1])!;
+      const exit = node.get(curveEndpoints(curve)[reversed ? 0 : 1])!;
       const next = adjacency.get(exit)!.find((x) => !visited.has(x.curve.id));
       if (!next) break;
       curve = next.curve;

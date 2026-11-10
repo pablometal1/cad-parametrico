@@ -159,6 +159,8 @@ export interface FeatureResult {
   error?: string;
   /** Información adicional (por ejemplo, grados de libertad de un sketch). */
   info?: string;
+  /** Aviso con status = 'ok': la feature se hizo, pero no exactamente como se pidió (p. ej. radio reducido). */
+  warning?: string;
   timeMs: number;
   /** true si se reutilizó el resultado del recálculo anterior. */
   cached: boolean;
@@ -184,15 +186,17 @@ export interface RecomputeResult {
 /** API que expone el worker. Todos los métodos son asíncronos vistos desde la UI. */
 export interface KernelApi {
   init(): { occtLoadMs: number };
-  recompute(doc: CadDocument): RecomputeResult;
+  recompute(doc: CadDocument, options?: { preview?: boolean }): RecomputeResult;
   faceInfo(faceIndex: number): FaceInfo;
   edgeInfo(edgeIndex: number): EdgeInfo;
   /** Referencias topológicas (nombre + huella) de caras del sólido mostrado. */
   faceRefs(indices: number[]): FaceRef[];
-  /** Referencias topológicas de aristas del sólido mostrado. */
   /** Agrupa aristas del sólido mostrado en cadenas conectadas. */
   edgeChains(indices: number[]): number[][];
+  /** Referencias topológicas de aristas del sólido mostrado. */
   edgeRefs(indices: number[]): EdgeRef[];
+  /** Sugiere un radio/distancia inicial válido para las aristas elegidas (hasta `preferred`). */
+  suggestEdgeSize(indices: number[], isFillet: boolean, preferred?: number): number;
   /** Vértices del sólido actual (xyz consecutivos), para enganchar líneas 3D. */
   vertices(): Float32Array;
   /** Referencias estables a vértices (índices de `vertices()`). */
@@ -203,7 +207,6 @@ export interface KernelApi {
   measure(faces: number[], edges: number[]): Measurement;
   /** Volumen, área, caja envolvente y centro de masa del sólido mostrado. */
   massProperties(): MassProperties;
-  /** Manipulador 3D de una feature (null si no tiene o no se evaluó). */
   /** Asas de la feature (puede tener varias, como las flechas X/Y/Z de Mover). */
   manipulator(featureId: string): Manipulator[];
   /** Arma el documento de una plantilla de la biblioteca de modelos. */

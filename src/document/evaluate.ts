@@ -47,6 +47,8 @@ export function fieldLabel(path: string): string {
     scale: 'la escala',
     offset: 'el desplazamiento',
     height: 'la altura',
+    tensionStart: 'la tensión inicial',
+    tensionEnd: 'la tensión final',
     dx: 'la traslación en X',
     dy: 'la traslación en Y',
     dz: 'la traslación en Z',

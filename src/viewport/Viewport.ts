@@ -282,6 +282,12 @@ export class Viewport {
     this.needsRender = true;
   }
 
+  /** Actualiza la unidad de medida para mostrar en los manipuladores 3D. */
+  setUnit(u: string) {
+    this.manipulator.setUnit(u);
+    this.needsRender = true;
+  }
+
   /** Encuadra el modelo completo. */
   fitView(direction?: THREE.Vector3) {
     if (!this.mesh) return;

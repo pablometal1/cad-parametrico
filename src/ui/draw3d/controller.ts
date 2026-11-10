@@ -46,7 +46,7 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     stop();
     target = t;
     featureId = t.featureId;
-    session = createSketchSession(t.data, { scope: () => store.evaluated().scope });
+    session = createSketchSession(t.data, { scope: () => store.evaluated().scope, unit: () => (typeof store.units === 'function' ? store.units() : (typeof store.doc === 'function' ? store.doc()?.units : undefined) ?? 'mm') });
     session.setTool(initialTool);
     session.setPolygonSides(sides());
     session.setTextOptions(textOpts());
@@ -132,7 +132,8 @@ export function createDirectDraw(store: CadStore, viewport: () => Viewport | und
     const t = target;
     const pending = session.pending();
     const segs = previewSegments2D(pending, cursor, session.polygonSides());
-    const text = previewLabel(pending, cursor);
+    const currentUnit = typeof store.units === 'function' ? store.units() : (typeof store.doc === 'function' ? store.doc()?.units : undefined) ?? 'mm';
+    const text = previewLabel(pending, cursor, currentUnit);
     vp.setDrawOverlay({
       segments: toWorldSegments(t.frame, segs),
       snap: lastAnchor?.pointId ? toWorld(t.frame, ...lastAnchor.pos) : null,

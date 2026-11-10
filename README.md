@@ -8,7 +8,7 @@
   <img alt="WebAssembly" src="https://img.shields.io/badge/WebAssembly-654FF0?style=flat-square&logo=webassembly&logoColor=white">
   <img alt="Three.js" src="https://img.shields.io/badge/Three.js-000000?style=flat-square&logo=threedotjs&logoColor=white">
   <img alt="Solid.js" src="https://img.shields.io/badge/Solid.js-2C4F7C?style=flat-square&logo=solid&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-384%20con%20OCCT%20real-2ea043?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-403%20con%20OCCT%20real-2ea043?style=flat-square">
 </p>
 
 <p align="center">
@@ -78,8 +78,6 @@ Corre entero en el navegador. La geometría es **B-rep exacta**, hecha con OpenC
 | **Desmoldeo** | Inclinar caras respecto de una cara neutra |
 | **Combinar · Dividir** | Unir, cortar o intersectar cuerpos; partirlos con un plano |
 | **Mover/copiar cuerpos** | Traslación y giro, con o sin copia; flechas X/Y/Z y aro de giro en el modelo |
-| **Abombar cara · Parche** | Superficies libres: abombar una cara plana o rellenar un contorno de aristas, como superficie sin espesor o engrosada, opcionalmente tangente a las caras vecinas |
-| **Línea 3D** | Unir vértices del modelo con líneas en el espacio (clic en cada vértice; clic en el primero cierra). Una línea que va por una cara la parte en dos (después se puede empujar/tirar cada parte). La curva sigue al modelo si cambian sus cotas y, cerrada, sirve de borde para un parche. **Superficie por vértices** en un paso, y cada tramo se curva arrastrando sus asas en el visor (como los puntos de control de Plasticity), con tangente continua opcional |
 
 </td>
 </tr>
@@ -271,8 +269,6 @@ El historial dice qué se reparó («sólido, reparado: 2 agujeros cerrados»). 
 | `Enter` | Terminar | `Shift+Q` / `Shift+D` | Empujar/tirar / desmoldeo |
 | **Editor de sketch** | | `Shift+J` / `Shift+S` | Combinar / dividir |
 | `X` `D` `M` | Recortar, desfase, simetría | `Shift+G` | Mover/copiar cuerpos |
-| | | `Shift+A` / `Shift+K` | Abombar cara / parche |
-| | | `Shift+W` | Línea 3D entre vértices (Enter termina, Backspace quita el último, Esc cancela) |
 | | | `Alt+↑` / `Alt+↓` | Mover en el historial |
 
 ## Licencias de terceros

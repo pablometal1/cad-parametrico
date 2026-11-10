@@ -1,6 +1,6 @@
 // Serialización JSON del documento, con validación estricta al leer.
 import {
-  DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN,
+  DOCUMENT_FORMAT, DOCUMENT_VERSION, IMPLICIT_IDS, ORIGIN, VALID_UNITS, type LengthUnit,
   type BasePlane, type CadDocument, type ExtrudeFeature, type Feature, type SketchConstraint,
   type SketchEntity, type SketchFeature, type SketchPlaneRef, type RevolveFeature, type FaceRef, type EdgeRef, type Vec3,
   type Parameter, type PlaneReference, type SketchSpline, type LoftFeature, type LoftSection, type Curve3dFeature, type Curve3dHandles, NURBS_MAX_DEGREE,
@@ -33,7 +33,9 @@ export function validateDocument(raw: unknown): CadDocument {
   const o = obj(raw, '$');
   if (o.format !== DOCUMENT_FORMAT) throw new DocumentFormatError('$.format', `se esperaba "${DOCUMENT_FORMAT}"`);
   if (o.version !== DOCUMENT_VERSION) throw new DocumentFormatError('$.version', `versión no soportada: ${String(o.version)}`);
-  if (o.units !== 'mm') throw new DocumentFormatError('$.units', 'solo se admite "mm"');
+  if (typeof o.units !== 'string' || !VALID_UNITS.includes(o.units as LengthUnit)) {
+    throw new DocumentFormatError('$.units', `unidad no soportada: "${String(o.units)}" (admitidas: ${VALID_UNITS.join(', ')})`);
+  }
   if (!Array.isArray(o.features)) throw new DocumentFormatError('$.features', 'debe ser una lista');
 
   const parameters = validateParameters(o.parameters);
@@ -50,7 +52,7 @@ export function validateDocument(raw: unknown): CadDocument {
     if (rollback < 0 || rollback > features.length) throw new DocumentFormatError('$.rollback', 'fuera de rango');
     if (rollback === features.length) rollback = null;
   }
-  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: 'mm', parameters, features, rollback };
+  return { format: DOCUMENT_FORMAT, version: DOCUMENT_VERSION, units: o.units as LengthUnit, parameters, features, rollback };
 }
 
 function validateFeature(raw: unknown, path: string): Feature {

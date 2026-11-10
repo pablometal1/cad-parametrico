@@ -1,6 +1,7 @@
 // Lógica del kernel, independiente del transporte: la usan el worker y los tests en Node.
 import { cylinderOf } from './features/thread';
 import { checkPart } from './features/check';
+import { edgeFeatureWorks, fmtMax, largestThatWorks } from './features/dressup';
 import { sampleSegments } from '../document/curve3d';
 import { area, volumeProps } from './features/measure';
 import { loadFonts } from '../sketch/text';
@@ -47,13 +48,14 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
     return { occtLoadMs: Math.round(performance.now() - t0) };
   }
 
-  recompute(doc: CadDocument): RecomputeResult {
+  recompute(doc: CadDocument, options?: { preview?: boolean }): RecomputeResult {
     const t0 = performance.now();
+    const isPreview = options?.preview ?? false;
     const evaluated = evaluateDocument(doc);
     const { results, shape, sketches, planes, curves, references } = this.engine.run(evaluated.doc, evaluated.errors);
     this.current = shape;
-    // El motor devuelve el mismo objeto si el sólido no cambió (o al deshacer): no se vuelve a mallar.
-    const mesh = shape ? copyMesh(memo(this.meshes, shape, () => meshForDisplay(shape))) : null;
+    // En modo vista previa interactiva (arrastre), genera una malla rápida de baja resolución sin contaminar la caché definitiva.
+    const mesh = shape ? copyMesh(isPreview ? meshForDisplay(shape, true) : memo(this.meshes, shape, () => meshForDisplay(shape, false))) : null;
     return {
       features: results,
       mesh,
@@ -179,8 +181,9 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
   edgeRefs(indices: number[]): EdgeRef[] {
     const shape = this.requireShape();
     const kinds = edgeKinds(shape);
-    const bad = indices.filter((i) => kinds[i] !== EDGE_NORMAL);
-    if (bad.length) {
+    const valid = indices.filter((i) => kinds[i] === EDGE_NORMAL);
+    if (valid.length === 0) {
+      const bad = indices.filter((i) => kinds[i] !== EDGE_NORMAL);
       const what = bad.every((i) => kinds[i] === EDGE_SEAM)
         ? 'es una costura de la superficie, no un borde real'
         : bad.every((i) => kinds[i] === EDGE_TANGENT)
@@ -189,7 +192,23 @@ export class KernelService implements Record<keyof KernelApi, (...a: never[]) =>
       const n = bad.length === 1 ? 'Una de las aristas elegidas' : `${bad.length} de las aristas elegidas`;
       throw new Error(`${n} ${what}: no se puede redondear ni achaflanar. Elegí bordes con esquina viva.`);
     }
-    return indices.map((i) => edgeRefOf(shape, i));
+    return valid.map((i) => edgeRefOf(shape, i));
+  }
+
+  /**
+   * Calcula un radio/distancia inicial que funcione para las aristas elegidas: si `preferred`
+   * entra directamente lo devuelve; si no, busca por bisección el mayor valor válido.
+   */
+  suggestEdgeSize(indices: number[], isFillet: boolean, preferred = isFillet ? 2 : 1): number {
+    const shape = this.requireShape();
+    const kinds = edgeKinds(shape);
+    const valid = [...new Set(indices.filter((i) => kinds[i] === EDGE_NORMAL))];
+    if (valid.length === 0) return preferred;
+    if (edgeFeatureWorks(shape, valid, isFillet, preferred)) return preferred;
+    const max = largestThatWorks(preferred, (v) => edgeFeatureWorks(shape, valid, isFillet, v));
+    if (max === null) return preferred;
+    const safe = Number(fmtMax(max * 0.9));
+    return safe > 0 ? safe : preferred;
   }
 
   async exportModel(format: ExportFormat, quality: ExportQuality): Promise<ExportResult> {
@@ -362,14 +381,21 @@ function cylinderInfo(face: Parameters<typeof cylinderOf>[0]): FaceInfo['cylinde
  */
 const MAX_DISPLAY_TRIANGLES = 150_000;
 
-function meshForDisplay(shape: NamedShape): MeshPayload {
+function meshForDisplay(shape: NamedShape, coarse = false): MeshPayload {
   const kinds = edgeKinds(shape);
+  if (coarse) {
+    try {
+      return shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));
+    } catch {
+      // Si falla la gruesa, intenta la estándar abajo
+    }
+  }
   try {
     const fine = shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape));
     if (fine.indices.length / 3 <= MAX_DISPLAY_TRIANGLES) return fine;
     // Demasiados triángulos (superficies como roscas de paso grande): una más gruesa, si es menor.
-    const coarse = shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));
-    return coarse.indices.length < fine.indices.length ? coarse : fine;
+    const coarseMesh = shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));
+    return coarseMesh.indices.length < fine.indices.length ? coarseMesh : fine;
   } catch {
     try {
       return shapeToMesh(shape.shape, kinds, displayMeshOptions(shape.shape, true));

@@ -1,7 +1,7 @@
 // Ubicación de los manipuladores 3D de cada feature (asas para arrastrar parámetros).
 import { holeCenters } from '../document/holes';
 import type { PlaneFrame } from '../document/planes';
-import { dot, normalize, sub, toWorld, type Vec3 } from '../document/planes';
+import { add, dot, normalize, scale, sub, toWorld, type Vec3 } from '../document/planes';
 import type { Feature, FeatureId } from '../document/types';
 import { revolveAxis } from './features/revolve';
 import { patchFrame, type Curve3dGeometry } from './features/surface';
@@ -101,7 +101,7 @@ export function manipulatorFor(feature: Feature, ctx: Ctx): Manipulator | Manipu
         // El asa sale del plano sin desplazar y mide la distancia sobre su normal.
         return {
           kind: 'linear', featureId: feature.id, param: 'distance', label: 'Distancia',
-          origin: [0, 1, 2].map((i) => f.origin[i] - f.normal[i] * feature.distance) as [number, number, number],
+          origin: sub(f.origin, scale(f.normal, feature.distance)),
           dir: f.normal, factor: 1, value: feature.distance, min: -1e6,
         };
       }
@@ -239,9 +239,6 @@ function sketchSize(s: EvaluatedSketch): number {
   return m;
 }
 
-const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const scale = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
 function unit(v: number[]): Vec3 {
-  const l = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / l, v[1] / l, v[2] / l];
+  return normalize([v[0], v[1], v[2]]);
 }

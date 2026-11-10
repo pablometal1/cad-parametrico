@@ -7,7 +7,7 @@ import { describeError, FeatureError, hashString } from './occtUtils';
 import { resolveEdge, resolveFace, ShapeTable, type NamedShape } from './naming';
 import { runExtrude } from './features/extrude';
 import { runRevolve } from './features/revolve';
-import { runEdgeFeature, runShell, runShellOver } from './features/dressup';
+import { runEdgeFeatureNoted, runShell, runShellOver } from './features/dressup';
 import { runMirror, runPattern } from './features/copy';
 import { chainWire, runLoft, runSweep, type LoftSectionInput } from './features/sweep';
 import type { Wire } from 'replicad';
@@ -38,6 +38,7 @@ interface CacheEntry {
   status: Extract<FeatureStatus, 'ok' | 'error'>;
   error?: string;
   info?: string;
+  warning?: string;
   timeMs: number;
 }
 
@@ -178,7 +179,7 @@ export class RecomputeEngine {
       }
       if (e.reference) references.push({ id: feature.id, shape: e.reference });
       if (e.curve) curves.set(feature.id, e.curve);
-      results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, timeMs: e.timeMs, cached });
+      results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, warning: e.warning, timeMs: e.timeMs, cached });
       // Las features que no cambian el sólido (sketch, plano, referencia, error) lo dejan pasar tal
       // como llegó: su `output` guardado puede ser de otro recálculo.
       current = e.owned ? e.output : current;
@@ -285,7 +286,10 @@ export class RecomputeEngine {
           return ok(runRevolve(feature, resolveSketch(feature, ctx), ctx.input));
         case 'fillet':
         case 'chamfer':
-          return ok(runEdgeFeature(feature, ctx.input));
+          {
+            const r = runEdgeFeatureNoted(feature, ctx.input);
+            return { ...ok(r.shape), warning: r.warning };
+          }
         case 'shell':
           return ok(this.shell(feature, ctx));
         case 'pattern': {
@@ -400,6 +404,10 @@ function dependencyState(feature: Feature, ctx: Context): string {
       for (const id of ids) {
         resolveSketchById(id, 'un sketch', ctx);
       }
+      return 'ok';
+    }
+    if (feature.type === 'patch' && feature.curves?.length) {
+      resolveCurves(feature.curves, ctx);
       return 'ok';
     }
     if (feature.type === 'pattern' || feature.type === 'mirror') {

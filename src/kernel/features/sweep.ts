@@ -1,10 +1,10 @@
 // Barrido (perfil a lo largo de una trayectoria) y solevación (superficie entre secciones).
 import { assembleWire, cast, getOC, makeBSplineApproximation, makeCircle, makeCompound, makeLine, makeThreePointArc, makeVertex, type AnyShape, type Edge, type Face, type Vertex, type Wire } from 'replicad';
-import { toWorld, type Vec3 } from '../../document/planes';
+import { cross as cross3, dist3, toWorld, type Vec3 } from '../../document/planes';
 import type { FeatureId, LoftFeature, LoftSection, SweepFeature } from '../../document/types';
 import { arcParams } from '../../sketch/geometry';
 import { SketchIndex } from '../../sketch/model';
-import { historyOf, NameBuilder, resolveEdge, resolveFace, ShapeTable, type History, type NamedShape } from '../naming';
+import { historyOf, NameBuilder, resolveEdge, resolveFace, ShapeTable, type History, type NamedShape, type OcShape } from '../naming';
 import { thickenSheet } from './surface';
 import { describeError, FeatureError, isValidShape } from '../occtUtils';
 import { combine, sweepRegions } from './boolean';
@@ -37,8 +37,9 @@ export function buildSweepTool(feature: SweepFeature, profile: EvaluatedSketch, 
       shape.delete();
       throw new FeatureError(`No se pudo barrer el perfil (${describeError(err)})`);
     }
+    const range = new oc.Message_ProgressRange();
     try {
-      pipe.Build(new oc.Message_ProgressRange());
+      pipe.Build(range);
       if (!pipe.IsDone()) throw new FeatureError('No se pudo barrer el perfil por esa trayectoria');
       const result = cast(pipe.Shape());
       if (result.solids.length === 0 || !isValidShape(result)) {
@@ -47,10 +48,11 @@ export function buildSweepTool(feature: SweepFeature, profile: EvaluatedSketch, 
       }
       const nb = new NameBuilder(result);
       nameSweep(nb, historyOf(pipe), profile, shape, feature.id);
-      nb.addAll(cast(pipe.FirstShape()), `${feature.id}:start`);
-      nb.addAll(cast(pipe.LastShape()), `${feature.id}:end`);
+      nb.addCap(pipe.FirstShape(), `${feature.id}:start`);
+      nb.addCap(pipe.LastShape(), `${feature.id}:end`);
       return nb.finish(feature.id);
     } finally {
+      range.delete();
       pipe.delete();
       shape.delete();
     }
@@ -248,7 +250,7 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
         const there = other.kind === 'wire' ? wireFrame(other.wire).center : other.at;
         const tension = (i === 0 ? feature.tensionStart : feature.tensionEnd) ?? 1;
         if (!(tension > 0)) throw new FeatureError(`La tensión tiene que ser mayor que 0 (es ${tension})`);
-        const d = TENSION_SCALE * tension * Math.hypot(there[0] - here[0], there[1] - here[1], there[2] - here[2]);
+        const d = TENSION_SCALE * tension * dist3(there, here);
         let w = continuationWire(p.wire, p.source, there, d);
         keep.push(w);
         // Mismo sentido de recorrido que su sección (si no, la superficie se retuerce).
@@ -267,7 +269,9 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
 
     let result: AnyShape;
     let history: History;
-    let caps: { first: AnyShape | null; last: AnyShape | null } | null = null;
+    let maker: { FirstShape(): OcShape; LastShape(): OcShape };
+    const range = new oc.Message_ProgressRange();
+    keep.push(range);
     if (spine) {
       const path = buildPathWire(spine);
       keep.push(path);
@@ -275,7 +279,7 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
       keep.push(pipe);
       try {
         for (const p of prepared) pipe.Add(p.kind === 'wire' ? p.wire.wrapped : p.vertex.wrapped, false, false);
-        pipe.Build(new oc.Message_ProgressRange());
+        pipe.Build(range);
       } catch (err) {
         throw new FeatureError(`No se pudo seguir la trayectoria central (${describeError(err)})`);
       }
@@ -283,7 +287,7 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
       if (!surface && !pipe.MakeSolid()) throw new FeatureError('La solevación por la trayectoria no se pudo cerrar como sólido');
       result = cast(pipe.Shape());
       history = historyOf(pipe);
-      if (!surface) caps = capsOf(pipe);
+      maker = pipe;
     } else {
       const loft = new oc.BRepOffsetAPI_ThruSections(!surface, feature.ruled, 1e-6);
       keep.push(loft);
@@ -296,16 +300,15 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
         if (closed) loft.AddWire(wires[0].wire.wrapped);
         // Ajusta secciones con distinta cantidad de aristas (por ejemplo, cuadrado a círculo).
         loft.CheckCompatibility(true);
-        loft.Build(new oc.Message_ProgressRange());
+        loft.Build(range);
       } catch (err) {
         throw new FeatureError(`No se pudo hacer la solevación (${describeError(err)})`);
       }
       if (!loft.IsDone()) throw new FeatureError('No se pudo unir las secciones');
       result = cast(loft.Shape());
       history = historyOf(loft);
-      if (!surface && !closed) caps = capsOf(loft);
+      maker = loft;
     }
-    if (caps) keep.push(...[caps.first, caps.last].filter((c): c is AnyShape => !!c));
 
     if (surface) {
       if (!isValidShape(result) || result.faces.length === 0) {
@@ -326,21 +329,15 @@ export function buildLoftTool(feature: LoftFeature, sections: LoftSectionInput[]
     // Caras laterales: por la curva de la primera sección de sketch que las generó.
     const named = wires.find((w) => w.sketch);
     if (named?.sketch) nameSweep(nb, history, named.sketch, named.wire, feature.id);
-    if (caps?.first) nb.addAll(caps.first, `${feature.id}:start`);
-    if (caps?.last) nb.addAll(caps.last, `${feature.id}:end`);
+    if (!closed) {
+      nb.addCap(maker.FirstShape(), `${feature.id}:start`);
+      nb.addCap(maker.LastShape(), `${feature.id}:end`);
+    }
     return nb.finish(feature.id);
   } finally {
     keep.forEach((k) => k.delete());
   }
 }
-
-/** Tapas de inicio y fin (una sección que es un punto no tiene tapa). */
-function capsOf(maker: { FirstShape(): OcShape; LastShape(): OcShape }): { first: AnyShape | null; last: AnyShape | null } {
-  const get = (sh: OcShape) => (sh.IsNull() ? null : cast(sh));
-  return { first: get(maker.FirstShape()), last: get(maker.LastShape()) };
-}
-
-type OcShape = ReturnType<Wire['wrapped']['Reversed']>;
 
 /** Centro y normal (de Newell, según el sentido de recorrido) de un contorno cerrado. */
 function wireFrame(w: Wire): { center: Vec3; normal: Vec3 } {
@@ -391,7 +388,6 @@ function adjacentFaces(faces: Face[], edge: Edge): number[] {
   return faces.flatMap((f, i) => (f.edges.some((e) => e.isSame(edge)) ? [i] : []));
 }
 
-const cross3 = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit3 = (a: Vec3): Vec3 => {
   const l = Math.hypot(a[0], a[1], a[2]);
   return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0];
@@ -408,6 +404,50 @@ function outward(face: Face, edge: Edge, t: number): { at: Vec3; dir: Vec3 } {
   const c = face.center.toTuple();
   if (dir[0] * (at[0] - c[0]) + dir[1] * (at[1] - c[1]) + dir[2] * (at[2] - c[2]) < 0) dir = [-dir[0], -dir[1], -dir[2]];
   return { at, dir };
+}
+
+/** Ordena tramos muestreados de las aristas de un wire en una sola cadena continua por sus extremos. */
+function orderPointChains<T extends { base: Vec3[] }>(raw: T[], flip: (item: T) => T): T[] | null {
+  if (!raw.length) return [];
+  const near = (a: Vec3, b: Vec3) => dist3(a, b) < 1e-6;
+  const left = raw.slice();
+  const out = [left.shift()!];
+  while (left.length) {
+    const tail = out[out.length - 1].base.at(-1)!;
+    const head = out[0].base[0];
+    const i = left.findIndex((c) => near(c.base[0], tail) || near(c.base.at(-1)!, tail));
+    if (i >= 0) {
+      const c = left.splice(i, 1)[0];
+      out.push(near(c.base[0], tail) ? c : flip(c));
+      continue;
+    }
+    const j = left.findIndex((c) => near(c.base[0], head) || near(c.base.at(-1)!, head));
+    if (j < 0) return null;
+    const c = left.splice(j, 1)[0];
+    out.unshift(near(c.base.at(-1)!, head) ? c : flip(c));
+  }
+  return out;
+}
+
+/** Promedia los extremos compartidos entre tramos consecutivos y construye una arista (recta o BSpline) por tramo. */
+function chainsToEdges(chains: Vec3[][], closedLoop: boolean): Edge[] {
+  const n = chains.length;
+  const join = (x: Vec3[], y: Vec3[]) => {
+    const m = [0, 1, 2].map((k) => (x[x.length - 1][k] + y[0][k]) / 2) as Vec3;
+    x[x.length - 1] = m;
+    y[0] = m;
+  };
+  for (let i = 0; i + 1 < n; i++) join(chains[i], chains[i + 1]);
+  if (closedLoop && n > 1) join(chains[n - 1], chains[0]);
+  if (closedLoop && n === 1) chains[0][chains[0].length - 1] = chains[0][0];
+  return chains.map((pts) => {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    const chord = [last[0] - first[0], last[1] - first[1], last[2] - first[2]] as Vec3;
+    const l = Math.hypot(...chord);
+    const off = l > 1e-9 ? Math.max(...pts.map((p) => Math.hypot(...cross3(chord, [p[0] - first[0], p[1] - first[1], p[2] - first[2]])) / l)) : Infinity;
+    return off < 1e-7 ? makeLine(first, last) : makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 3, degMin: 2 });
+  });
 }
 
 /**
@@ -432,45 +472,9 @@ function continuationWire(wire: Wire, source: Source, toward: Vec3, d: number): 
     }
     raw.push({ base, moved });
   }
-  // Las aristas de un wire no vienen en orden de recorrido: se encadenan por sus extremos.
-  const near = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
-  const ordered = [raw.shift()!];
-  const flip = (r: { base: Vec3[]; moved: Vec3[] }) => ({ base: r.base.slice().reverse(), moved: r.moved.slice().reverse() });
-  while (raw.length) {
-    const tail = ordered[ordered.length - 1].base.at(-1)!;
-    const head = ordered[0].base[0];
-    const i = raw.findIndex((r) => near(r.base[0], tail) || near(r.base.at(-1)!, tail));
-    if (i >= 0) {
-      const r = raw.splice(i, 1)[0];
-      ordered.push(near(r.base[0], tail) ? r : flip(r));
-      continue;
-    }
-    const j = raw.findIndex((r) => near(r.base[0], head) || near(r.base.at(-1)!, head));
-    if (j < 0) break;
-    const r = raw.splice(j, 1)[0];
-    ordered.unshift(near(r.base.at(-1)!, head) ? r : flip(r));
-  }
-  if (raw.length) throw new FeatureError('Las aristas de la sección no forman una cadena: no se puede armar la continuidad');
-  const chains = ordered.map((r) => r.moved);
-  // Los extremos compartidos se promedian para que el contorno quede cerrado y sin saltos.
-  const join = (a: Vec3[], b: Vec3[]) => {
-    const m = [0, 1, 2].map((k) => (a[a.length - 1][k] + b[0][k]) / 2) as Vec3;
-    a[a.length - 1] = m;
-    b[0] = m;
-  };
-  for (let i = 0; i + 1 < chains.length; i++) join(chains[i], chains[i + 1]);
-  if (wire.isClosed && chains.length > 1) join(chains[chains.length - 1], chains[0]);
-  const edges = chains.map((pts) => {
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    const off = Math.max(...pts.map((p) => {
-      const ab = [last[0] - first[0], last[1] - first[1], last[2] - first[2]] as Vec3;
-      const ap = [p[0] - first[0], p[1] - first[1], p[2] - first[2]] as Vec3;
-      const l = Math.hypot(...ab);
-      return l > 1e-12 ? Math.hypot(...cross3(ab, ap)) / l : 0;
-    }));
-    return off < 1e-7 ? makeLine(first, last) : makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 3, degMin: 2 });
-  });
+  const ordered = orderPointChains(raw, (r) => ({ base: r.base.slice().reverse(), moved: r.moved.slice().reverse() }));
+  if (!ordered) throw new FeatureError('Las aristas de la sección no forman una cadena: no se puede armar la continuidad');
+  const edges = chainsToEdges(ordered.map((r) => r.moved), wire.isClosed);
   try {
     return assembleWire(edges);
   } catch (err) {
@@ -573,7 +577,7 @@ export function loftTensionHandles(feature: LoftFeature, input: NamedShape | nul
         for (let k = 0; k < 3; k++) sum[k] += dir[k];
       }
       const center = wireFrame(wire).center;
-      const dist = Math.hypot(toward[0] - center[0], toward[1] - center[1], toward[2] - center[2]);
+      const dist = dist3(toward, center);
       const dir = unit3(sum);
       if (Math.hypot(...dir) < 0.5 || dist < 1e-9) continue;
       out.push({ param, center, dir, scale: TENSION_SCALE * dist, value: feature[param] ?? 1 });
@@ -605,24 +609,7 @@ function sectionChains(wire: Wire, source: Source | undefined, toward: Vec3, N: 
     }
     return { base, dir: face ? dir : null };
   });
-  const near = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
-  const flip = (c: Chain): Chain => ({ base: c.base.slice().reverse(), dir: c.dir ? c.dir.slice().reverse() : null });
-  const out = [raw.shift()!];
-  while (raw.length) {
-    const tail = out[out.length - 1].base.at(-1)!;
-    const head = out[0].base[0];
-    const i = raw.findIndex((c) => near(c.base[0], tail) || near(c.base.at(-1)!, tail));
-    if (i >= 0) {
-      const c = raw.splice(i, 1)[0];
-      out.push(near(c.base[0], tail) ? c : flip(c));
-      continue;
-    }
-    const j = raw.findIndex((c) => near(c.base[0], head) || near(c.base.at(-1)!, head));
-    if (j < 0) return [];
-    const c = raw.splice(j, 1)[0];
-    out.unshift(near(c.base.at(-1)!, head) ? c : flip(c));
-  }
-  return out;
+  return orderPointChains(raw, (c) => ({ base: c.base.slice().reverse(), dir: c.dir ? c.dir.slice().reverse() : null })) ?? [];
 }
 
 /**
@@ -642,11 +629,10 @@ function bridgeSections(a: Prepared, b: Prepared, tensionA: number, tensionB: nu
   if (!A.length || A.length !== B.length) return null;
   const n = A.length;
   const closedLoop = !a.open;
-  const dist = (p: Vec3, q: Vec3) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
   const mid = (c: Chain) => c.base[N >> 1];
   // Emparejar: mismo sentido de recorrido y el corrimiento de aristas que deja los pares más cerca.
   const reversed = (cs: Chain[]): Chain[] => cs.slice().reverse().map((c) => ({ base: c.base.slice().reverse(), dir: c.dir ? c.dir.slice().reverse() : null }));
-  const score = (cs: Chain[], shift: number) => A.reduce((acc, c, i) => acc + dist(mid(c), mid(cs[(i + shift) % n])) + dist(c.base[0], cs[(i + shift) % n].base[0]), 0);
+  const score = (cs: Chain[], shift: number) => A.reduce((acc, c, i) => acc + dist3(mid(c), mid(cs[(i + shift) % n])) + dist3(c.base[0], cs[(i + shift) % n].base[0]), 0);
   let best = { cs: B, shift: 0, v: Infinity };
   for (const cs of [B, reversed(B)]) {
     for (let sh = 0; sh < (closedLoop ? n : 1); sh++) {
@@ -655,7 +641,7 @@ function bridgeSections(a: Prepared, b: Prepared, tensionA: number, tensionB: nu
     }
   }
   B = A.map((_, i) => best.cs[(i + best.shift) % n]);
-  const d = TENSION_SCALE * dist(ca, cb);
+  const d = TENSION_SCALE * dist3(ca, cb);
   const wires: Wire[] = [];
   for (const t of [0.2, 0.4, 0.6, 0.8]) {
     const u = 1 - t;
@@ -666,23 +652,7 @@ function bridgeSections(a: Prepared, b: Prepared, tensionA: number, tensionB: nu
       const c2 = B[i].dir ? Q.map((v, m) => v + B[i].dir![k][m] * d * tensionB) : Q.map((v, m) => v + (P[m] - v) / 3);
       return [0, 1, 2].map((m) => w[0] * P[m] + w[1] * c1[m] + w[2] * c2[m] + w[3] * Q[m]) as Vec3;
     }));
-    // Extremos compartidos: promedio, para que el contorno quede continuo.
-    const join = (x: Vec3[], y: Vec3[]) => {
-      const m = [0, 1, 2].map((k) => (x[x.length - 1][k] + y[0][k]) / 2) as Vec3;
-      x[x.length - 1] = m;
-      y[0] = m;
-    };
-    for (let i = 0; i + 1 < n; i++) join(chains[i], chains[i + 1]);
-    if (closedLoop && n > 1) join(chains[n - 1], chains[0]);
-    if (closedLoop && n === 1) chains[0][chains[0].length - 1] = chains[0][0];
-    const edges = chains.map((pts) => {
-      const first = pts[0];
-      const last = pts[pts.length - 1];
-      const chord = [last[0] - first[0], last[1] - first[1], last[2] - first[2]] as Vec3;
-      const l = Math.hypot(...chord);
-      const off = l > 1e-9 ? Math.max(...pts.map((p) => Math.hypot(...cross3(chord, [p[0] - first[0], p[1] - first[1], p[2] - first[2]])) / l)) : Infinity;
-      return off < 1e-7 ? makeLine(first, last) : makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 3, degMin: 2 });
-    });
+    const edges = chainsToEdges(chains, closedLoop);
     try {
       const wire = assembleWire(edges);
       keep.push(wire);

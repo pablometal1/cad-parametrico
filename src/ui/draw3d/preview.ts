@@ -52,25 +52,25 @@ export function previewSegments2D(pending: Pending | null, cursor: Vec2 | null, 
 }
 
 /** Texto de medidas en vivo (largo, ancho × alto, radio). */
-export function previewLabel(pending: Pending | null, cursor: Vec2 | null): string | null {
+export function previewLabel(pending: Pending | null, cursor: Vec2 | null, unit = 'mm'): string | null {
   if (!pending || !cursor) return null;
   const f = (v: number) => String(Math.round(v * 100) / 100);
   switch (pending.tool) {
     case 'line':
-      return `${f(dist(pending.start.pos, cursor))} mm`;
+      return `${f(dist(pending.start.pos, cursor))} ${unit}`;
     case 'rectangle':
-      return `${f(Math.abs(cursor[0] - pending.corner.pos[0]))} × ${f(Math.abs(cursor[1] - pending.corner.pos[1]))} mm`;
+      return `${f(Math.abs(cursor[0] - pending.corner.pos[0]))} × ${f(Math.abs(cursor[1] - pending.corner.pos[1]))} ${unit}`;
     case 'circle':
     case 'polygon':
-      return `R ${f(dist(pending.center.pos, cursor))} mm`;
+      return `R ${f(dist(pending.center.pos, cursor))} ${unit}`;
     case 'centerRect':
-      return `${f(2 * Math.abs(cursor[0] - pending.center.pos[0]))} × ${f(2 * Math.abs(cursor[1] - pending.center.pos[1]))} mm`;
+      return `${f(2 * Math.abs(cursor[0] - pending.center.pos[0]))} × ${f(2 * Math.abs(cursor[1] - pending.center.pos[1]))} ${unit}`;
     case 'slot':
       return pending.c2
-        ? `ancho ${f(2 * slotRadius(pending.c1.pos, pending.c2.pos, cursor))} mm`
-        : `${f(dist(pending.c1.pos, cursor))} mm`;
+        ? `ancho ${f(2 * slotRadius(pending.c1.pos, pending.c2.pos, cursor))} ${unit}`
+        : `${f(dist(pending.c1.pos, cursor))} ${unit}`;
     case 'arc': {
-      if (!pending.start) return `R ${f(dist(pending.center.pos, cursor))} mm`;
+      if (!pending.start) return `R ${f(dist(pending.center.pos, cursor))} ${unit}`;
       const c = pending.center.pos;
       const a0 = Math.atan2(pending.start.pos[1] - c[1], pending.start.pos[0] - c[0]);
       let a1 = Math.atan2(cursor[1] - c[1], cursor[0] - c[0]);

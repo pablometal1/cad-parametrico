@@ -18,6 +18,7 @@ const v3 = (a: [number, number, number]) => new THREE.Vector3(a[0], a[1], a[2]);
 
 export class ManipulatorWidget {
   readonly group = new THREE.Group();
+  unit: string = 'mm';
   private readonly label: HTMLDivElement;
   private spec: Manipulator | null = null;
   private handlers: ManipulatorHandlers | null = null;
@@ -232,7 +233,7 @@ export class ManipulatorWidget {
     this.handle.renderOrder = 21;
     this.shaft.renderOrder = 20;
     this.group.add(this.shaft, this.handle);
-    this.label.textContent = `${m.label}: ${formatValue(this.value)}${m.kind === 'angular' ? ' °' : m.unit === undefined ? ' mm' : m.unit ? ` ${m.unit}` : ''}`;
+    this.label.textContent = `${m.label}: ${formatValue(this.value)}${m.kind === 'angular' ? ' °' : m.unit === undefined ? ` ${this.unit}` : m.unit ? ` ${m.unit}` : ''}`;
     this.requestRender();
   }
 
@@ -278,6 +279,12 @@ function formatValue(v: number) {
 export class ManipulatorGroup {
   readonly group = new THREE.Group();
   private widgets: ManipulatorWidget[] = [];
+  private unit = 'mm';
+
+  setUnit(u: string) {
+    this.unit = u;
+    for (const w of this.widgets) w.unit = u;
+  }
   private current: ManipulatorWidget | null = null;
 
   constructor(private readonly container: HTMLElement, private readonly requestRender: () => void) {}
@@ -293,6 +300,7 @@ export class ManipulatorGroup {
   set(specs: Manipulator[], handlersFor: ((m: Manipulator) => ManipulatorHandlers) | null) {
     while (this.widgets.length < specs.length) {
       const w = new ManipulatorWidget(this.container, this.requestRender);
+      w.unit = this.unit;
       this.widgets.push(w);
       this.group.add(w.group);
     }

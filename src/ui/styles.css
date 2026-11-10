@@ -217,6 +217,7 @@ button.primary:hover:not(:disabled) { background: #4a3b2a; }
 .notice { color: #ffd27f; font-size: 12px; cursor: pointer; margin-left: 8px; }
 button.wide { width: 100%; margin-top: 6px; }
 .feature-info { color: var(--muted); font-size: 11px; line-height: 1.3; margin-top: 1px; }
+.feature-warning { color: var(--accent, #ff9a3c); font-size: 11px; line-height: 1.3; margin-top: 2px; word-break: break-word; }
 
 /* Editor de sketch */
 .sketch-editor {
@@ -553,3 +554,35 @@ kbd {
 }
 .library-item:hover:not(:disabled) { border-color: var(--accent, #e8913a); }
 .library-item .muted { font-size: 12px; }
+
+
+/* Diálogo de unidades y escala */
+.units-dialog { width: 440px; }
+.units-dialog .section-title { font-size: 13px; font-weight: 600; color: var(--accent); margin: 12px 0 4px; }
+.unit-options { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.unit-option {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: #1d2126; border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+}
+.unit-option:hover { border-color: #5d7fa6; }
+.unit-option.selected { border-color: var(--accent); background: rgba(255, 154, 60, 0.08); }
+.unit-option-content { font-size: 12px; }
+.unit-conversion-box {
+  margin: 10px 0; padding: 8px 10px; background: #262c33;
+  border: 1px solid #4a5563; border-radius: 4px; font-size: 12px;
+}
+.scale-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 6px 0; }
+.scale-preset-btn {
+  padding: 4px 6px; font-size: 11px; background: #262c33; border: 1px solid var(--border);
+  border-radius: 4px; text-align: center; cursor: pointer;
+}
+.scale-preset-btn:hover:not(:disabled) { border-color: var(--accent); background: #323a44; }
+.scale-custom-row { display: flex; align-items: flex-end; gap: 6px; }
+
+/* Botón de unidad en barra de estado */
+.status-unit-btn {
+  background: transparent; color: var(--accent); border: 1px solid transparent;
+  font-weight: 700; padding: 1px 6px; font-size: 11px; border-radius: 3px; cursor: pointer;
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+.status-unit-btn:hover { background: #2c323a; border-color: var(--border); }

@@ -1,6 +1,7 @@
 // Propiedades de la pieza: volumen, área, medidas y masa estimada según el material de impresión.
 import { createSignal, For, Show } from 'solid-js';
 import type { MassProperties, PartCheck } from '../kernel/protocol';
+import type { LengthUnit } from '../document/types';
 import { Icon } from './icons';
 
 /** Densidades típicas (g/cm³) de materiales de impresión 3D. */
@@ -42,7 +43,8 @@ export function checkProblems(c: PartCheck): string[] {
   return out;
 }
 
-export function PartInfo(props: { props: MassProperties | null }) {
+export function PartInfo(props: { props: MassProperties | null; unit?: LengthUnit }) {
+  const u = () => props.unit ?? 'mm';
   const [material, setMaterial] = createSignal(loadMaterial());
   const density = () => MATERIALS.find((m) => m.id === material())?.density ?? 1.24;
   const fmt = (v: number, d = 1) => v.toLocaleString('es-AR', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -51,11 +53,36 @@ export function PartInfo(props: { props: MassProperties | null }) {
     <Show when={props.props} fallback={<p class="muted">Sin sólido.</p>}>
       {(p) => {
         const size = () => p().bboxMax.map((v, i) => v - p().bboxMin[i]);
+        const volText = () => {
+          if (u() === 'in') return `${fmt(p().volume, 2)} in³`;
+          if (u() === 'cm') return `${fmt(p().volume, 2)} cm³`;
+          if (u() === 'm') return `${fmt(p().volume, 4)} m³`;
+          return `${fmt(p().volume / 1000, 2)} cm³`;
+        };
+        const areaText = () => {
+          if (u() === 'in') return `${fmt(p().area, 2)} in²`;
+          if (u() === 'cm') return `${fmt(p().area, 1)} cm²`;
+          if (u() === 'm') return `${fmt(p().area, 4)} m²`;
+          return `${fmt(p().area / 100, 1)} cm²`;
+        };
+        const calcMass = () => {
+          const v = p().volume;
+          const d = density();
+          if (u() === 'in') return v * 16.387064 * d;
+          if (u() === 'cm') return v * d;
+          if (u() === 'm') return v * 1_000_000 * d;
+          return (v / 1000) * d;
+        };
+        const massText = () => {
+          const m = calcMass();
+          if (m >= 1000) return `${fmt(m / 1000, 2)} kg`;
+          return `${fmt(m, 1)} g`;
+        };
         return (
           <dl class="face-info part-info">
-            <dt>Medidas</dt><dd>{size().map((v) => fmt(v)).join(' × ')} mm</dd>
-            <dt>Volumen</dt><dd>{fmt(p().volume / 1000, 2)} cm³</dd>
-            <dt>Área</dt><dd>{fmt(p().area / 100, 1)} cm²</dd>
+            <dt>Medidas</dt><dd>{size().map((v) => fmt(v)).join(' × ')} {u()}</dd>
+            <dt>Volumen</dt><dd>{volText()}</dd>
+            <dt>Área</dt><dd>{areaText()}</dd>
             <dt>Cuerpos</dt><dd>{p().bodies}</dd>
             <dt>Material</dt>
             <dd>
@@ -63,7 +90,7 @@ export function PartInfo(props: { props: MassProperties | null }) {
                 <For each={MATERIALS}>{(m) => <option value={m.id}>{m.label} ({m.density} g/cm³)</option>}</For>
               </select>
             </dd>
-            <dt>Masa</dt><dd>{fmt(massGrams(p().volume, density()))} g <span class="muted">(100 % relleno)</span></dd>
+            <dt>Masa</dt><dd>{massText()} <span class="muted">(100 % relleno)</span></dd>
             <Show when={material() !== 'resin'}>
               <dt>Filamento</dt><dd>{fmt(filamentMeters(p().volume), 2)} m <span class="muted">de 1,75 mm</span></dd>
             </Show>

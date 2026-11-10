@@ -9,7 +9,8 @@
 // - Toda referencia guarda además una huella geométrica (centro, normal, área/longitud) que desempata
 //   cuando varias entidades comparten nombre (una cara partida en dos) y permite un último recurso
 //   puramente geométrico si el nombre desaparece pero la geometría es idéntica.
-import { getOC, measureArea, type AnyShape, type Edge, type Face } from 'replicad';
+import { cast, getOC, measureArea, type AnyShape, type Edge, type Face } from 'replicad';
+import { dist3 } from '../document/planes';
 import type { EdgeRef, FaceRef, Vec3, VertexRef } from '../document/types';
 import { FeatureError } from './occtUtils';
 
@@ -118,6 +119,17 @@ export class NameBuilder {
     for (const f of shape.faces) this.add(f.wrapped, name);
   }
 
+  /** Nombra todas las caras contenidas en un TopoDS_Shape crudo y libera su envoltorio temporal. */
+  addCap(raw: OcShape, name: string) {
+    if (raw.IsNull()) return;
+    const sh = cast(raw);
+    try {
+      this.addAll(sh, name);
+    } finally {
+      sh.delete();
+    }
+  }
+
   /** Caras sin nombre: nombre genérico de la feature (se distinguen por la huella geométrica). */
   finish(featureId: string): NamedShape {
     this.names.forEach((n) => {
@@ -125,7 +137,6 @@ export class NameBuilder {
     });
     return { shape: this.shape, names: this.names };
   }
-
 }
 
 /** Mismo hash que `Shape.hashCode` de replicad, sin necesidad de envolver el objeto. */
@@ -138,14 +149,7 @@ function hashOf(s: OcShape): number {
 
 /** Nombre de cada arista: par ordenado de los nombres principales de sus caras vecinas. */
 export function edgeNames(named: NamedShape): { table: ShapeTable<Edge>; names: string[] } {
-  const table = ShapeTable.edges(named.shape);
-  const adjacent: number[][] = table.items.map(() => []);
-  named.shape.faces.forEach((face, fi) => {
-    for (const e of face.edges) {
-      const ei = table.indexOf(e.wrapped, e.hashCode);
-      if (ei >= 0 && !adjacent[ei].includes(fi)) adjacent[ei].push(fi);
-    }
-  });
+  const { table, adjacent } = edgeAdjacency(named);
   const names = adjacent.map((faces) => {
     const ns = faces.map((fi) => named.names[fi][0]).sort();
     if (ns.length === 1) ns.push(ns[0]); // costura: misma cara a ambos lados
@@ -181,15 +185,8 @@ const TANGENT_SIN = Math.sin((1 * Math.PI) / 180);
  * Ninguna de las dos se puede redondear ni achaflanar.
  */
 export function edgeKinds(named: NamedShape): Uint8Array {
-  const table = ShapeTable.edges(named.shape);
+  const { table, adjacent } = edgeAdjacency(named);
   const faces = named.shape.faces;
-  const adjacent: number[][] = table.items.map(() => []);
-  faces.forEach((face, fi) => {
-    for (const e of face.edges) {
-      const ei = table.indexOf(e.wrapped, e.hashCode);
-      if (ei >= 0 && !adjacent[ei].includes(fi)) adjacent[ei].push(fi);
-    }
-  });
   return Uint8Array.from(adjacent, (adj, ei) => {
     if (adj.length === 1) return EDGE_SEAM;
     if (adj.length !== 2) return EDGE_NORMAL;
@@ -198,6 +195,7 @@ export function edgeKinds(named: NamedShape): Uint8Array {
       // normalAt no devuelve vectores unitarios en caras curvas: se normalizan.
       const a = unit(faces[adj[0]].normalAt(p).toTuple());
       const b = unit(faces[adj[1]].normalAt(p).toTuple());
+      p.delete();
       const cross = Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
       const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
       return cross < TANGENT_SIN && dot > 0 ? EDGE_TANGENT : EDGE_NORMAL;
@@ -315,7 +313,6 @@ function unit(v: number[]): Vec3 {
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 
-const dist3 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const round = (v: number) => Math.round(v * 1e6) / 1e6 + 0; // + 0 convierte -0 en 0
 const round3 = (v: number[]): Vec3 => [round(v[0]), round(v[1]), round(v[2])];
 

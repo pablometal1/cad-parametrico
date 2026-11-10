@@ -59,7 +59,7 @@ export interface DimensionPrompt {
   value: number;
   /** Expresión actual de la cota (si tiene). */
   text?: string;
-  unit: 'mm' | '°';
+  unit: string;
 }
 
 export type Message = { kind: 'hint' | 'error'; text: string } | null;
@@ -74,6 +74,8 @@ export interface SessionOptions {
   exprs?: Record<string, string>;
   /** Valores de los parámetros, para evaluar expresiones en las cotas. */
   scope?: () => ReadonlyMap<string, number>;
+  /** Unidad de longitud para mostrar en las cotas ('mm', 'in', 'cm', etc.). */
+  unit?: () => string;
 }
 
 /** Estado completo para deshacer: geometría y expresiones de cotas. */
@@ -83,6 +85,7 @@ interface Snapshot {
 }
 
 export function createSketchSession(initial: SketchData, options: SessionOptions = {}) {
+  const lengthUnit = () => options.unit?.() ?? 'mm';
   const [exprs, setExprs] = createSignal<Record<string, string>>(options.exprs ?? {});
   const first = safeSolve(initial);
   const [data, setData] = createSignal<SketchData>(first.result?.ok ? first.result.data : initial);
@@ -403,7 +406,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
       return;
     }
     if (DIMENSIONAL.has(type)) {
-      setPrompt({ create: rule.constraints, value: round(rule.value ?? 0), unit: type === 'angle' ? '°' : 'mm' });
+      setPrompt({ create: rule.constraints, value: round(rule.value ?? 0), unit: type === 'angle' ? '°' : lengthUnit() });
       return;
     }
     const b = new SketchBuilder(data());
@@ -414,7 +417,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
   function editDimension(id: string) {
     const c = data().constraints.find((x) => x.id === id);
     if (!c || !('value' in c)) return;
-    setPrompt({ editId: id, value: round(displayValue(c, data())), text: exprs()[id], unit: c.type === 'angle' ? '°' : 'mm' });
+    setPrompt({ editId: id, value: round(displayValue(c, data())), text: exprs()[id], unit: c.type === 'angle' ? '°' : lengthUnit() });
   }
 
   /** Confirma la cota escrita: un número, o una expresión con parámetros (`largo / 2`). */
@@ -434,7 +437,7 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
       setMessage({ kind: 'error', text: (err as Error).message });
       return;
     }
-    if (!(value > 0) && p.unit === 'mm') {
+    if (!(value > 0) && p.unit !== '°') {
       setMessage({ kind: 'error', text: `La cota debe ser mayor que 0 (da ${value})` });
       return;
     }
@@ -505,10 +508,10 @@ export function createSketchSession(initial: SketchData, options: SessionOptions
       return;
     }
     const prompts: Record<EditAction, ActionPrompt> = {
-      offset: { action, title: 'Desfase', fields: [{ label: 'Distancia (negativa: hacia adentro)', value: 2, unit: 'mm' }] },
-      fillet: { action, title: 'Redondeo de esquina', fields: [{ label: 'Radio', value: 2, unit: 'mm' }] },
+      offset: { action, title: 'Desfase', fields: [{ label: 'Distancia (negativa: hacia adentro)', value: 2, unit: lengthUnit() }] },
+      fillet: { action, title: 'Redondeo de esquina', fields: [{ label: 'Radio', value: 2, unit: lengthUnit() }] },
       circular: { action, title: 'Patrón circular', fields: [{ label: 'Cantidad', value: 6, unit: '', integer: true }, { label: 'Ángulo total', value: 360, unit: '°' }] },
-      linear: { action, title: 'Patrón lineal', fields: [{ label: 'Cantidad', value: 3, unit: '', integer: true }, { label: 'Separación', value: 10, unit: 'mm' }] },
+      linear: { action, title: 'Patrón lineal', fields: [{ label: 'Cantidad', value: 3, unit: '', integer: true }, { label: 'Separación', value: 10, unit: lengthUnit() }] },
     };
     setActionPrompt(prompts[action]);
     setMessage({ kind: 'hint', text: EDIT_HINTS[action] });

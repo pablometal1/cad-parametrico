@@ -1,10 +1,10 @@
 // Operaciones puras sobre el documento. Nunca mutan: devuelven un documento nuevo.
-import { isValidName, parseExpression, referencedNames, renameInExpression } from './expressions';
+import { isValidName, parseExpression, plainNumber, referencedNames, renameInExpression } from './expressions';
 import {
   DOCUMENT_FORMAT, DOCUMENT_VERSION,
   type CadDocument, type ChamferFeature, type EdgeRef, type ExtrudeFeature, type FaceRef, type Feature, type FeatureId,
   type FeatureType, type FilletFeature, type Parameter, type PatternFeature, type MirrorFeature, type BasePlane, type ProfileFeature, type RevolveFeature, type BodyFeature, type SweepFeature, type LoftFeature, type LoftSection, type PlaneFeature, type PlaneReference, type HoleFeature, type ThreadFeature, type ImportFeature, type ShellFeature, type SketchFeature,
-  type PushPullFeature, type DraftFeature, type PatchFeature, type DomeFeature, type Curve3dFeature, type VertexRef, type CombineFeature, type SplitFeature, type MoveFeature,
+  type PushPullFeature, type DraftFeature, type PatchFeature, type DomeFeature, type Curve3dFeature, type VertexRef, type CombineFeature, type SplitFeature, type MoveFeature, type LengthUnit,
 } from './types';
 
 export function emptyDocument(): CadDocument {
@@ -191,7 +191,13 @@ export function isBodyFeature(f: Feature): f is BodyFeature {
  */
 export function dependents(doc: CadDocument, id: FeatureId): Feature[] {
   return doc.features.filter(
-    (f) => sketchesUsedBy(f).includes(id) || ((f.type === 'pattern' || f.type === 'mirror') && f.source === id),
+    (f) =>
+      sketchesUsedBy(f).includes(id) ||
+      ((f.type === 'pattern' || f.type === 'mirror') && f.source === id) ||
+      (f.type === 'patch' && !!f.curves?.includes(id)) ||
+      (f.type === 'sketch' && f.plane.kind === 'plane' && f.plane.plane === id) ||
+      (f.type === 'plane' && f.reference.kind === 'plane' && f.reference.plane === id) ||
+      (f.type === 'split' && f.plane.kind === 'plane' && f.plane.plane === id),
   );
 }
 
@@ -245,6 +251,13 @@ export function requiredFeatures(f: Feature): Set<FeatureId> {
   if (f.type === 'patch') {
     names.push(...f.edges.map((x) => x.name));
     for (const c of f.curves ?? []) req.add(c);
+  }
+  if (f.type === 'loft') {
+    for (const s of f.sections) {
+      if (typeof s === 'string') continue;
+      if ('face' in s) names.push(s.face.name);
+      else names.push(...s.edges.map((e) => e.name));
+    }
   }
   if (f.type === 'curve3d') names.push(...f.points.flatMap((p) => p.edges.map((e) => e.name)));
   if (f.type === 'dome') names.push(f.face.name);
@@ -487,4 +500,321 @@ function checkParameterName(doc: CadDocument, name: string, exceptId?: string) {
     throw new Error(`"${name}" no es un nombre válido: usá letras, números y _ (sin empezar con número ni usar nombres de funciones)`);
   }
   if (doc.parameters.some((p) => p.name === name && p.id !== exceptId)) throw new Error(`Ya existe un parámetro "${name}"`);
+}
+
+
+// ------------------------------------------------------------ Unidades y escala
+
+export const MM_PER_UNIT: Record<LengthUnit, number> = {
+  mm: 1,
+  cm: 10,
+  m: 1000,
+  in: 25.4,
+};
+
+export const UNIT_LABELS: Record<LengthUnit, string> = {
+  mm: 'Milímetros (mm)',
+  cm: 'Centímetros (cm)',
+  m: 'Metros (m)',
+  in: 'Pulgadas (in)',
+};
+
+export const UNIT_SYMBOLS: Record<LengthUnit, string> = {
+  mm: 'mm',
+  cm: 'cm',
+  m: 'm',
+  in: 'in',
+};
+
+function scaleVec3(v: [number, number, number], s: (n: number) => number): [number, number, number] {
+  return [s(v[0]), s(v[1]), s(v[2])];
+}
+
+function scaleFaceRef(f: FaceRef, s: (n: number) => number, factor: number): FaceRef {
+  return {
+    ...f,
+    center: scaleVec3(f.center, s),
+    area: Number((f.area * factor * factor).toPrecision(12)),
+  };
+}
+
+function scaleEdgeRef(e: EdgeRef, s: (n: number) => number): EdgeRef {
+  return {
+    ...e,
+    center: scaleVec3(e.center, s),
+    length: s(e.length),
+  };
+}
+
+function scalePlaneReference(p: PlaneReference, s: (n: number) => number, factor: number): PlaneReference {
+  if (p.kind === 'face') {
+    return { kind: 'face', face: scaleFaceRef(p.face, s, factor) };
+  }
+  return p;
+}
+
+function scaleVertexRef(v: VertexRef, s: (n: number) => number): VertexRef {
+  return {
+    point: scaleVec3(v.point, s),
+    edges: v.edges.map((e) => scaleEdgeRef(e, s)),
+  };
+}
+
+/**
+ * Escala todas las dimensiones lineales y posiciones geométricas del documento por un factor.
+ * Los ángulos se conservan. Los parámetros con expresiones numéricas directas también se escalan.
+ */
+export function scaleDocument(doc: CadDocument, factor: number): CadDocument {
+  if (factor === 1 || !(factor > 0) || !Number.isFinite(factor)) return doc;
+
+  const s = (v: number) => Number((v * factor).toPrecision(12));
+
+  // Escalar parámetros que sean números simples
+  const parameters = doc.parameters.map((p) => {
+    const n = plainNumber(p.expression);
+    if (n !== null) {
+      return { ...p, expression: String(s(n)) };
+    }
+    return p;
+  });
+
+  // Escalar cada feature según su tipo
+  const features = doc.features.map((f): Feature => {
+    // Si tiene expresiones numéricas simples guardadas en f.exprs, escalarlas también
+    let nextExprs = f.exprs;
+    if (f.exprs) {
+      let changed = false;
+      const copy: Record<string, string> = { ...f.exprs };
+      for (const [k, exprStr] of Object.entries(f.exprs)) {
+        const n = plainNumber(exprStr);
+        if (n !== null) {
+          copy[k] = String(s(n));
+          changed = true;
+        }
+      }
+      if (changed) nextExprs = copy;
+    }
+
+    const baseScaled = nextExprs !== f.exprs ? { ...f, exprs: nextExprs } : { ...f };
+
+    switch (baseScaled.type) {
+      case 'sketch': {
+        const sk = baseScaled as SketchFeature;
+        let plane = sk.plane;
+        if (sk.plane.kind === 'face') {
+          plane = { ...sk.plane, face: scaleFaceRef(sk.plane.face, s, factor), offset: s(sk.plane.offset) };
+        } else if (sk.plane.offset !== undefined) {
+          plane = { ...sk.plane, offset: s(sk.plane.offset) };
+        }
+        const entities = sk.entities.map((ent) => {
+          if (ent.type === 'point') return { ...ent, x: s(ent.x), y: s(ent.y) };
+          if (ent.type === 'circle') return { ...ent, radius: s(ent.radius) };
+          if ('height' in ent && typeof (ent as any).height === 'number') {
+            return { ...ent, height: s((ent as any).height) };
+          }
+          return ent;
+        });
+        const constraints = sk.constraints.map((c) => {
+          if (c.type === 'distance' || c.type === 'radius') {
+            return { ...c, value: s(c.value) };
+          }
+          return c;
+        });
+        return { ...sk, plane, entities, constraints } as Feature;
+      }
+      case 'extrude': {
+        const ext = baseScaled as ExtrudeFeature;
+        return {
+          ...ext,
+          distance: s(ext.distance),
+          thin: ext.thin !== undefined ? s(ext.thin) : undefined,
+        } as Feature;
+      }
+      case 'fillet': {
+        const fil = baseScaled as FilletFeature;
+        return {
+          ...fil,
+          radius: s(fil.radius),
+          radius2: fil.radius2 !== undefined ? s(fil.radius2) : undefined,
+          edges: fil.edges.map((e) => scaleEdgeRef(e, s)),
+        } as Feature;
+      }
+      case 'chamfer': {
+        const ch = baseScaled as ChamferFeature;
+        return {
+          ...ch,
+          distance: s(ch.distance),
+          edges: ch.edges.map((e) => scaleEdgeRef(e, s)),
+        } as Feature;
+      }
+      case 'shell': {
+        const sh = baseScaled as ShellFeature;
+        return {
+          ...sh,
+          thickness: s(sh.thickness),
+          faces: sh.faces.map((face) => scaleFaceRef(face, s, factor)),
+        } as Feature;
+      }
+      case 'hole': {
+        const h = baseScaled as HoleFeature;
+        return {
+          ...h,
+          diameter: s(h.diameter),
+          depth: s(h.depth),
+          threadPitch: h.threadPitch !== undefined ? s(h.threadPitch) : undefined,
+          threadClearance: h.threadClearance !== undefined ? s(h.threadClearance) : undefined,
+          cbDiameter: h.cbDiameter !== undefined ? s(h.cbDiameter) : undefined,
+          cbDepth: h.cbDepth !== undefined ? s(h.cbDepth) : undefined,
+          csDiameter: h.csDiameter !== undefined ? s(h.csDiameter) : undefined,
+        } as Feature;
+      }
+      case 'thread': {
+        const th = baseScaled as ThreadFeature;
+        return {
+          ...th,
+          face: scaleFaceRef(th.face, s, factor),
+          pitch: s(th.pitch),
+          clearance: s(th.clearance),
+          length: s(th.length),
+        } as Feature;
+      }
+      case 'pushpull': {
+        const pp = baseScaled as PushPullFeature;
+        return {
+          ...pp,
+          distance: s(pp.distance),
+          faces: pp.faces.map((face) => scaleFaceRef(face, s, factor)),
+        } as Feature;
+      }
+      case 'draft': {
+        const dr = baseScaled as DraftFeature;
+        return {
+          ...dr,
+          neutral: scaleFaceRef(dr.neutral, s, factor),
+          faces: dr.faces.map((face) => scaleFaceRef(face, s, factor)),
+        } as Feature;
+      }
+      case 'move': {
+        const mv = baseScaled as MoveFeature;
+        return {
+          ...mv,
+          dx: s(mv.dx),
+          dy: s(mv.dy),
+          dz: s(mv.dz),
+          bodies: mv.bodies.map((b) => scaleFaceRef(b, s, factor)),
+        } as Feature;
+      }
+      case 'patch': {
+        const pa = baseScaled as PatchFeature;
+        return {
+          ...pa,
+          height: s(pa.height),
+          thickness: s(pa.thickness),
+          edges: pa.edges.map((e) => scaleEdgeRef(e, s)),
+        } as Feature;
+      }
+      case 'dome': {
+        const dm = baseScaled as DomeFeature;
+        return {
+          ...dm,
+          height: s(dm.height),
+          face: scaleFaceRef(dm.face, s, factor),
+        } as Feature;
+      }
+      case 'plane': {
+        const pl = baseScaled as PlaneFeature;
+        return {
+          ...pl,
+          distance: s(pl.distance),
+          reference: scalePlaneReference(pl.reference, s, factor),
+          axisEdge: pl.axisEdge ? scaleEdgeRef(pl.axisEdge, s) : undefined,
+        } as Feature;
+      }
+      case 'pattern': {
+        const pat = baseScaled as PatternFeature;
+        if (pat.kind === 'linear') {
+          return {
+            ...pat,
+            spacing: s(pat.spacing),
+          } as Feature;
+        }
+        return pat as Feature;
+      }
+      case 'curve3d': {
+        const c3 = baseScaled as Curve3dFeature;
+        return {
+          ...c3,
+          points: c3.points.map((p) => scaleVertexRef(p, s)),
+          handles: c3.handles?.map((h) =>
+            h ? [scaleVec3(h[0], s), scaleVec3(h[1], s)] : null
+          ),
+        } as Feature;
+      }
+      case 'combine': {
+        const cb = baseScaled as CombineFeature;
+        return {
+          ...cb,
+          target: scaleFaceRef(cb.target, s, factor),
+          tools: cb.tools.map((t) => scaleFaceRef(t, s, factor)),
+        } as Feature;
+      }
+      case 'split': {
+        const sp = baseScaled as SplitFeature;
+        return {
+          ...sp,
+          offset: s(sp.offset),
+          plane: scalePlaneReference(sp.plane, s, factor),
+          body: sp.body ? scaleFaceRef(sp.body, s, factor) : undefined,
+        } as Feature;
+      }
+      case 'loft': {
+        const lf = baseScaled as LoftFeature;
+        return {
+          ...lf,
+          thickness: lf.thickness !== undefined ? s(lf.thickness) : undefined,
+          sections: lf.sections.map((sec) => {
+            if (typeof sec === 'string') return sec;
+            if ('face' in sec) return { face: scaleFaceRef(sec.face, s, factor) };
+            if ('edges' in sec) return { edges: sec.edges.map((e) => scaleEdgeRef(e, s)) };
+            return sec;
+          }),
+        } as Feature;
+      }
+      case 'import': {
+        const imp = baseScaled as ImportFeature;
+        return {
+          ...imp,
+          position: scaleVec3(imp.position, s),
+        } as Feature;
+      }
+      default:
+        return baseScaled;
+    }
+  });
+
+  return {
+    ...doc,
+    parameters,
+    features,
+  };
+}
+
+/**
+ * Ajusta la unidad del documento ('mm', 'cm', 'm', 'in').
+ * Si convertGeometry es true (por defecto), reescala automáticamente todas las dimensiones del
+ * modelo para preservar el tamaño físico real (ej. 25.4 mm -> 1 in).
+ * Si convertGeometry es false, reinterpreta los números existentes bajo la nueva unidad.
+ */
+export function setDocumentUnits(
+  doc: CadDocument,
+  newUnits: LengthUnit,
+  convertGeometry = true
+): CadDocument {
+  if (doc.units === newUnits) return doc;
+  if (!convertGeometry) {
+    return { ...doc, units: newUnits };
+  }
+  const factor = MM_PER_UNIT[doc.units] / MM_PER_UNIT[newUnits];
+  const scaled = scaleDocument(doc, factor);
+  return { ...scaled, units: newUnits };
 }

@@ -377,9 +377,9 @@ function ImportPanel(props: { store: CadStore; feature: ImportFeature }) {
       <h3>Importado</h3>
       <p class="hint">{f().fileName} · {f().format.toUpperCase()} · {sizeKb()} KB (va dentro del documento)</p>
       <SelectField label="Operación" value={f().operation} options={IMPORT_OPS} onChange={(operation) => update({ operation })} />
-      <NumberField label="X" unit="mm" value={f().position[0]} onCommit={(v) => setAt('position', 0, v)} />
-      <NumberField label="Y" unit="mm" value={f().position[1]} onCommit={(v) => setAt('position', 1, v)} />
-      <NumberField label="Z" unit="mm" value={f().position[2]} onCommit={(v) => setAt('position', 2, v)} />
+      <NumberField label="X" unit={props.store.doc().units} value={f().position[0]} onCommit={(v) => setAt('position', 0, v)} />
+      <NumberField label="Y" unit={props.store.doc().units} value={f().position[1]} onCommit={(v) => setAt('position', 1, v)} />
+      <NumberField label="Z" unit={props.store.doc().units} value={f().position[2]} onCommit={(v) => setAt('position', 2, v)} />
       <NumberField label="Giro X" unit="°" value={f().rotation[0]} onCommit={(v) => setAt('rotation', 0, v)} />
       <NumberField label="Giro Y" unit="°" value={f().rotation[1]} onCommit={(v) => setAt('rotation', 1, v)} />
       <NumberField label="Giro Z" unit="°" value={f().rotation[2]} onCommit={(v) => setAt('rotation', 2, v)} />
@@ -603,10 +603,11 @@ function LoftPanel(props: { store: CadStore; feature: LoftFeature }) {
 
 /** Campo numérico de una feature, con soporte de expresiones y parámetros. */
 function Num(props: { store: CadStore; id: string; path: string; label: string; unit: string }) {
+  const displayUnit = () => (props.unit === 'mm' ? props.store.doc().units : props.unit);
   return (
     <ExprField
       label={props.label}
-      unit={props.unit}
+      unit={displayUnit()}
       value={props.store.fieldValue(props.id, props.path)}
       expr={props.store.fieldExpression(props.id, props.path)}
       onCommit={(text) => props.store.setFieldText(props.id, props.path, text)}
@@ -857,7 +858,7 @@ function Curve3dPanel(props: { store: CadStore; feature: Curve3dFeature }) {
       <p class="hint">
         {plural(f().points.length, 'vértice', 'vértices')} del modelo. Arrastrá las asas azules en el visor para curvar cada tramo (con «Suave», la del
         tramo vecino gira con ella y la tangente queda continua). Las asas siguen al modelo si cambian sus cotas. Un tramo que va por una cara la parte en dos.
-        Con la curva cerrada y seleccionada, Parche (Shift+K) la rellena con una superficie; si ya tiene parche, editar la curva lo recalcula.
+        Si un parche usa esta curva, editarla lo recalcula.
       </p>
     </>
   );

@@ -37,31 +37,31 @@ export function buildRevolveTool(feature: RevolveFeature, sketch: EvaluatedSketc
   }
 
   function revolveGroup(group: Face[]): NamedShape {
-  const profile = group.length === 1 ? group[0] : makeCompound(group);
-  const revol = new oc.BRepPrimAPI_MakeRevol(profile.wrapped, ax, (feature.angle * Math.PI) / 180, false);
-  let tool: NamedShape;
-  try {
-    if (!revol.IsDone()) throw new FeatureError('No se pudo generar la revolución: revisá que el perfil no cruce el eje');
-    const shape = cast(revol.Shape());
-    if (!isValidShape(shape)) {
-      shape.delete();
-      throw new FeatureError('La revolución no es válida: el perfil no debe cruzar el eje');
+    const profile = group.length === 1 ? group[0] : makeCompound(group);
+    const revol = new oc.BRepPrimAPI_MakeRevol(profile.wrapped, ax, (feature.angle * Math.PI) / 180, false);
+    let tool: NamedShape;
+    try {
+      if (!revol.IsDone()) throw new FeatureError('No se pudo generar la revolución: revisá que el perfil no cruce el eje');
+      const shape = cast(revol.Shape());
+      if (!isValidShape(shape)) {
+        shape.delete();
+        throw new FeatureError('La revolución no es válida: el perfil no debe cruzar el eje');
+      }
+      const nb = new NameBuilder(shape);
+      nameSweep(nb, historyOf(revol), sketch, profile, feature.id);
+      if (feature.angle < 360) {
+        nb.addCap(revol.FirstShape(), `${feature.id}:start`);
+        nb.addCap(revol.LastShape(), `${feature.id}:end`);
+      }
+      tool = nb.finish(feature.id);
+    } catch (err) {
+      if (err instanceof FeatureError) throw err;
+      throw new FeatureError('No se pudo generar la revolución: revisá que el perfil no cruce el eje');
+    } finally {
+      revol.delete();
+      profile.delete();
     }
-    const nb = new NameBuilder(shape);
-    nameSweep(nb, historyOf(revol), sketch, profile, feature.id);
-    if (feature.angle < 360) {
-      nb.addAll(cast(revol.FirstShape()), `${feature.id}:start`);
-      nb.addAll(cast(revol.LastShape()), `${feature.id}:end`);
-    }
-    tool = nb.finish(feature.id);
-  } catch (err) {
-    if (err instanceof FeatureError) throw err;
-    throw new FeatureError('No se pudo generar la revolución: revisá que el perfil no cruce el eje');
-  } finally {
-    revol.delete();
-    profile.delete();
-  }
-  return tool;
+    return tool;
   }
 }
 

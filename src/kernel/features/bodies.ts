@@ -35,7 +35,7 @@ function bodyIndex(input: NamedShape, bodies: Body[], ref: FaceRef): number {
 }
 
 /** Junta cuerpos en un resultado con nombres (un sólido solo, o un compound). */
-function assemble(parts: NamedShape[], featureId: string): NamedShape {
+function assemble(parts: NamedShape[], featureId: string, tempShapes: AnyShape[] = []): NamedShape {
   if (parts.length === 1) {
     const nb = new NameBuilder(parts[0].shape);
     nb.carry(parts[0], null);
@@ -45,6 +45,7 @@ function assemble(parts: NamedShape[], featureId: string): NamedShape {
   const compound = makeCompound(parts.map((p) => p.shape.clone()));
   const nb = new NameBuilder(compound);
   for (const p of parts) nb.carry(p, null);
+  for (const s of tempShapes) s.delete();
   return nb.finish(featureId);
 }
 
@@ -94,7 +95,7 @@ export function runCombine(feature: CombineFeature, input: NamedShape | null): N
     }
     const combined = through(result, [target, ...toolNamed], historyOf(algo), feature.id);
     const others = bodies.filter((_, k) => k !== t && (feature.keepTools || !tools.includes(k))).map((b) => b.named);
-    return assemble([combined, ...others], feature.id);
+    return assemble([combined, ...others], feature.id, [combined.shape]);
   } finally {
     algo.delete();
     range.delete();
@@ -134,9 +135,9 @@ export function runSplit(feature: SplitFeature, input: NamedShape | null, planes
     splitter.Build(range);
     if (!splitter.IsDone() || splitter.HasErrors()) throw new FeatureError('No se pudo dividir con ese plano');
     const result = cast(splitter.Shape());
+    keep.push(result);
     const pieces = result.solids;
     if (pieces.length <= targets.length) {
-      result.delete();
       throw new FeatureError('El plano no corta ningún cuerpo');
     }
     const history = historyOf(splitter);
@@ -145,7 +146,7 @@ export function runSplit(feature: SplitFeature, input: NamedShape | null, planes
     });
     const parts = bodiesOf(split).map((b) => b.named);
     const others = bodies.filter((_, k) => !targets.includes(k)).map((b) => b.named);
-    return assemble([...parts, ...others], feature.id);
+    return assemble([...parts, ...others], feature.id, parts.map((p) => p.shape));
   } finally {
     keep.forEach((k) => k.delete());
   }
@@ -186,7 +187,7 @@ export function runMove(feature: MoveFeature, input: NamedShape | null): NamedSh
       return through(cast(builder.Shape()), [named], historyOf(builder), feature.id);
     });
     const untouched = bodies.filter((_, k) => feature.copy || !targets.includes(k)).map((b) => b.named);
-    return assemble([...untouched, ...moved], feature.id);
+    return assemble([...untouched, ...moved], feature.id, moved.map((m) => m.shape));
   } finally {
     keep.forEach((k) => k.delete());
   }

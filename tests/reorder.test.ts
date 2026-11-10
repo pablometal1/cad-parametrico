@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { addFeature, makeExtrude, makeFillet, makeSketch, moveBlocker, moveFeature, requiredFeatures, setRollback } from '../src/document/ops';
+import { addFeature, makeExtrude, makeFillet, makeLoft, makeSketch, moveBlocker, moveFeature, requiredFeatures, setRollback } from '../src/document/ops';
 import { parseDocument } from '../src/document/serialize';
 import type { CadDocument, SketchFeature } from '../src/document/types';
 import { initOCCT } from '../src/kernel/occt';
@@ -119,6 +119,20 @@ describe('mover features en el historial', () => {
     doc = addFeature(doc, sk);
     expect(moveBlocker(doc, sk.id, 1)).toMatch(/usa "Extrusión1"/);
     expect(moveBlocker(doc, sk.id, 0)).toMatch(/usa "Extrusión1"/);
+  });
+
+  it('una solevación con sección sobre cara del modelo no puede subir antes de la feature que la creó', () => {
+    let doc = build({ profile: rect(10, 10), distance: 10 });
+    const ext = doc.features[1];
+    const topSk = makeSketch(doc, { plane: { kind: 'base', plane: 'XY', offset: 20 } });
+    doc = addFeature(doc, topSk);
+    const loft = makeLoft(doc, [
+      { face: { name: `${ext.id}:end`, type: 'PLANE', center: [0, 0, 10], area: 100, normal: [0, 0, 1] } },
+      topSk.id,
+    ]);
+    doc = addFeature(doc, loft);
+    expect(requiredFeatures(loft)).toEqual(new Set([ext.id, topSk.id]));
+    expect(moveBlocker(doc, loft.id, 1)).toMatch(/usa "Extrusión1"/);
   });
 });
 
