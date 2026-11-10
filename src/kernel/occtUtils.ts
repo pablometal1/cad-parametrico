@@ -1,5 +1,6 @@
 // Utilidades de bajo nivel sobre OpenCascade.
 import { getOC, type AnyShape } from 'replicad';
+import { INTERNAL_ERROR } from './protocol';
 
 /** Error de una feature que se muestra tal cual en el timeline. */
 export class FeatureError extends Error {
@@ -18,7 +19,7 @@ const OCCT_MESSAGES: Record<string, string> = {
 /** Convierte cualquier excepción (incluidas las de C++ que llegan desde WASM) en texto legible. */
 export function describeError(err: unknown): string {
   // Fallas de ejecución dentro del WASM de OCCT (p. ej. "null function or function signature mismatch").
-  if (err instanceof Error && err.name === 'RuntimeError') return 'error interno de OpenCascade';
+  if (err instanceof Error && err.name === 'RuntimeError') return INTERNAL_ERROR;
   if (err instanceof Error) return err.message;
   // Excepciones C++ con el manejo nativo de WASM (WebAssembly.Exception).
   if (typeof WebAssembly !== 'undefined' && 'Exception' in WebAssembly && err instanceof (WebAssembly as unknown as { Exception: new () => object }).Exception) {

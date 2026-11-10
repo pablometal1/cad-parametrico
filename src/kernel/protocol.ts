@@ -224,3 +224,9 @@ export interface RpcRequest {
 export type RpcResponse =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: string };
+
+/**
+ * Texto con el que llega una falla de ejecución dentro del WASM de OpenCascade. Después de una, la
+ * memoria del kernel no es confiable: la interfaz reinicia el worker y reintenta.
+ */
+export const INTERNAL_ERROR = 'error interno de OpenCascade';

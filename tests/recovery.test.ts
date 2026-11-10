@@ -71,6 +71,58 @@ describe('el kernel se recupera solo', () => {
   });
 });
 
+describe('las consultas al kernel también se recuperan', () => {
+  /** Kernel simulado donde `faceInfo` falla con error interno hasta que se reinicia `healAfter` veces. */
+  function flakyQueries(healAfter: number) {
+    const calls = { restart: 0, recompute: 0, faceInfo: 0 };
+    const info = { index: 0, surfaceType: 'CYLINDRE', area: 1, center: [0, 0, 0], normal: [1, 0, 0], cylinder: { radius: 2, internal: true, length: 10 } };
+    const ref = { name: 'f:wall', type: 'CYLINDRE', center: [0, 0, 0], area: 1 };
+    const kernel = {
+      init: async () => ({ occtLoadMs: 0 }),
+      recompute: async () => {
+        calls.recompute++;
+        return EMPTY;
+      },
+      restart: async () => {
+        calls.restart++;
+      },
+      faceInfo: async () => {
+        calls.faceInfo++;
+        if (calls.restart < healAfter) throw new Error('error interno de OpenCascade');
+        return info;
+      },
+      faceRefs: async () => [ref],
+      manipulator: async () => [],
+      massProperties: async () => null,
+    } as unknown as KernelClient;
+    return { kernel, calls };
+  }
+
+  it('crear una rosca con el kernel dañado: reinicia, recalcula y la crea sin mostrar el error', async () => {
+    const { kernel, calls } = flakyQueries(1);
+    const s = store(kernel);
+    await s.start();
+    await tick();
+    await s.addThread([0]);
+    expect(calls.restart).toBe(1);
+    expect(calls.faceInfo).toBe(2);
+    expect(s.notice()).toBeNull();
+    expect(s.doc().features.at(-1)?.type).toBe('thread');
+  });
+
+  it('si sigue fallando después de reiniciar, avisa con un mensaje que dice qué hacer', async () => {
+    const { kernel, calls } = flakyQueries(99);
+    const s = store(kernel);
+    await s.start();
+    await tick();
+    const before = s.doc().features.length;
+    await s.addThread([0]);
+    expect(calls.restart).toBe(1);
+    expect(s.notice()).toMatch(/después de reiniciar/);
+    expect(s.doc().features.length).toBe(before);
+  });
+});
+
 describe('malla para mostrar', () => {
   it('las roscas se muestran con una cantidad razonable de triángulos', () => {
     const k = new KernelService();

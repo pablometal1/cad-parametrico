@@ -14,6 +14,7 @@ import type {
   BasePlane, LengthUnit, CadDocument, Curve3dFeature, ChamferFeature, Feature, FeatureId, FilletFeature, ShellFeature, SketchData, SketchFeature, PlaneFeature, PlaneReference, ThreadFeature, LoftFeature, LoftSection } from '../document/types';
 import type { KernelClient } from '../kernel/client';
 import type { FeatureResult, MeshPayload, RecomputeResult } from '../kernel/protocol';
+import { INTERNAL_ERROR } from '../kernel/protocol';
 import { SketchBuilder } from '../sketch/builders';
 import { initSolver } from '../sketch/solver';
 import { baseName, downloadDocument, loadDraft, saveDraft } from './files';
@@ -260,11 +261,30 @@ export function createCadStore(kernel: KernelClient, callbacks: StoreCallbacks) 
     return sel?.type === 'sketch' ? sel : ops.unusedSketches(doc()).at(-1) ?? null;
   }
 
+  /**
+   * Consulta al kernel (caras, aristas, referencias). Si falla con un error interno de OpenCascade
+   * (su memoria quedó dañada por alguna operación anterior), se reinicia el kernel, se recalcula la
+   * pieza y se reintenta una vez: el usuario no tiene por qué enterarse. Los índices de caras y
+   * aristas siguen valiendo porque el recálculo del mismo documento da el mismo sólido.
+   */
   async function withRefs<T>(fetch: () => Promise<T>): Promise<T | null> {
     try {
       return await fetch();
     } catch (err) {
-      setNotice((err as Error).message);
+      if (!(err as Error).message.includes(INTERNAL_ERROR)) {
+        setNotice((err as Error).message);
+        return null;
+      }
+    }
+    try {
+      await kernel.restart();
+      await kernel.recompute(doc());
+      return await fetch();
+    } catch (err) {
+      const msg = (err as Error).message;
+      setNotice(msg.includes(INTERNAL_ERROR)
+        ? 'OpenCascade falló con esta selección incluso después de reiniciar el kernel: probá con otra cara o arista, o deshacé el último cambio'
+        : msg);
       return null;
     }
   }
