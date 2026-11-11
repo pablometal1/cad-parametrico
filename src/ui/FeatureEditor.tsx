@@ -6,7 +6,9 @@ import type {
   RevolveFeature, ShellFeature, SketchFeature, PatternFeature, MirrorFeature, GlobalAxis, SweepFeature, LoftFeature, FeatureId, PlaneFeature, HoleFeature, ThreadFeature, ImportFeature,
   PushPullFeature, DraftFeature, CombineFeature, SplitFeature, MoveFeature, PatchFeature, DomeFeature, Curve3dFeature,
 } from '../document/types';
-import { coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup } from '../document/holes';
+import {
+  coarsePitch, HOLE_PRESETS, holeCenters, PRESET_GROUPS, threadBore, type HolePresetGroup, matchThreadSize, THREAD_SIZES, threadFaceDiameter, threadNominal, type ThreadSize,
+} from '../document/holes';
 import { ExprField, NumberField, SelectField, TextField } from './fields';
 import type { CadStore } from './store';
 
@@ -396,9 +398,48 @@ function ImportPanel(props: { store: CadStore; feature: ImportFeature }) {
 function ThreadPanel(props: { store: CadStore; feature: ThreadFeature }) {
   const f = () => props.feature;
   const update = (patch: Partial<ThreadFeature>) => props.store.updateFeature<ThreadFeature>(f().id, patch);
+  /** Cara medida por el kernel (interna/externa y diámetro); falta hasta el primer cálculo. */
+  const face = () => props.store.results().get(f().id)?.thread;
+  const fmt = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
+  /** Medida estándar que coincide con el paso actual y el diámetro de la cara ('' = a medida). */
+  const current = () => {
+    const t = face();
+    if (!t) return '';
+    return matchThreadSize(threadNominal(t.internal, t.diameter, f().pitch), f().pitch)?.id ?? '';
+  };
+  const sizeLabel = (s: ThreadSize) => {
+    const t = face();
+    if (!t) return s.name;
+    return `${s.name} · ${t.internal ? 'agujero' : 'barra'} Ø${fmt(threadFaceDiameter(t.internal, s))}`;
+  };
   return (
     <>
       <h3>Rosca</h3>
+      <label class="field">
+        <span class="field-label">Tipo</span>
+        <span class="field-input">
+          <select value={current()} onChange={(e) => {
+            const s = THREAD_SIZES.find((x) => x.id === e.currentTarget.value);
+            if (s) props.store.setFieldText(f().id, 'pitch', String(s.pitch));
+          }}>
+            <option value="">A medida (paso a mano)</option>
+            <optgroup label="Métrica de paso grueso">
+              <For each={THREAD_SIZES.filter((s) => s.series === 'coarse')}>{(s) => <option value={s.id}>{sizeLabel(s)}</option>}</For>
+            </optgroup>
+            <optgroup label="Métrica de paso fino">
+              <For each={THREAD_SIZES.filter((s) => s.series === 'fine')}>{(s) => <option value={s.id}>{sizeLabel(s)}</option>}</For>
+            </optgroup>
+          </select>
+        </span>
+      </label>
+      <Show when={face()}>
+        {(t) => (
+          <p class="hint">
+            {t().internal ? 'Rosca interna' : 'Rosca externa'}: la cara mide Ø{fmt(t().diameter)} mm. Cada tipo dice cuánto tiene que
+            medir {t().internal ? 'el agujero' : 'la barra'}; elegir uno pone su paso (el diámetro se cambia en el sketch o el agujero).
+          </p>
+        )}
+      </Show>
       <Num store={props.store} id={f().id} path="pitch" label="Paso" unit="mm" />
       <Num store={props.store} id={f().id} path="clearance" label="Holgura" unit="mm" />
       <Num store={props.store} id={f().id} path="length" label="Largo" unit="mm" />
@@ -414,8 +455,7 @@ function ThreadPanel(props: { store: CadStore; feature: ThreadFeature }) {
       <button class="wide with-icon" onClick={() => props.store.beginPick(f().id)}><Icon name="select" size={15} />Cambiar cara…</button>
       <p class="hint">
         En un agujero la rosca es interna (su diámetro es el menor de la rosca); en una barra, externa (su diámetro es el
-        mayor). Largo 0 = toda la cara. Paso grueso ISO: M4 0,7 · M5 0,8 · M6 1 · M8 1,25 · M10 1,5 · M12 1,75.
-        La holgura deja juego para que enrosque impreso.
+        mayor). Largo 0 = toda la cara. La holgura deja juego para que enrosque impreso.
       </p>
     </>
   );

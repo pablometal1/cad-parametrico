@@ -2,6 +2,7 @@
 import { assembleWire, cast, getOC, makeHelix, makeLine, type AnyShape, type Face } from 'replicad';
 import { cross, dot, normalize, sub, type Vec3 } from '../../document/planes';
 import type { ThreadFeature } from '../../document/types';
+import { matchThreadSize, THREAD_SIZES, threadFaceDiameter, threadNominal } from '../../document/holes';
 import { resolveFace, type NamedShape } from '../naming';
 import { describeError, FeatureError, isValidShape } from '../occtUtils';
 import { combine } from './boolean';
@@ -102,6 +103,30 @@ export function cylinderOf(face: Face): { point: Vec3; axis: Vec3; radius: numbe
     }
   }
   return { point, axis, radius: Math.abs(R), internal: R < 0, z0, z1 };
+}
+
+/** Datos de la cara a roscar (para describir la rosca y elegir su tipo): interna o externa y diámetro. */
+export function threadFace(feature: ThreadFeature, input: NamedShape): { internal: boolean; diameter: number } {
+  const c = cylinderOf(input.shape.faces[resolveFace(input, feature.face)]);
+  return { internal: c.internal, diameter: 2 * c.radius };
+}
+
+/** Texto para el historial y aviso si el diámetro de la cara no da una medida estándar con ese paso. */
+export function describeThread(t: { internal: boolean; diameter: number }, pitch: number): { info: string; warning?: string } {
+  const f = (v: number) => String(Math.round(v * 100) / 100).replace('.', ',');
+  const nominal = threadNominal(t.internal, t.diameter, pitch);
+  const where = t.internal ? `Interna · agujero Ø${f(t.diameter)}` : `Externa · barra Ø${f(t.diameter)}`;
+  const size = matchThreadSize(nominal, pitch);
+  if (size) return { info: `${where} · ${size.name}` };
+  // La medida estándar más cercana con ese paso, para decir cuánto tendría que medir la cara.
+  const near = THREAD_SIZES.filter((s) => Math.abs(s.pitch - pitch) < 1e-9).sort((a, b) => Math.abs(a.nominal - nominal) - Math.abs(b.nominal - nominal))[0];
+  const info = `${where} · Ø${f(nominal)} × ${f(pitch)} (no estándar)`;
+  if (!near) return { info };
+  const what = t.internal ? 'el agujero' : 'la barra';
+  return {
+    info,
+    warning: `No es una medida estándar: para ${near.name}, ${what} tiene que medir ${f(threadFaceDiameter(t.internal, near))} mm (mide ${f(t.diameter)})`,
+  };
 }
 
 /** Rosca sobre una cara cilíndrica (interna si es un agujero, externa si es una barra). */

@@ -220,3 +220,46 @@ describe('rosca en una pared fina de una pieza más grande', () => {
     expect(plain.vol - threaded.vol).toBeLessThan(60);
   });
 });
+
+describe('tipos de rosca', () => {
+  /** Barra de diámetro `d` y 12 mm de largo, con una rosca externa del paso dado sobre su cara. */
+  function rod(d: number, pitch: number) {
+    const doc = build({ profile: circle(d / 2), distance: 12 });
+    const face = withShape(doc, (s) => faceRefOf(s, s.shape.faces.findIndex((f) => f.geomType === 'CYLINDRE')));
+    const e = new RecomputeEngine();
+    try {
+      return e.run(addFeature(doc, makeThread(doc, face, pitch))).results.at(-1)!;
+    } finally {
+      e.dispose();
+    }
+  }
+
+  it('las medidas estándar se reconocen por diámetro y paso', async () => {
+    const { matchThreadSize, THREAD_SIZES, threadFaceDiameter, threadNominal } = await import('../src/document/holes');
+    expect(THREAD_SIZES.find((s) => s.name === 'M3 × 0,5')?.series).toBe('coarse');
+    expect(THREAD_SIZES.find((s) => s.name === 'M10 × 1,25')?.series).toBe('fine');
+    const m6 = THREAD_SIZES.find((s) => s.nominal === 6 && s.series === 'coarse')!;
+    // Rosca interna M6 × 1: el agujero es el diámetro menor, 6 − 1,0825 = 4,9175.
+    expect(threadFaceDiameter(true, m6)).toBeCloseTo(4.9175, 6);
+    expect(threadFaceDiameter(false, m6)).toBe(6);
+    expect(matchThreadSize(threadNominal(true, 4.9175, 1), 1)?.name).toBe('M6 × 1');
+    // Mismo paso, otro diámetro: M8 fina y no M6.
+    expect(matchThreadSize(8, 1)?.name).toBe('M8 × 1');
+    expect(matchThreadSize(7, 1)).toBeNull();
+  });
+
+  it('una barra de 8 mm con paso 1,25 es una M8 × 1,25: lo dice el historial, sin aviso', () => {
+    const r = rod(8, 1.25);
+    expect(r.status).toBe('ok');
+    expect(r.thread).toEqual({ internal: false, diameter: expect.closeTo(8, 6) });
+    expect(r.info).toMatch(/Externa · barra Ø8 · M8 × 1,25/);
+    expect(r.warning).toBeUndefined();
+  });
+
+  it('una barra de 9 mm con paso 1,25 no es estándar: avisa cuánto tendría que medir', () => {
+    const r = rod(9, 1.25);
+    expect(r.status).toBe('ok');
+    expect(r.info).toMatch(/no estándar/);
+    expect(r.warning).toMatch(/para M8 × 1,25, la barra tiene que medir 8 mm \(mide 9\)/);
+  });
+});

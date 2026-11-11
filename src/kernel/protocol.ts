@@ -161,6 +161,8 @@ export interface FeatureResult {
   info?: string;
   /** Aviso con status = 'ok': la feature se hizo, pero no exactamente como se pidió (p. ej. radio reducido). */
   warning?: string;
+  /** Rosca: si es interna (agujero) o externa (barra) y el diámetro de la cara, para elegir el tipo. */
+  thread?: { internal: boolean; diameter: number };
   timeMs: number;
   /** true si se reutilizó el resultado del recálculo anterior. */
   cached: boolean;

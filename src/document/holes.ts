@@ -36,6 +36,50 @@ export function coarsePitch(nominal: number): number {
   return ISO_COARSE.reduce((best, cur) => (Math.abs(cur[0] - nominal) < Math.abs(best[0] - nominal) ? cur : best))[1];
 }
 
+/** Métrica ISO de paso fino (las combinaciones más comunes): [diámetro nominal, paso]. */
+export const ISO_FINE: [number, number][] = [
+  [8, 1], [10, 1], [10, 1.25], [12, 1.25], [12, 1.5], [16, 1.5], [20, 1.5], [24, 2],
+];
+
+/** Tipo de rosca estándar que se puede elegir en el panel de Rosca. */
+export interface ThreadSize {
+  id: string;
+  /** "M3 × 0,5". */
+  name: string;
+  nominal: number;
+  pitch: number;
+  series: 'coarse' | 'fine';
+}
+
+const threadName = (d: number, p: number) => `M${String(d).replace('.', ',')} × ${String(p).replace('.', ',')}`;
+
+export const THREAD_SIZES: ThreadSize[] = [
+  ...ISO_COARSE.map(([d, p]): ThreadSize => ({ id: `c-${d}-${p}`, name: threadName(d, p), nominal: d, pitch: p, series: 'coarse' })),
+  ...ISO_FINE.map(([d, p]): ThreadSize => ({ id: `f-${d}-${p}`, name: threadName(d, p), nominal: d, pitch: p, series: 'fine' })),
+];
+
+/** Cuánto puede diferir el diámetro nominal de una medida estándar para considerarla esa medida (mm). */
+export const THREAD_MATCH_TOL = 0.15;
+
+/**
+ * Diámetro nominal de la rosca que sale de una cara cilíndrica con ese paso: en un agujero la cara
+ * es el diámetro menor (nominal = Ø + 1,0825·P); en una barra, el mayor.
+ */
+export function threadNominal(internal: boolean, diameter: number, pitch: number): number {
+  return internal ? diameter + 1.0825 * pitch : diameter;
+}
+
+/** Diámetro que tiene que tener la cara (agujero o barra) para una medida estándar. */
+export function threadFaceDiameter(internal: boolean, size: ThreadSize): number {
+  return internal ? size.nominal - 1.0825 * size.pitch : size.nominal;
+}
+
+/** Medida estándar que coincide con ese diámetro nominal y paso, si hay. */
+export function matchThreadSize(nominal: number, pitch: number): ThreadSize | null {
+  const same = THREAD_SIZES.filter((s) => Math.abs(s.pitch - pitch) < 1e-9 && Math.abs(s.nominal - nominal) <= THREAD_MATCH_TOL);
+  return same.sort((a, b) => Math.abs(a.nominal - nominal) - Math.abs(b.nominal - nominal))[0] ?? null;
+}
+
 /** Diámetro de perforación de una rosca interna: el menor ISO (D − 1,0825·P) más la holgura. */
 export function threadBore(nominal: number, pitch: number, clearance: number) {
   return nominal - 1.0825 * pitch + clearance;

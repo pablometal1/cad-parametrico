@@ -12,7 +12,7 @@ import { runMirror, runPattern } from './features/copy';
 import { chainWire, runLoft, runSweep, type LoftSectionInput } from './features/sweep';
 import type { Wire } from 'replicad';
 import { runHole } from './features/hole';
-import { runThread } from './features/thread';
+import { describeThread, runThread, threadFace } from './features/thread';
 import { runImport } from './features/import';
 import { runDraft, runPushPull } from './features/direct';
 import { runCombine, runMove, runSplit } from './features/bodies';
@@ -39,6 +39,7 @@ interface CacheEntry {
   error?: string;
   info?: string;
   warning?: string;
+  thread?: { internal: boolean; diameter: number };
   timeMs: number;
 }
 
@@ -179,7 +180,7 @@ export class RecomputeEngine {
       }
       if (e.reference) references.push({ id: feature.id, shape: e.reference });
       if (e.curve) curves.set(feature.id, e.curve);
-      results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, warning: e.warning, timeMs: e.timeMs, cached });
+      results.push({ id: feature.id, status: e.status, error: e.error, info: e.info, warning: e.warning, thread: e.thread, timeMs: e.timeMs, cached });
       // Las features que no cambian el sólido (sketch, plano, referencia, error) lo dejan pasar tal
       // como llegó: su `output` guardado puede ser de otro recálculo.
       current = e.owned ? e.output : current;
@@ -307,8 +308,12 @@ export class RecomputeEngine {
             resolveSketchById(feature.path, 'la trayectoria de este barrido', ctx),
             ctx.input,
           ));
-        case 'thread':
-          return ok(runThread(feature, ctx.input));
+        case 'thread': {
+          const out = runThread(feature, ctx.input);
+          // La cara se mide en la entrada (la rosca la reemplaza por el hilo).
+          const face = threadFace(feature, ctx.input!);
+          return { ...ok(out), thread: face, ...describeThread(face, feature.pitch) };
+        }
         case 'import': {
           const r = runImport(feature, ctx.input);
           const info = r.note ? `${feature.fileName} · ${r.note}` : feature.fileName;
